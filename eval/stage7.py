@@ -8,6 +8,7 @@ deterministic and free of I/O except the SQLite readers, which take a `sqlite3.C
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 from typing import Any
@@ -28,7 +29,13 @@ _SYN = {"wbc": "white", "cbc": "complete", "hgb": "hemoglobin", "plt": "platelet
         "ct": "computed tomography", "mri": "magnetic resonance", "us": "ultrasound", "ecg": "electrocardiogram",
         "ekg": "electrocardiogram", "crp": "reactive protein", "esr": "sedimentation", "bnp": "natriuretic", "tsh": "thyroid stimulating",
         "ua": "urinalysis", "lfts": "liver", "bmp": "metabolic", "cmp": "metabolic", "hba1c": "hemoglobin a1c", "inr": "prothrombin",
-        "abg": "arterial gas", "lp": "lumbar puncture", "csf": "cerebrospinal", "echo": "echocardiogram", "x-ray": "xray"}
+        "abg": "arterial gas", "lp": "lumbar puncture", "csf": "cerebrospinal", "echo": "echocardiogram", "x-ray": "xray",
+        # test-name variants (Stage-8 audit R1: an order is a test name, a finding is often named by its result)
+        "audiogram": "audiometry", "audiology": "audiometry", "sonography": "ultrasound", "ultrasonography": "ultrasound",
+        "sonogram": "ultrasound", "echocardiography": "echocardiogram", "electrocardiography": "electrocardiogram",
+        "tte": "echocardiogram", "mpi": "myocardial perfusion", "eeg": "electroencephalogram", "pft": "pulmonary function",
+        "pfts": "pulmonary function", "egd": "endoscopy", "esophagogastroduodenoscopy": "endoscopy", "ultrasounds": "ultrasound",
+        "ldh": "lactate dehydrogenase", "paco2": "pco2", "pao2": "po2", "hgb": "hemoglobin", "hct": "hematocrit", "na": "sodium", "rbc": "red blood cell", "rbcs": "red blood cell", "spect": "spect nuclear", "lyme": "borrelia"}
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +360,143 @@ def apply_episode_rules(tool: str, args: dict, obs: Any, overrides: dict[str, di
     return obs
 
 
-ORDERABLE_FIELDS = ("name", "type", "present", "value", "relevance", "edge")
+ORDERABLE_FIELDS = ("name", "type", "present", "value", "relevance", "edge", "context")
+"""`context`: the normalized content tokens of the result-section text that documents the finding (Stage-8 audit R1),
+so an order by test name ("audiometry") reaches a finding named by its result ("Bilateral symmetric high-frequency
+hearing loss" documented as "Audiometry reveals bilateral, symmetric high-frequency hearing loss")."""
+
+_NARRATIVE = frozenset("""show shows showed showing reveal reveals revealed revealing demonstrate demonstrates demonstrated
+    performed perform obtained obtain noted note notable normal abnormal within limit limits range reference result results
+    finding findings following follows follow are is was were be been being he she his her him patient patients which that
+    this these those there no not without both also other any all some as at by from into than then has have had during
+    after before receive receives received undergo undergoes underwent due confirm confirms confirmed consistent significant
+    mild moderate severe marked left right bilateral increased decreased elevated elevation low high present absent
+    positive negative value values level levels study studies laboratory lab labs examination exam image images imaging
+    test tests testing scan scans evaluation assessment measurement measured blood serum plasma it its an or but if
+    one two three per ml dl mg meq mmol ul uiu iu ng pg cm mm kg hg bpm hour hours day days week weeks year years
+    order ordered done taken sample specimen analysis profile panel screen screening workup evaluated count""".split())
+_NARRATIVE = _NARRATIVE | {w[:-1] for w in _NARRATIVE if len(w) > 4 and w.endswith("s")}   # as norm_tokens stems them
+_NUM = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?:\.\d+)?|(?<![\d.,])\d+(?:\.\d+)?")
+_UNIT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[-])")
+
+
+def _result_units(text: str) -> list[str]:
+    """Lines, then sentences within a line (a decimal point never ends a sentence)."""
+    out = []
+    for line in (text or "").split("\n"):
+        for u in _UNIT_SPLIT.split(line.strip()):
+            if u.strip():
+                out.append(u.strip())
+    return out
+
+
+def _content_tokens(text: str) -> set[str]:
+    return {t for t in norm_tokens(text) if t not in _NARRATIVE and len(t) >= 3 and not t.replace(".", "").isdigit()}
+
+
+def order_context(sections: list[tuple[int, str, str]], orderable: list[dict]) -> dict[str, str]:
+    """Finding name -> its context tokens: the index encounter's result-section units that mention the finding by
+    name, or that carry its documented numeric value (a lab interpretation such as "Thrombocytopenia" documented as
+    "Platelet count: 95,000/uL")."""
+    from eval.concept_match import Phrase, TextIndex, lexical_hit
+    units = [u for _, st, txt in sections if st in RESULT_SECTIONS and txt for u in _result_units(txt)]
+    idx = [TextIndex(u) for u in units]
+    utoks = [set(norm_tokens(u)) for u in units]
+    out: dict[str, str] = {}
+
+    def covers(need: set[str], have: set[str], frac: float) -> bool:
+        return bool(need) and sum(_tok_hit(t, have) for t in need) >= max(1, math.ceil(frac * len(need)))
+
+    for f in orderable:
+        ph = Phrase(f["name"])
+        name_t = _content_tokens(f["name"])
+        value = str(f.get("value") or "")
+        nums = [n for n in _NUM.findall(value) if len(n.replace(",", "").replace(".", "")) >= 2]
+        pats = [re.compile(rf"(?<![\d.,]){re.escape(n)}(?![\d])") for n in nums]
+        value_t = set() if nums else _content_tokens(value)
+        hits = [u for u, ti, ut in zip(units, idx, utoks)
+                if lexical_hit(ph, ti) or covers(name_t, ut, 0.6)             # named ("SPECT images reveal a reversible defect")
+                or any(p.search(u) for p in pats)                             # its documented number ("Platelet count: 95,000/uL")
+                or covers(value_t, ut, 1.0)]                                  # its documented wording ("decreased serum potassium")
+        toks = set().union(*(_content_tokens(u) for u in hits)) if hits else set()
+        out[f["name"]] = " ".join(sorted(toks))
+    return out
+
+
+_QUALIFIERS = frozenset("""obstetric obstetrical pelvic abdominal transvaginal transabdominal transthoracic renal cardiac exercise
+    pharmacologic bedside repeat formal complete full quantitative qualitative spot random fasting rapid point care emergent
+    urgent stat portable contrast noncontrast doppler duplex focused limited diagnostic urine fetal maternal baseline
+    routine standard initial follow""".split())
+_QUALIFIERS = _QUALIFIERS | {w[:-1] for w in _QUALIFIERS if len(w) > 4 and w.endswith("s")}
+"""Qualifiers an order may carry that the documenting text need not repeat ("obstetric ultrasound", "exercise stress
+test", "24-hour urine protein"); every other content word of the order must appear, and at least one must be a
+non-qualifier, so qualifiers never match on their own and two test names in one order ("xray ultrasound") do not."""
+
+
+_ANALYTE = {
+    "hyponatremia": "sodium", "hypernatremia": "sodium", "hypokalemia": "potassium", "hyperkalemia": "potassium",
+    "hypocalcemia": "calcium", "hypercalcemia": "calcium", "hypoglycemia": "glucose", "hyperglycemia": "glucose",
+    "hypomagnesemia": "magnesium", "hypermagnesemia": "magnesium", "hypophosphatemia": "phosphate phosphorus",
+    "hyperphosphatemia": "phosphate phosphorus", "hypochloremia": "chloride", "hyperchloremia": "chloride",
+    "hyperuricemia": "uric", "anemia": "hemoglobin hematocrit", "thrombocytopenia": "platelet", "thrombocytosis": "platelet",
+    "leukocytosis": "white leukocyte", "leukopenia": "white leukocyte", "neutropenia": "neutrophil", "neutrophilia": "neutrophil",
+    "lymphocytosis": "lymphocyte", "lymphopenia": "lymphocyte", "eosinophilia": "eosinophil", "pancytopenia": "white hemoglobin platelet",
+    "hypercapnia": "pco2 arterial", "hypoxemia": "po2 oxygen arterial", "acidemia": "ph arterial", "alkalemia": "ph arterial",
+    "acidosis": "ph bicarbonate", "alkalosis": "ph bicarbonate", "hyperbilirubinemia": "bilirubin", "azotemia": "urea creatinine",
+    "hypoalbuminemia": "albumin", "transaminitis": "ast alt aminotransferase", "hyperammonemia": "ammonia",
+    "hyperlactatemia": "lactate", "proteinuria": "protein urinalysis", "hematuria": "urinalysis", "pyuria": "urinalysis",
+    "glycosuria": "glucose urinalysis", "ketonuria": "ketone urinalysis", "hypothyroidism": "thyroid", "hyperthyroidism": "thyroid",
+    "hyperlipidemia": "cholesterol lipid", "hypertriglyceridemia": "triglyceride",
+}
+"""Interpretation word -> the analyte a clinician orders to see it ("serum sodium" / a BMP reveals "Hyponatremia")."""
+
+
+def _with_analytes(toks: set[str]) -> set[str]:
+    out = set(toks)
+    for t in toks:
+        if t in _ANALYTE:
+            out.update(_ANALYTE[t].split())
+    return out
+
+
+def _tok_hit(q: str, toks: set[str] | frozenset[str]) -> bool:
+    if q in toks:
+        return True
+    if len(q) < 4:
+        return False
+    for t in toks:
+        if len(t) < 4:
+            continue
+        if t.startswith(q) or q.startswith(t):
+            return True
+        n = 0                                               # shared stem: serology / serologic, ferning / fern
+        for a, b in zip(q, t):
+            if a != b:
+                break
+            n += 1
+        if n >= 6 and n >= 0.8 * min(len(q), len(t)):
+            return True
+    return False
+
+
+def order_matches(query: str, orderable: list[dict]) -> list[str]:
+    """The documented findings an order for `query` returns: the finding the name denotes (as before), plus every
+    finding whose documenting result text contains all of the query's content words ("audiometry" -> the
+    audiometry findings; "stress test" -> the stress-imaging findings). A query of generic words only ("labs",
+    "blood test", "imaging") matches by name alone, so no single word reveals the chart."""
+    names = [f["name"] for f in orderable]
+    best = match_name(query, names)
+    out = [best] if best else []
+    q = _content_tokens(query)
+    if q:
+        for f in orderable:
+            if f["name"] in out:
+                continue
+            toks = _with_analytes(set(norm_tokens(f["name"])) | set((f.get("context") or "").split()))
+            hit = {t for t in q if _tok_hit(t, toks)}
+            if hit - _QUALIFIERS and all(t in hit or t in _QUALIFIERS for t in q):
+                out.append(f["name"])
+    return out
 
 
 def orderable_from_gt(gt: dict) -> list[dict]:
@@ -372,17 +515,16 @@ def order_result(name: str, orderable: list[dict]) -> dict:
     """What `order_test` returns: the documented result(s) of the matched finding(s), or not-documented.
     A panel name (CBC, BMP, LFTs, ...) reveals every member the encounter documented."""
     documented = list(orderable)                      # present findings and explicit negatives alike
-    names = [f["name"] for f in documented]
     queries = [name]
-    key = " ".join(norm_tokens(name)) if name else ""
     for panel, members in PANELS.items():
         if norm_tokens(panel) == norm_tokens(name):
             queries = list(members)
             break
     hits: list[dict] = []
     for q in queries:
-        hit = match_name(q, names)
-        if hit is not None and all(h["matched"] != hit for h in hits):
+        for hit in order_matches(q, documented):
+            if any(h["matched"] == hit for h in hits):
+                continue
             f = next(x for x in documented if x["name"] == hit)
             if f.get("present"):
                 result = f.get("value") or "present / abnormal as documented"

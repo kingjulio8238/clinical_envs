@@ -22,6 +22,7 @@ import json
 import random
 import re
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Callable
 
@@ -33,7 +34,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = ROOT / "benchmark_v1.3.db"
 
 TASKS = ("patient_diagnosis", "evidence_retrieval", "context_summarization",
-         "specialty_involved", "specialty_absent", "imaging_indication",
+         "specialty_involved", "specialty_absent", "specialty_conditioned", "imaging_indication",
          "differential_diagnosis", "test_selection", "error_detection", "lab_triage", "atypical_diagnosis")
 """Scoring units. The two specialty units are the `context_summarization` rows whose ground truth
 carries `variant = specialty_conditioned`, split by `involvement`, because the scorer rewards them
@@ -45,6 +46,7 @@ PRIMARY_METRIC = {
     "context_summarization": "clinical_f1",
     "specialty_involved": "conditioned_f1",
     "specialty_absent": "abstention_accuracy",
+    "specialty_conditioned": "specialty_reward",     # the served mixture: conditioned_f1 on involved rows, abstention on absent rows
     "imaging_indication": "clinical_question_concept_f1",
     "differential_diagnosis": "differential_ndcg_5",
     "test_selection": "workup_score",
@@ -95,12 +97,25 @@ class Instance(dict):
 class ReleaseDB:
     """Read-only view of benchmark_v1.3.db with the per-patient material the policies need."""
 
-    def __init__(self, path: str | Path = DEFAULT_DB):
+    def __init__(self, path: str | Path = DEFAULT_DB, shared: bool = False):
         self.path = Path(path)
         if not self.path.exists():
             raise FileNotFoundError(self.path)
-        self.conn = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
+        # shared=True: many worker threads share this object's caches (eval.protocol_run); each thread gets
+        # its own read-only connection, because one sqlite3 connection is not safe for concurrent statements
+        self._uri = f"file:{self.path}?mode=ro"
+        self._tl = threading.local() if shared else None
+        self._conn = None if shared else sqlite3.connect(self._uri, uri=True)
         self._cache: dict = {}
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        if self._tl is None:
+            return self._conn
+        c = getattr(self._tl, "c", None)
+        if c is None:
+            c = self._tl.c = sqlite3.connect(self._uri, uri=True)
+        return c
 
     def q(self, sql: str, *args):
         return self.conn.execute(sql, args).fetchall()
@@ -135,6 +150,8 @@ class ReleaseDB:
                 if task == "specialty_involved" and not (variant == "specialty_conditioned" and gt.get("involvement") != "absent"):
                     continue
                 if task == "specialty_absent" and not (variant == "specialty_conditioned" and gt.get("involvement") == "absent"):
+                    continue
+                if task == "specialty_conditioned" and variant != "specialty_conditioned":
                     continue
                 out.append(Instance(gt_id=gt_id, task=task, patient_id=pid, encounter_id=eid, split=sp, gt=gt))
             return out
@@ -264,7 +281,9 @@ class ReleaseDB:
             d[g][p] = r
         overlay = private_labels.get()
         if overlay is not None:
-            for g, p, r in overlay.conn.execute("select gt_id, passage_id, relevance_grade from relevance_judgments"):
+            with overlay.lock:
+                rows = overlay.conn.execute("select gt_id, passage_id, relevance_grade from relevance_judgments").fetchall()
+            for g, p, r in rows:
                 d[g][p] = r
         return d
 
@@ -364,8 +383,25 @@ def attach_context(db: ReleaseDB, inst: Instance) -> dict:
     return gt
 
 
+def _specialty_unit(inst: Instance) -> str:
+    return "specialty_absent" if inst["gt"].get("involvement") == "absent" else "specialty_involved"
+
+
 def score(db: ReleaseDB, task: str, predictions: list[dict], insts: list[Instance]) -> dict:
     """compute_all_metrics on a batch, with context attached. Returns the full metric dict."""
+    if task == "specialty_conditioned":
+        # the per-item reward is the row's own metric; batch = mean of per-item rewards (Stage-3 convention),
+        # computed as the involvement-weighted mean of the two sub-unit batch metrics
+        out, total, n = {}, 0.0, 0
+        for unit in ("specialty_involved", "specialty_absent"):
+            idx = [k for k, i in enumerate(insts) if _specialty_unit(i) == unit]
+            if not idx:
+                continue
+            m = score(db, unit, [predictions[k] for k in idx], [insts[k] for k in idx])
+            total += float(m[PRIMARY_METRIC[unit]]) * len(idx); n += len(idx)
+            out[f"{unit}_{PRIMARY_METRIC[unit]}"] = float(m[PRIMARY_METRIC[unit]])
+        out["specialty_reward"] = total / n if n else 0.0
+        return out
     base = "context_summarization" if task.startswith("specialty") else task
     kwargs = {}
     if task in ("imaging_indication", "context_summarization", "specialty_involved", "specialty_absent"):
@@ -406,7 +442,7 @@ def oracle(db: ReleaseDB, inst: Instance) -> dict:
             "chronic_conditions": [{"icd10": d["icd10"], "name": d.get("display_name", ""), "acuity": "chronic"}
                                    for d in gt.get("chronic_conditions", []) if not d.get("excluded_nondiagnostic")],
         }
-    if task in ("specialty_involved", "specialty_absent"):
+    if task in ("specialty_involved", "specialty_absent", "specialty_conditioned"):
         tiers = gt.get("tiers", {})
         names = [f.get("display_name") for f in tiers.get("primary", []) + tiers.get("relevant", [])]
         if not names:
@@ -681,6 +717,14 @@ POLICIES: dict[str, dict[str, Policy]] = {
         "abstain_by_name": spec_abstain_by_name,
     },
     "specialty_absent": {
+        "empty": empty,
+        "abstain_always": spec_abstain_always,
+        "phrase_only": spec_phrase_only,
+        "chart_dump": spec_chart_dump,
+        "chart_dump_plus_phrase": spec_chart_dump_plus_phrase,
+        "abstain_by_name": spec_abstain_by_name,
+    },
+    "specialty_conditioned": {
         "empty": empty,
         "abstain_always": spec_abstain_always,
         "phrase_only": spec_phrase_only,

@@ -6,6 +6,8 @@ keeps the stripped inputs. Idempotent (a `derived` marker per family). See audit
 
     python scripts/build_stage7_tasks.py --db benchmark_v1.3.db [--overlay private/labels_v1.3.db] [--dry-run]
         [--cap-train N]   cap the train-split instances per family (DB size)
+    python scripts/build_stage7_tasks.py --patch-order-context   add the order context (Stage-8 audit R1) to an
+        already-built release + overlay in place (idempotent; a fresh build writes it directly)
 """
 
 from __future__ import annotations
@@ -64,6 +66,8 @@ def build(conn: sqlite3.Connection, parents: list[dict]) -> dict[str, list[tuple
 
         # test selection
         orderable = S7.encounter_findings(conn, eid, S7.ORDERABLE_TYPES, label_ids)
+        ctx = S7.order_context(S7.index_sections(conn, eid), orderable)
+        orderable = [{**f, "context": ctx.get(f["name"], "")} for f in orderable]
         disc = [f["name"] for f in orderable if f["present"] and f["edge"] in S7.DISCRIMINATING_EDGES]
         if disc and labels and labels[0].get("icd10"):
             out["test_selection"].append((p, {**base, "diagnosis": {"icd10": labels[0]["icd10"], "name": labels[0]["display_name"], "diagnosis_id": labels[0]["diagnosis_id"]},
@@ -125,14 +129,51 @@ def widen_task_check(conn: sqlite3.Connection) -> bool:
     return True
 
 
+ORDER_CTX_MARK = "order_ctx_v1"
+
+
+def patch_order_context(conn: sqlite3.Connection, ov: sqlite3.Connection | None) -> int:
+    """Rewrite every test_selection row's `orderable` with the context field, in the release (public/train) and
+    the overlay (private labels). Returns the number of rows rewritten."""
+    n = 0
+    for db in (conn, ov):
+        if db is None:
+            continue
+        rows = db.execute("select gt_id, encounter_id, ground_truth from benchmark_ground_truth where task='test_selection'").fetchall()
+        upd = []
+        for gt_id, eid, gt in rows:
+            gt = json.loads(gt)
+            if "orderable" not in gt:                      # a stripped private row: its labels live in the overlay
+                continue
+            fs = [{k: v for k, v in f.items() if k != "context"} for f in S7.orderable_from_gt(gt)]
+            ctx = S7.order_context(S7.index_sections(conn, eid), fs)
+            gt["orderable"] = [[f[k] if k != "context" else ctx.get(f["name"], "") for k in S7.ORDERABLE_FIELDS] for f in fs]
+            upd.append((json.dumps(gt), gt_id))
+        with db:
+            db.executemany("update benchmark_ground_truth set ground_truth=? where gt_id=?", upd)
+        n += len(upd)
+    with conn:
+        conn.execute("insert or replace into release_info (key, value) values ('stage7_order_context', ?)",
+                     (f"{ORDER_CTX_MARK}: test_selection orderable findings carry the content tokens of the result text that "
+                      f"documents them (order matching by test name; scripts/build_stage7_tasks.py --patch-order-context)",))
+    return n
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--db", default="benchmark_v1.3.db")
     ap.add_argument("--overlay", default=str(private_labels.DEFAULT_PATH))
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--cap-train", type=int, default=None, help="cap train-split instances per family")
+    ap.add_argument("--patch-order-context", action="store_true")
     a = ap.parse_args()
     conn = sqlite3.connect(a.db)
+    if a.patch_order_context:
+        ov = sqlite3.connect(a.overlay) if Path(a.overlay).exists() else None
+        n = patch_order_context(conn, ov)
+        conn.execute("vacuum")
+        print(f"order context: {n} test_selection rows rewritten")
+        return 0
     if conn.execute("select count(*) from benchmark_ground_truth where json_extract(ground_truth,'$.derived')=?", (MARK,)).fetchone()[0]:
         print("already applied; nothing to do")
         return 0

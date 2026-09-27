@@ -436,10 +436,83 @@ def _icd_credit(pred: str, gt: str) -> float:
     return ICD_CREDIT["category"]
 
 
-def _match_graded(pred_codes: list[str], gt_codes: list[str]) -> list[tuple[int, int, float]]:
+NAME_CREDIT = {"equivalent": 0.75, "related": 0.5}
+"""Diagnosis credit by name when the codes disagree (Stage-8 audit R2): the model named the reference diagnosis
+but coded it differently (I20.9 for "stable angina due to CAD", H90.5 for presbycusis) or the reference code is
+off (P01.1, a newborn code, on a maternal PPROM label). `equivalent`: the same name after normalization, any code;
+`related`: one name contains the other or they overlap by Jaccard >= 0.5, within the same ICD block (first two
+characters) and with no contradicting qualifier (left/right, acute/chronic, type 1/2, non-, with/without ...).
+Always below an exact code, so coding stays rewarded."""
+_DX_STOP = {"of", "the", "a", "an", "and", "in", "on", "to", "due", "for", "by", "or", "at", "as", "unspecified", "nos",
+            "disease", "disorder", "syndrome", "condition", "other", "specified"}
+_DX_SYN = {"mi": "myocardial infarction", "stemi": "st elevation myocardial infarction", "nstemi": "non st elevation myocardial infarction",
+           "chf": "heart failure", "hf": "heart failure", "copd": "chronic obstructive pulmonary", "htn": "hypertension",
+           "dm": "diabetes mellitus", "t1dm": "type 1 diabetes mellitus", "t2dm": "type 2 diabetes mellitus", "ckd": "chronic kidney",
+           "aki": "acute kidney injury", "uti": "urinary tract infection", "dvt": "deep vein thrombosis", "pe": "pulmonary embolism",
+           "cad": "coronary artery", "gerd": "gastroesophageal reflux", "afib": "atrial fibrillation", "af": "atrial fibrillation",
+           "pprom": "preterm premature rupture membranes", "prom": "premature rupture membranes", "tia": "transient ischemic attack",
+           "ards": "acute respiratory distress", "dka": "diabetic ketoacidosis", "sle": "systemic lupus erythematosus",
+           "ibs": "irritable bowel", "bph": "benign prostatic hyperplasia", "hiv": "human immunodeficiency virus", "tb": "tuberculosis",
+           "ii": "2", "i": "1", "iii": "3", "iv": "4"}
+_DX_POLAR = ({"left", "right"}, {"acute", "chronic"}, {"benign", "malignant"}, {"primary", "secondary"}, {"upper", "lower"},
+             {"anterior", "posterior"}, {"inferior", "superior"}, {"with", "without"}, {"congenital", "acquired"},
+             {"early", "late"}, {"unilateral", "bilateral"}, {"proximal", "distal"}, {"central", "peripheral"})
+
+
+def _dx_tokens(name: str) -> frozenset[str]:
+    t = re.sub(r"\([^)]*\)", " ", (name or "").lower())            # parentheticals are glosses ("(PPROM)")
+    t = t.replace("-", " ").replace("/", " ").replace(",", " ")
+    out = set()
+    for w in re.findall(r"[a-z0-9]+", t):
+        for part in _DX_SYN.get(w, w).split():
+            if part in _DX_STOP or (len(part) == 1 and not part.isdigit()):      # "tourette's" -> tourette
+                continue
+            if len(part) > 4 and part.endswith("s") and not part.endswith("ss") and not part.endswith("is"):
+                part = part[:-1]
+            out.add(part)
+    return frozenset(out)
+
+
+def _dx_conflict(a: frozenset[str], b: frozenset[str]) -> bool:
+    if ("non" in a) != ("non" in b):
+        return True
+    for group in _DX_POLAR:
+        ga, gb = a & group, b & group
+        if ga and gb and ga != gb:
+            return True
+    da, db = {x for x in a if x.isdigit()}, {x for x in b if x.isdigit()}
+    return bool(da and db and da != db)
+
+
+def name_credit(pred_name: str, gt_name: str, pred_code: str = "", gt_code: str = "") -> float:
+    pa, ga = _dx_tokens(pred_name), _dx_tokens(gt_name)
+    if not pa or not ga or _dx_conflict(pa, ga):
+        return 0.0
+    if pa == ga:
+        return NAME_CREDIT["equivalent"]
+    pc, gc = _normalize_icd10(pred_code), _normalize_icd10(gt_code)
+    if not pc or not gc or pc[:2] != gc[:2]:
+        return 0.0
+    if pa <= ga or ga <= pa or len(pa & ga) / len(pa | ga) >= 0.5:
+        return NAME_CREDIT["related"]
+    return 0.0
+
+
+def dx_credit(pred_code: str, gt_code: str, pred_name: str = "", gt_name: str = "") -> float:
+    """ICD credit, or the name credit when that is higher (never above the exact-code credit)."""
+    c = _icd_credit(pred_code, gt_code)
+    if c >= ICD_CREDIT["exact"] or not (pred_name and gt_name):
+        return c
+    return max(c, name_credit(pred_name, gt_name, pred_code, gt_code))
+
+
+def _match_graded(pred_codes: list[str], gt_codes: list[str], pred_names: list[str] | None = None,
+                  gt_names: list[str] | None = None) -> list[tuple[int, int, float]]:
     """Greedy one-to-one matching by descending credit. Returns (pred_index, gt_index, credit)."""
-    pairs = sorted(((_icd_credit(p, g), -gi, -pi) for gi, g in enumerate(gt_codes) for pi, p in enumerate(pred_codes)
-                    if _icd_credit(p, g) > 0), reverse=True)
+    pn = pred_names or [""] * len(pred_codes)
+    gn = gt_names or [""] * len(gt_codes)
+    cred = {(gi, pi): dx_credit(p, g, pn[pi], gn[gi]) for gi, g in enumerate(gt_codes) for pi, p in enumerate(pred_codes)}
+    pairs = sorted(((c, -gi, -pi) for (gi, pi), c in cred.items() if c > 0), reverse=True)
     used_p, used_g, out = set(), set(), []
     for credit, ngi, npi in pairs:
         gi, pi = -ngi, -npi
@@ -450,21 +523,23 @@ def _match_graded(pred_codes: list[str], gt_codes: list[str]) -> list[tuple[int,
     return out
 
 
-def _dx_entries(pred: dict) -> tuple[list[str], list[str | None]]:
-    """Predicted (codes, normalized acuities). Chronic-list entries are chronic; missing or
+def _dx_entries(pred: dict, with_names: bool = False):
+    """Predicted (codes, normalized acuities[, names]). Chronic-list entries are chronic; missing or
     unrecognized acuity is None (scored as a mismatch)."""
     active = pred.get("active_diagnoses") or []
     chronic = pred.get("chronic_conditions") or []
     if not active and not chronic:
         active = pred.get("diagnoses") or []          # flat fallback
-    codes, acuities = [], []
+    codes, acuities, names = [], [], []
     for dx in active:
         if isinstance(dx, dict):
             codes.append(dx.get("icd10", "") or ""); acuities.append(_normalize_acuity(dx.get("acuity")))
+            names.append(str(dx.get("name") or dx.get("display_name") or ""))
     for dx in chronic:
         if isinstance(dx, dict):
             codes.append(dx.get("icd10", "") or ""); acuities.append("chronic")
-    return codes, acuities
+            names.append(str(dx.get("name") or dx.get("display_name") or ""))
+    return (codes, acuities, names) if with_names else (codes, acuities)
 
 
 def score_patient_diagnosis_item(pred: dict, gt: dict) -> dict:
@@ -482,10 +557,11 @@ def score_patient_diagnosis_item(pred: dict, gt: dict) -> dict:
     gt_acuity = [d.get("acuity") or "unspecified" for d in gt_active] + ["chronic" for _ in gt_chronic]
     gt_acuity = [a if a in ("acute", "chronic", "acute_on_chronic") else None for a in gt_acuity]
     weights = [_assign_severity_tier(c, a or "acute") for c, a in zip(gt_codes, gt_acuity)]
+    gt_names = [str(d.get("display_name") or d.get("name") or "") for d in gt_active + gt_chronic]
 
-    pred_codes, pred_acuity = _dx_entries(pred if isinstance(pred, dict) else {})
+    pred_codes, pred_acuity, pred_names = _dx_entries(pred if isinstance(pred, dict) else {}, with_names=True)
     neutral = {c[:3] for c in (gt.get("_neutral_categories") or [])}
-    matched = _match_graded(pred_codes, gt_codes)
+    matched = _match_graded(pred_codes, gt_codes, pred_names, gt_names)
 
     credit_by_gt: dict[int, float] = {}
     icd_by_gt: dict[int, float] = {}

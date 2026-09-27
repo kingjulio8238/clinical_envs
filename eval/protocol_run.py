@@ -1,19 +1,25 @@
 """Protocol runs: a model plays benchmark instances as episodes of the in-process environment (EVAL_PROTOCOL.md).
 
-    python -m eval.protocol_run --model gpt-6-luna --task patient_diagnosis --n 120 [--arm agent|single]
-        [--split public] [--seed 0] [--budget 40] [--workers 4] [--max-usd 5] [--out results]
-    python -m eval.protocol_run --model gpt-6-luna --panel --n 120     # every scoring unit in eval.degenerate.TASKS
-    python -m eval.protocol_run --model gpt-6-luna --smoke              # 3 instances of one task, prints measured tokens and $/episode
+    python -m eval.protocol_run --model qwen3.5-9b --tasks patient_diagnosis,lab_triage --n 120 [--arm agent|single]
+        [--split public] [--seed 0] [--budget 40] [--workers 16] [--max-usd 5] [--min-balance 1] [--out results]
+    python -m eval.protocol_run --model qwen3.5-9b --panel --n 120     # every scoring unit in RUN_UNITS
+    python -m eval.protocol_run --model qwen3.5-9b --smoke --tasks ...  # 3 instances per unit, prints $/episode
 
 Arms: `agent` = the tool-using loop (the environment's tools + the task's submit tool, budget enforced by the
-environment); `single` = one call over the full visible chart (the same instances, no tools) for the
-tools-vs-no-tools ablation. Instances are a seeded random sample with at most one per patient. Failures
-score 0 and are recorded, never dropped. Output: results/<run>/predictions.jsonl + manifest.json.
+environment); `single` = one call over the visible chart (the same instances, no tools, assembled without
+spending actions) for the tools-vs-no-tools ablation. Instances are a seeded random sample, at most one per
+patient; `atypical_diagnosis` is sampled from the parents in the `patient_diagnosis` sample so the
+atypical − typical ablation is paired. All units of a run share one worker pool (no per-unit tail), one
+read-only release DB and one search index. Failures score 0 and are recorded, never dropped. Costs are the
+provider's billed cost when it reports one (OpenRouter), else the list-price estimate; `--max-usd` caps the
+whole run and `--min-balance` stops it when the live OpenRouter balance falls below the floor.
+Output: results/<model>__<unit>__<arm>__<split>__s<seed>/predictions.jsonl + manifest.json.
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import os
@@ -22,7 +28,7 @@ import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import httpx
@@ -36,22 +42,37 @@ ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "results"
 SUBMIT_KEYS = {"active_diagnoses", "chronic_conditions", "summary", "rankings", "clinical_question", "differential",
                "icd10", "section_type", "relevant"}
-UNIT_TASK = {"specialty_involved": "context_summarization", "specialty_absent": "context_summarization"}
+RUN_UNITS = ("patient_diagnosis", "evidence_retrieval", "context_summarization", "specialty_conditioned",
+             "imaging_indication", "differential_diagnosis", "test_selection", "error_detection", "lab_triage",
+             "atypical_diagnosis")
+"""The units a panel run plays. The specialty task is played as served, the involved/absent mixture;
+its two halves are recoverable from the predictions (`involvement`)."""
 EPISODE_DEADLINE_S = int(os.environ.get("SH_EPISODE_DEADLINE_S", "900"))
-"""Wall-clock cap per episode: after it, the episode is force-submitted with the best answer seen (scored as usual)."""
+"""Wall-clock cap per episode: after it the episode is force-submitted with the best answer seen (scored as usual);
+every model call is also bounded by the episode's remaining time."""
 
 _local = threading.local()
+_DB: D.ReleaseDB | None = None
+_DB_LOCK = threading.Lock()
+
+
+def shared_db() -> D.ReleaseDB:
+    global _DB
+    with _DB_LOCK:
+        if _DB is None:
+            _DB = D.ReleaseDB(shared=True)
+            LocalEnv(db=_DB).warmup()
+    return _DB
 
 
 def _env() -> LocalEnv:
     if getattr(_local, "env", None) is None:
-        _local.env = LocalEnv()
-        _local.env.warmup()
+        _local.env = LocalEnv(db=shared_db())
     return _local.env
 
 
 # ---------------------------------------------------------------------------
-# prices and sampling
+# prices, balance and sampling
 # ---------------------------------------------------------------------------
 
 def live_prices(model_name: str) -> tuple[float, float]:
@@ -68,10 +89,25 @@ def live_prices(model_name: str) -> tuple[float, float]:
     return COST_RATES.get(model_name, (0.0, 0.0))
 
 
+def openrouter_balance() -> float | None:
+    key = os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        return None
+    try:
+        d = httpx.get("https://openrouter.ai/api/v1/credits", headers={"Authorization": f"Bearer {key}"}, timeout=20).json()["data"]
+        return float(d["total_credits"]) - float(d["total_usage"])
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def sample_instances(db: D.ReleaseDB, task: str, split: str, n: int, seed: int) -> list[D.Instance]:
-    """Seeded random sample, at most one instance per patient first, then the rest."""
+    """Seeded random sample, at most one instance per patient first, then the rest.
+    `atypical_diagnosis`: only variants whose parent is in the `patient_diagnosis` sample (paired ablation)."""
     insts = list(db.instances(task, split))
-    rng = random.Random(seed)
+    if task == "atypical_diagnosis":
+        parents = {i["gt_id"] for i in sample_instances(db, "patient_diagnosis", split, n, seed)}
+        insts = [i for i in insts if i["gt"].get("parent_gt_id") in parents]
+    rng = random.Random(f"{seed}:{task}" if task != "atypical_diagnosis" else seed)
     rng.shuffle(insts)
     by_patient: dict[int, D.Instance] = {}
     rest = []
@@ -91,23 +127,6 @@ def sample_instances(db: D.ReleaseDB, task: str, split: str, n: int, seed: int) 
 # ---------------------------------------------------------------------------
 # one episode
 # ---------------------------------------------------------------------------
-
-def _visible_chart(env: LocalEnv, ro) -> str:
-    """The chart as the environment serves it (cutoff, hidden sections, overrides), for the single arm."""
-    encs = env.step("view_encounters", {"patient_id": ro.patient_id})[0]
-    parts = []
-    for e in encs if isinstance(encs, list) else []:
-        d = env.step("view_encounter_detail", {"encounter_id": e["encounter_id"]})[0]
-        if not isinstance(d, dict) or "sections" not in d:
-            continue
-        parts.append(f"\n{'=' * 60}\nENCOUNTER {d['encounter_id']}: {d.get('date')} ({d.get('type')}) — {d.get('chief_complaint') or ''}\n{'=' * 60}")
-        for s in d["sections"]:
-            parts.append(f"[{str(s['section_type']).upper().replace('_', ' ')}]\n{s['section_text']}")
-    problems = env.step("view_problem_list", {"patient_id": ro.patient_id})[0]
-    if isinstance(problems, list) and problems:
-        parts.append("[DOCUMENTED PROBLEM LIST]\n" + "\n".join(f"- {p.get('display_name')}" for p in problems))
-    return "\n\n".join(parts)
-
 
 def _submission_from_text(text: str) -> dict | None:
     t = (text or "").strip()
@@ -133,16 +152,16 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
     from eval.adapters import _CALL_DEADLINE
     _CALL_DEADLINE.t = t0 + EPISODE_DEADLINE_S                     # no single call may outlive the episode deadline
     rec: dict = {"gt_id": inst["gt_id"], "patient_id": inst["patient_id"], "encounter_id": inst.get("encounter_id"),
-                 "parent_gt_id": inst["gt"].get("parent_gt_id"), "reward": 0.0, "metric": None, "steps": 0, "turns": 0,
-                 "orders": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "error": None, "forced": False,
+                 "parent_gt_id": inst["gt"].get("parent_gt_id"), "involvement": inst["gt"].get("involvement"),
+                 "reward": 0.0, "metric": None, "steps": 0, "turns": 0, "orders": 0, "order_log": [], "unmatched_orders": 0,
+                 "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "error": None, "forced": False,
                  "submitted": False, "submission": None, "latency_ms": 0}
     try:
-        ro = env.reset(gt_id=inst["gt_id"], budget=budget if arm == "agent" else 500)
+        ro = env.reset(gt_id=inst["gt_id"], budget=budget)
         system = ro.instructions
         if arm == "single":
-            chart = _visible_chart(env, ro)
             user = (f"{ro.intro}\n\nYou cannot call tools in this setting. The visible chart follows; answer in one message with "
-                    f"the JSON the task asks for (or call {ro.submit_tool}).\n\n{chart}")
+                    f"the JSON the task asks for (or call {ro.submit_tool}).\n\n{env.visible_chart()}")
             tools = [t for t in ro.tools if t["function"]["name"] == ro.submit_tool]
         else:
             user = ro.intro
@@ -151,15 +170,16 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
         done = False
         last_parsed = None
         for turn in range(1, max_turns + 1):
-            if time.time() - t0 > EPISODE_DEADLINE_S - 5:       # a stalled provider cannot hold a worker forever
+            if time.time() - t0 > EPISODE_DEADLINE_S - 5:           # a stalled provider cannot hold a worker forever
                 rec["error"] = f"episode deadline {EPISODE_DEADLINE_S}s reached at turn {turn}"
                 break
             resp = adapter.call_multi_turn_with_retry(system, messages, tools=tools)
             rec["turns"] = turn
-            prov = getattr(adapter, "last_provider", None)
-            if prov:
+            if resp.cost_usd is not None:
+                rec["billed_usd"] = rec.get("billed_usd", 0.0) + resp.cost_usd
+            if resp.provider:
                 rec.setdefault("providers", {})
-                rec["providers"][prov] = rec["providers"].get(prov, 0) + 1
+                rec["providers"][resp.provider] = rec["providers"].get(resp.provider, 0) + 1
             rec["input_tokens"] += resp.input_tokens
             rec["output_tokens"] += resp.output_tokens
             rec["latency_ms"] += resp.latency_ms
@@ -168,8 +188,6 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
                 for raw, call in zip(resp.raw_tool_calls or [{}] * len(resp.tool_calls), resp.tool_calls):
                     name, args = call["name"], call.get("arguments") or {}
                     obs, reward, done, info = env.step(name, args)
-                    if name == "order_test":
-                        rec["orders"] += 1
                     messages.append({"role": "tool", "tool_call_id": raw.get("id", f"call_{turn}"), "name": name,
                                      "content": info.get("observation_text") or json.dumps(obs, default=str)[:8000]})
                     if done:
@@ -197,100 +215,130 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
             rec.update(reward=float(reward), metric=info.get("reward_metric"), forced=True, submitted=last_parsed is not None,
                        submission=last_parsed)
         rec["steps"] = env.ep["steps"]
+        rec["order_log"] = list(env.ep.get("orders") or [])
+        rec["orders"] = len(rec["order_log"])
+        rec["unmatched_orders"] = sum(1 for o in rec["order_log"] if not o.get("matched"))
     except (EpisodeError, Exception) as exc:  # noqa: BLE001 — an API failure is a scored 0, recorded
         detail = ""
         cause = exc
         while cause is not None and not detail:                     # the provider's error body, when there is one
-            resp = getattr(cause, "response", None)
-            if resp is not None:
-                detail = f" | {getattr(resp, 'text', '')[:300]}"
+            r = getattr(cause, "response", None)
+            if r is not None:
+                detail = f" | {getattr(r, 'text', '')[:300]}"
             cause = cause.__cause__
         rec["error"] = f"{type(exc).__name__}: {str(exc)[:300]}{detail}"
         try:
             env.close()
         except Exception:  # noqa: BLE001
             pass
-    rec["cost_usd"] = (rec["input_tokens"] * prices[0] + rec["output_tokens"] * prices[1]) / 1e6
+    rec["list_cost_usd"] = (rec["input_tokens"] * prices[0] + rec["output_tokens"] * prices[1]) / 1e6
+    rec["cost_usd"] = rec["billed_usd"] if rec.get("billed_usd") is not None else rec["list_cost_usd"]
     rec["wall_s"] = round(time.time() - t0, 2)
     return rec
 
 
 # ---------------------------------------------------------------------------
-# a run
+# a run: many units, one pool
 # ---------------------------------------------------------------------------
-
-def run(model: str, task: str, n: int, arm: str = "agent", split: str = "public", seed: int = 0, budget: int = 40,
-        workers: int = 4, max_usd: float | None = None, out_root: Path = RESULTS, max_turns: int | None = None,
-        adapter=None, prices: tuple[float, float] | None = None, quiet: bool = False,
-        max_output_tokens: int | None = None) -> Path:
-    import dataclasses
-    cfg = MODEL_REGISTRY[model]
-    if max_output_tokens:
-        cfg = dataclasses.replace(cfg, max_tokens=max_output_tokens)      # per-turn cap, like an RL rollout limit
-    adapter = adapter or create_adapter(cfg)
-    prices = prices or live_prices(model)
-    db = D.ReleaseDB()
-    insts = sample_instances(db, task, split, n, seed)
-    run_id = f"{model}__{task}__{arm}__{split}__s{seed}"
-    out = out_root / run_id
-    out.mkdir(parents=True, exist_ok=True)
-    pred_path = out / "predictions.jsonl"
-    done_ids = set()
-    if pred_path.exists():
-        done_ids = {json.loads(l)["gt_id"] for l in pred_path.read_text().splitlines() if l.strip()}
-    todo = [i for i in insts if i["gt_id"] not in done_ids]
-    max_turns = max_turns or (budget + 3)
-    spent = sum(float(json.loads(l).get("cost_usd") or 0) for l in pred_path.read_text().splitlines() if l.strip()) if pred_path.exists() else 0.0
-    lock = threading.Lock()
-    t0 = time.time()
-    stop = False
-    with pred_path.open("a") as fh, ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {}
-        it = iter(todo)
-        # bounded submission so a cost cap can stop new episodes
-        for _ in range(workers * 2):
-            i = next(it, None)
-            if i is not None:
-                futures[ex.submit(run_episode, adapter, i, arm, budget, prices, max_turns)] = i
-        n_done = 0
-        while futures:
-            fut = next(as_completed(futures))
-            futures.pop(fut)
-            rec = fut.result()
-            with lock:
-                fh.write(json.dumps(rec, default=str) + "\n"); fh.flush()
-                spent += rec["cost_usd"]; n_done += 1
-                if not quiet and (n_done % 10 == 0 or n_done == len(todo)):
-                    el = time.time() - t0
-                    print(f"[{model} {task} {arm}] {n_done}/{len(todo)} done, ${spent:.2f} spent, "
-                          f"{el / n_done:.1f}s/episode, ETA {(len(todo) - n_done) * el / n_done / 60:.1f} min", flush=True)
-            if max_usd is not None and spent >= max_usd and not stop:
-                stop = True
-                print(f"[{model} {task} {arm}] cost cap ${max_usd} reached at ${spent:.2f}: no new episodes", flush=True)
-            if not stop:
-                i = next(it, None)
-                if i is not None:
-                    futures[ex.submit(run_episode, adapter, i, arm, budget, prices, max_turns)] = i
-    manifest = {
-        "run_id": run_id, "model": model, "provider_base_url": cfg.base_url, "model_id": cfg.model_id, "task": task,
-        "arm": arm, "split": split, "seed": seed, "n_requested": n, "n_sampled": len(insts), "budget": budget,
-        "prices_per_million": {"input": prices[0], "output": prices[1]},
-        "temperature": None if "api.openai.com" in cfg.base_url and cfg.extra.get("no_temperature", True) else cfg.temperature,   # None = provider default
-        "extra": dict(cfg.extra), "max_output_tokens_per_turn": cfg.max_tokens,
-        "prompt_hash": hashlib.sha256((_env().reset(gt_id=insts[0]["gt_id"]).instructions if insts else "").encode()).hexdigest()[:16],
-        "git_commit": _git(), "floors_file": "eval/floors.json", "started": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(t0)),
-        "duration_s": round(time.time() - t0, 1), "cost_usd": round(spent, 4), "max_usd": max_usd,
-        "protocol": "EVAL_PROTOCOL.md",
-    }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    return out
-
 
 def _git() -> str | None:
     try:
         return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=ROOT, timeout=5).stdout.strip() or None
     except Exception:  # noqa: BLE001
         return None
+
+
+def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: str = "public", seed: int = 0,
+              budget: int = 40, workers: int = 16, max_usd: float | None = None, out_root: Path = RESULTS,
+              max_turns: int | None = None, adapter=None, prices: tuple[float, float] | None = None, quiet: bool = False,
+              max_output_tokens: int | None = None, min_balance: float | None = None) -> dict[str, Path]:
+    cfg = MODEL_REGISTRY[model]
+    if max_output_tokens:
+        cfg = dataclasses.replace(cfg, max_tokens=max_output_tokens)      # per-turn cap, like an RL rollout limit
+    adapter = adapter or create_adapter(cfg)
+    prices = prices or live_prices(model)
+    db = shared_db()
+    max_turns = max_turns or (budget + 3)
+    units: dict[str, dict] = {}
+    todo: list[tuple[str, D.Instance]] = []
+    for task in tasks:
+        insts = sample_instances(db, task, split, n, seed)
+        out = out_root / f"{model}__{task}__{arm}__{split}__s{seed}"
+        out.mkdir(parents=True, exist_ok=True)
+        pred_path = out / "predictions.jsonl"
+        prior = [json.loads(l) for l in pred_path.read_text().splitlines() if l.strip()] if pred_path.exists() else []
+        done_ids = {p["gt_id"] for p in prior}
+        units[task] = {"out": out, "insts": insts, "fh": pred_path.open("a"), "spent": sum(float(p.get("cost_usd") or 0) for p in prior),
+                       "n_done": len(prior), "t0": time.time()}
+        todo += [(task, i) for i in insts if i["gt_id"] not in done_ids]
+    # interleave units so every unit progresses together and no unit's stragglers idle the pool
+    random.Random(seed).shuffle(todo)
+    total, n_done, spent = len(todo), 0, sum(u["spent"] for u in units.values())
+    t0 = time.time()
+    lock = threading.Lock()
+    stop_reason = None
+    last_balance_check = 0.0
+    it = iter(todo)
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {}
+        for _ in range(workers):
+            nxt = next(it, None)
+            if nxt is not None:
+                futures[ex.submit(run_episode, adapter, nxt[1], arm, budget, prices, max_turns)] = nxt[0]
+        while futures:
+            finished, _ = wait(futures, return_when=FIRST_COMPLETED)
+            for fut in finished:
+                task = futures.pop(fut)
+                rec = fut.result()
+                u = units[task]
+                with lock:
+                    u["fh"].write(json.dumps(rec, default=str) + "\n"); u["fh"].flush()
+                    u["spent"] += rec["cost_usd"]; u["n_done"] += 1
+                    spent += rec["cost_usd"]; n_done += 1
+                    if not quiet and (n_done % 20 == 0 or n_done == total):
+                        el = time.time() - t0
+                        print(f"[{model} {arm}] {n_done}/{total} episodes ({100 * n_done / max(total, 1):.0f}%), ${spent:.2f} spent, "
+                              f"{el / 60:.1f} min elapsed, ETA {(total - n_done) * el / n_done / 60:.1f} min", flush=True)
+                if max_usd is not None and spent >= max_usd and stop_reason is None:
+                    stop_reason = f"cost cap ${max_usd} reached at ${spent:.2f}"
+                if min_balance is not None and "openrouter" in cfg.base_url and time.time() - last_balance_check > 60:
+                    last_balance_check = time.time()
+                    bal = openrouter_balance()
+                    if bal is not None and bal < min_balance and stop_reason is None:
+                        stop_reason = f"OpenRouter balance ${bal:.2f} below ${min_balance}"
+                if stop_reason is not None:
+                    continue
+                nxt = next(it, None)
+                if nxt is not None:
+                    futures[ex.submit(run_episode, adapter, nxt[1], arm, budget, prices, max_turns)] = nxt[0]
+    if stop_reason and not quiet:
+        print(f"[{model} {arm}] STOPPED: {stop_reason}; completed episodes are kept and a rerun resumes", flush=True)
+    prompt_hash = None
+    for task, u in units.items():
+        u["fh"].close()
+        if prompt_hash is None and u["insts"]:
+            prompt_hash = hashlib.sha256(_env().reset(gt_id=u["insts"][0]["gt_id"]).instructions.encode()).hexdigest()[:16]
+        manifest = {
+            "run_id": u["out"].name, "model": model, "provider_base_url": cfg.base_url, "model_id": cfg.model_id, "task": task,
+            "arm": arm, "split": split, "seed": seed, "n_requested": n, "n_sampled": len(u["insts"]), "n_recorded": u["n_done"],
+            "budget": budget, "prices_per_million": {"input": prices[0], "output": prices[1]},
+            "temperature": None if "api.openai.com" in cfg.base_url and cfg.extra.get("no_temperature", True) else cfg.temperature,
+            "extra": dict(cfg.extra), "max_output_tokens_per_turn": cfg.max_tokens, "episode_deadline_s": EPISODE_DEADLINE_S,
+            "prompt_hash": prompt_hash, "git_commit": _git(), "floors_file": "eval/floors.json",
+            "started": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(u["t0"])), "duration_s": round(time.time() - u["t0"], 1),
+            "cost_usd": round(u["spent"], 4), "max_usd": max_usd, "stopped": stop_reason, "protocol": "EVAL_PROTOCOL.md",
+        }
+        (u["out"] / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    return {task: u["out"] for task, u in units.items()}
+
+
+def run(model: str, task: str, n: int, arm: str = "agent", split: str = "public", seed: int = 0, budget: int = 40,
+        workers: int = 4, max_usd: float | None = None, out_root: Path = RESULTS, max_turns: int | None = None,
+        adapter=None, prices: tuple[float, float] | None = None, quiet: bool = False,
+        max_output_tokens: int | None = None) -> Path:
+    """One unit (kept for callers and tests)."""
+    return run_units(model, [task], n, arm, split, seed, budget, workers, max_usd, out_root, max_turns, adapter, prices,
+                     quiet, max_output_tokens)[task]
 
 
 def summarize(out: Path) -> dict:
@@ -300,37 +348,38 @@ def summarize(out: Path) -> dict:
             "errors": sum(1 for p in preds if p.get("error")), "forced": sum(1 for p in preds if p.get("forced")),
             "cost_usd": round(sum(p["cost_usd"] for p in preds), 4),
             "tokens_per_episode": round(sum(p["input_tokens"] + p["output_tokens"] for p in preds) / n) if n else None,
-            "steps_per_episode": round(sum(p["steps"] for p in preds) / n, 1) if n else None}
+            "steps_per_episode": round(sum(p["steps"] for p in preds) / n, 1) if n else None,
+            "unmatched_orders": sum(p.get("unmatched_orders", 0) for p in preds), "orders": sum(p.get("orders", 0) for p in preds)}
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--model", required=True, choices=sorted(MODEL_REGISTRY))
     ap.add_argument("--task", default="patient_diagnosis", choices=list(D.TASKS))
-    ap.add_argument("--panel", action="store_true", help="run every scoring unit")
-    ap.add_argument("--smoke", action="store_true", help="3 instances of --task; print measured tokens and $/episode")
+    ap.add_argument("--tasks", default=None, help="comma-separated scoring units (overrides --task / --panel)")
+    ap.add_argument("--panel", action="store_true", help=f"run {','.join(RUN_UNITS)}")
+    ap.add_argument("--smoke", action="store_true", help="3 instances per unit; prints measured $/episode")
     ap.add_argument("--arm", default="agent", choices=["agent", "single"])
     ap.add_argument("--n", type=int, default=120)
     ap.add_argument("--split", default="public")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--budget", type=int, default=40)
-    ap.add_argument("--workers", type=int, default=4)
-    ap.add_argument("--max-usd", type=float, default=None, help="hard cap per (model, task) run")
-    ap.add_argument("--out", default=str(RESULTS))
+    ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--max-usd", type=float, default=None, help="hard cap for the whole run")
+    ap.add_argument("--min-balance", type=float, default=None, help="stop when the OpenRouter balance falls below this")
     ap.add_argument("--max-output-tokens", type=int, default=None, help="per-turn output cap (default: the registry's 16384)")
-    ap.add_argument("--tasks", default=None, help="comma-separated scoring units (overrides --task / --panel)")
+    ap.add_argument("--out", default=str(RESULTS))
     a = ap.parse_args(argv)
-    tasks = a.tasks.split(",") if a.tasks else (list(D.TASKS) if a.panel else [a.task])
+    tasks = a.tasks.split(",") if a.tasks else (list(RUN_UNITS) if a.panel else [a.task])
     n = 3 if a.smoke else a.n
     out_root = Path(a.out) / ("smoke" if a.smoke else "")
-    for task in tasks:
-        out = run(a.model, task, n, a.arm, a.split, a.seed, a.budget, a.workers, a.max_usd, out_root,
-                  max_output_tokens=a.max_output_tokens)
+    outs = run_units(a.model, tasks, n, a.arm, a.split, a.seed, a.budget, a.workers, a.max_usd, out_root,
+                     max_output_tokens=a.max_output_tokens, min_balance=a.min_balance)
+    for task, out in outs.items():
         s = summarize(out)
-        print(json.dumps({"run": out.name, **s}, indent=None))
+        print(json.dumps({"run": out.name, **s}))
         if a.smoke and s["n"]:
-            per = s["cost_usd"] / s["n"]
-            print(f"  -> ${per:.4f}/episode; 120 episodes ≈ ${per * 120:.2f}; {len(D.TASKS)} units x 120 ≈ ${per * 120 * len(D.TASKS):.2f}")
+            print(f"  -> ${s['cost_usd'] / s['n']:.4f}/episode")
     return 0
 
 

@@ -63,11 +63,18 @@ def _dump(model) -> dict:
     return model.model_dump()
 
 
-class LocalEnv:
-    """One environment instance per process. Not thread-safe (sqlite3 connection)."""
+_SHARED_FTS: dict[str, sqlite3.Connection] = {}
+_FTS_LOCK = __import__("threading").RLock()
 
-    def __init__(self, db_path: str | Path = D.DEFAULT_DB, budget: int | None = None):
-        self.db = D.ReleaseDB(db_path)
+
+class LocalEnv:
+    """One episode at a time per instance. Many instances may share one read-only release DB (`db=`,
+    opened with `ReleaseDB(shared=True)`) and its search index, so a process can run many episodes in
+    parallel threads without a copy of the caches per thread (eval.protocol_run)."""
+
+    def __init__(self, db_path: str | Path = D.DEFAULT_DB, budget: int | None = None, db: "D.ReleaseDB | None" = None):
+        self.db = db if db is not None else D.ReleaseDB(db_path)
+        self._shared = db is not None
         self.conn: sqlite3.Connection = self.db.conn
         self.conn.row_factory = None
         self.default_budget = budget or settings.env_default_budget
@@ -264,6 +271,30 @@ class LocalEnv:
                             "error": obs.get("error") if isinstance(obs, dict) else None})
         return obs, 0.0, False, {"steps": ep["steps"], "remaining": remaining, "step": ep["steps"], "observation_text": render(obs)}
 
+    def visible_chart(self) -> str:
+        """The chart as the episode would observe it (cutoff, hidden sections, overrides, documented problem
+        list), assembled WITHOUT spending actions: the single-call arm of the tools ablation."""
+        ep = self.ep
+        allowed = set(ep["allowed_encounter_ids"]) if ep["allowed_encounter_ids"] is not None else None
+
+        def observe(tool, args):
+            obs = visibility.strip_outcome_sections(self._dispatch(tool, args))
+            if allowed is not None:
+                obs = visibility.filter_future_encounters(obs, allowed)
+            return S7.apply_episode_rules(tool, args, obs, ep["section_overrides"], set(ep["hidden_section_types"]), ep["encounter_id"])
+
+        parts = []
+        for e in observe("view_encounters", {"patient_id": ep["patient_id"]}) or []:
+            d = observe("view_encounter_detail", {"encounter_id": e["encounter_id"]})
+            if not isinstance(d, dict) or "sections" not in d:
+                continue
+            parts.append(f"\n{'=' * 60}\nENCOUNTER {d['encounter_id']}: {d.get('date')} ({d.get('type')}) — {d.get('chief_complaint') or ''}\n{'=' * 60}")
+            parts += [f"[{str(s['section_type']).upper().replace('_', ' ')}]\n{s['section_text']}" for s in d["sections"]]
+        problems = ep["chart_problems"]
+        if problems:
+            parts.append("[DOCUMENTED PROBLEM LIST]\n" + "\n".join(f"- {p.get('display_name')}" for p in problems))
+        return "\n\n".join(parts)
+
     def state(self) -> dict:
         ep = self.ep
         view = {k: ep[k] for k in ("episode_id", "gt_id", "task", "split", "patient_id", "encounter_id", "budget", "steps",
@@ -434,8 +465,19 @@ class LocalEnv:
     # ----------------------------------------------------------------- search
     def _fts_conn(self) -> sqlite3.Connection:
         """FTS5 index over every section (porter stemmer, bm25): the SQLite analogue of the Postgres tsvector."""
+        if self._fts is None and self._shared:
+            with _FTS_LOCK:
+                key = str(self.db.path)
+                if key not in _SHARED_FTS:
+                    _SHARED_FTS[key] = self._build_fts(check_same_thread=False)
+                self._fts = _SHARED_FTS[key]
         if self._fts is None:
-            fts = sqlite3.connect(":memory:")
+            self._fts = self._build_fts()
+        return self._fts
+
+    def _build_fts(self, check_same_thread: bool = True) -> sqlite3.Connection:
+        if True:
+            fts = sqlite3.connect(":memory:", check_same_thread=check_same_thread)
             fts.execute("create virtual table s using fts5(section_text, tokenize='porter unicode61')")
             fts.execute("create table meta(id integer primary key, patient_id integer, section_type text)")
             rows = self._q("select ees.id, le.patient_id, ees.section_type, coalesce(ees.section_text, '') from encounter_ehr_sections ees "
@@ -444,19 +486,23 @@ class LocalEnv:
             fts.executemany("insert into meta(id, patient_id, section_type) values (?, ?, ?)", [(r[0], r[1], r[2]) for r in rows])
             fts.execute("create index meta_pid on meta(patient_id)")
             fts.commit()
-            self._fts = fts
-        return self._fts
+            return fts
 
     def _search_chart(self, patient_id: int, query: str, limit: int = 20) -> list[SectionEntry]:
         words = [w for w in re.findall(r"[A-Za-z0-9]+", query or "") if w]
         if not words:
             return []
         fts = self._fts_conn()
+        fts_lock = _FTS_LOCK if self._shared else None
         hidden = tuple(visibility.hidden_sections())
         match = " ".join(f'"{w}"' for w in words)                       # plainto_tsquery: AND of the words
         sql = ("select s.rowid from s join meta m on m.id = s.rowid where s MATCH ? and m.patient_id = ? "
                + (f"and m.section_type not in ({','.join('?' * len(hidden))}) " if hidden else "") + "order by bm25(s) limit 50")
-        ids = [r[0] for r in fts.execute(sql, (match, patient_id, *hidden)).fetchall()][:limit]
+        if fts_lock is not None:
+            with fts_lock:                                   # one in-memory index shared by all threads
+                ids = [r[0] for r in fts.execute(sql, (match, patient_id, *hidden)).fetchall()][:limit]
+        else:
+            ids = [r[0] for r in fts.execute(sql, (match, patient_id, *hidden)).fetchall()][:limit]
         if not ids:
             return []
         rows = {r[0]: r for r in self._q(f"select id, encounter_id, section_type, coalesce(section_text, ''), section_order "

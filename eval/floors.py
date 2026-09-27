@@ -35,6 +35,7 @@ METRICS: dict[str, list[str]] = {
     "context_summarization": ["clinical_f1"],
     "specialty_involved": ["conditioned_f1"],
     "specialty_absent": ["abstention_accuracy"],
+    "specialty_conditioned": ["specialty_reward"],
     "imaging_indication": ["clinical_question_concept_f1"],
     # Stage 7
     "differential_diagnosis": ["differential_ndcg_5"],

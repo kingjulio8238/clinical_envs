@@ -24,13 +24,27 @@ log = logging.getLogger(__name__)
 # exponential backoff capped at max_backoff, plus jitter, with 502/5xx/timeout/429
 # retryable and 4xx (<429) not. Env-gated so defaults are unchanged; the robustness
 # Gateway-served models raise EVAL_MAX_RETRIES to ride out transient 502s.
-from concurrent.futures import ThreadPoolExecutor as _TPE
-
-_CALL_POOL = _TPE(max_workers=64, thread_name_prefix="llm-call")
+from concurrent.futures import Future as _Future
 import threading as _threading
+
 _CALL_DEADLINE = _threading.local()
 """Per-thread absolute deadline (time.time()) set by the episode runner; calls never outlive it."""
-"""Runs each HTTP call so the caller can enforce a wall-clock cap (abandoned calls finish in the background)."""
+
+
+def _run_detached(fn) -> _Future:
+    """Run one HTTP call on a daemon thread so the caller can enforce a wall-clock cap. An abandoned call finishes
+    (or dies) in the background and never keeps the process alive after the run (a ThreadPoolExecutor's workers
+    are joined at exit, which held finished Stage-8 smoke processes open behind stalled calls)."""
+    fut: _Future = _Future()
+
+    def body():
+        try:
+            fut.set_result(fn())
+        except BaseException as exc:  # noqa: BLE001
+            fut.set_exception(exc)
+
+    _threading.Thread(target=body, name="llm-call", daemon=True).start()
+    return fut
 
 
 def _retry_max(explicit: int | None) -> int:
@@ -59,6 +73,8 @@ class ModelResponse:
     raw_json: str | dict | None
     tool_calls: list[dict] | None = None       # parsed: [{"name": ..., "arguments": dict}]
     raw_tool_calls: list[dict] | None = None   # original format for conversation history
+    cost_usd: float | None = None              # billed cost when the provider reports it (OpenRouter usage accounting)
+    provider: str | None = None                # upstream provider that served the call (OpenRouter)
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +251,8 @@ class OpenAICompatibleAdapter(ModelAdapter):
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
+        if "openrouter.ai" in self.config.base_url:
+            payload["usage"] = {"include": True}          # billed cost per call (list prices under-read ~2x in the smoke)
         # Reasoning/thinking passthrough (e.g. OpenRouter `reasoning` param for Kimi-thinking).
         if self.config.extra.get("reasoning"):
             payload["reasoning"] = self.config.extra["reasoning"]
@@ -245,30 +263,91 @@ class OpenAICompatibleAdapter(ModelAdapter):
             payload["provider"] = self.config.extra["provider"]
 
         t0 = time.monotonic()
+        stream = "openrouter.ai" in self.config.base_url and self.config.extra.get("stream", True)
+        progress = {"last": None, "cancel": False}
 
         def _post():
             with httpx.Client(timeout=self.config.timeout_secs) as client:
                 r = client.post(f"{self.config.base_url}/chat/completions", headers=headers, json=payload)
                 r.raise_for_status()
-                return r
+                return r.json()
+
+        def _post_stream():
+            """Server-sent events: progress is a content / reasoning / tool-call delta (keep-alive comments are
+            not), so a provider that holds the connection without generating is told apart from a slow one."""
+            content, calls, usage, provider = [], {}, {}, None
+            with httpx.Client(timeout=self.config.timeout_secs) as client:
+                with client.stream("POST", f"{self.config.base_url}/chat/completions", headers=headers,
+                                   json={**payload, "stream": True}) as r:
+                    if r.status_code >= 400:
+                        r.read()
+                        r.raise_for_status()
+                    for line in r.iter_lines():
+                        if progress["cancel"]:
+                            break                                   # closing the stream cancels the generation
+                        if not line.startswith("data:"):
+                            continue
+                        body = line[5:].strip()
+                        if body == "[DONE]":
+                            break
+                        chunk = json.loads(body)
+                        if chunk.get("error"):
+                            raise httpx.HTTPStatusError(f"stream error: {json.dumps(chunk['error'])[:300]}",
+                                                        request=r.request, response=r)
+                        provider = chunk.get("provider") or provider
+                        if chunk.get("usage"):
+                            usage = chunk["usage"]
+                        for ch in chunk.get("choices") or []:
+                            d = ch.get("delta") or {}
+                            if d.get("content"):
+                                content.append(d["content"])
+                            for tc in d.get("tool_calls") or []:
+                                slot = calls.setdefault(tc.get("index", len(calls)),
+                                                        {"id": None, "type": "function", "function": {"name": "", "arguments": ""}})
+                                slot["id"] = tc.get("id") or slot["id"]
+                                fn = tc.get("function") or {}
+                                slot["function"]["name"] += fn.get("name") or ""
+                                slot["function"]["arguments"] += fn.get("arguments") or ""
+                            if d.get("content") or d.get("reasoning") or d.get("reasoning_details") or d.get("tool_calls"):
+                                progress["last"] = time.monotonic()
+            msg = {"role": "assistant", "content": "".join(content)}
+            if calls:
+                msg["tool_calls"] = [calls[k] for k in sorted(calls)]
+            return {"choices": [{"message": msg}], "usage": usage, "provider": provider}
 
         # Hard wall-clock cap per call: httpx timeouts are per phase, and a provider that keeps the connection
         # alive (OpenRouter sends keep-alive bytes while a slow provider generates) can hold a request for many
         # minutes (Stage-8 smoke: a Qwen call stalled > 10 min). A timed-out call is retried like any timeout.
-        total = float(self.config.extra.get("total_timeout_s") or os.environ.get("SH_CALL_TOTAL_TIMEOUT_S", "120"))
+        # The cap scales with the output allowance (30 s + max_tokens at 15 tok/s: 303 s for 4,096, 1,122 s for 16,384) so a
+        # slow-but-healthy provider finishing a long thinking turn is not killed and re-billed (Stage-8 re-smoke: a
+        # flat 120 s cap cut off single-arm calls and retried agent turns on the slower providers). Streamed calls
+        # also fail fast on a stall: no first token within FIRST_TOKEN_S, or no new token for IDLE_S.
+        total = float(self.config.extra.get("total_timeout_s") or os.environ.get("SH_CALL_TOTAL_TIMEOUT_S")
+                      or 30 + (self.config.max_tokens or 4096) / 15)
         deadline = getattr(_CALL_DEADLINE, "t", None)                 # the episode's remaining time bounds every call
         if deadline is not None:
             total = max(5.0, min(total, deadline - time.time()))
-        pool = _CALL_POOL
-        fut = pool.submit(_post)
-        try:
-            resp = fut.result(timeout=total)
-        except TimeoutError as exc:
-            raise httpx.ReadTimeout(f"call exceeded {total:.0f}s wall clock") from exc
-        raw_json = resp.text
-        data = resp.json()
-        if data.get("provider"):
-            self.last_provider = data["provider"]                    # OpenRouter's upstream (for stall diagnosis)
+        first_s = float(os.environ.get("SH_FIRST_TOKEN_S", "150"))
+        idle_s = float(os.environ.get("SH_IDLE_S", "60"))
+        fut = _run_detached(_post_stream if stream else _post)
+        start = time.monotonic()
+        while True:
+            try:
+                data = fut.result(timeout=2.0)
+                break
+            except TimeoutError:
+                now = time.monotonic()
+                reason = None
+                if now - start > total:
+                    reason = f"call exceeded {total:.0f}s wall clock"
+                elif stream and progress["last"] is None and now - start > first_s:
+                    reason = f"no first token within {first_s:.0f}s (stalled provider)"
+                elif stream and progress["last"] is not None and now - progress["last"] > idle_s:
+                    reason = f"no new token for {idle_s:.0f}s (stalled provider)"
+                if reason:
+                    progress["cancel"] = True
+                    raise httpx.ReadTimeout(reason)
+        raw_json = json.dumps(data)
 
         latency_ms = int((time.monotonic() - t0) * 1000)
         message = data["choices"][0]["message"]
@@ -289,6 +368,7 @@ class OpenAICompatibleAdapter(ModelAdapter):
                     args = {}
                 parsed_tool_calls.append({"name": fn["name"], "arguments": args})
 
+        cost = usage.get("cost")
         return ModelResponse(
             text=text,
             input_tokens=usage.get("prompt_tokens", 0),
@@ -297,6 +377,8 @@ class OpenAICompatibleAdapter(ModelAdapter):
             raw_json=raw_json,
             tool_calls=parsed_tool_calls,
             raw_tool_calls=raw_tool_calls,
+            cost_usd=float(cost) if isinstance(cost, (int, float)) else None,
+            provider=data.get("provider"),
         )
 
     def call(self, system_prompt: str, user_prompt: str) -> ModelResponse:

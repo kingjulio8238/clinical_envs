@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from eval.stage7 import ERROR_TYPES, match_name, match_names, ordered_names, orderable_from_gt
+from eval.stage7 import ERROR_TYPES, match_name, match_names, order_matches, ordered_names, orderable_from_gt
 
 DIFFERENTIAL_K = 5
 DISTRACTOR_GAIN = 0.5
@@ -27,9 +27,10 @@ PRIMARY = {
 }
 
 
-def _icd_credit(pred: str, gt: str) -> float:
-    from eval.scoring import _icd_credit as credit
-    return credit(pred or "", gt or "")
+def _icd_credit(pred: str, gt: str, pred_name: str = "", gt_name: str = "") -> float:
+    """ICD credit, or the name-equivalence credit when higher (eval.scoring.dx_credit, Stage-8 audit R2)."""
+    from eval.scoring import dx_credit
+    return dx_credit(pred or "", gt or "", pred_name or "", gt_name or "")
 
 
 # ---------------------------------------------------------------------------
@@ -50,17 +51,18 @@ def score_differential_item(pred: dict, gt: dict) -> dict:
     matched one-to-one greedily; the ideal ordering is correct first, then the distractors."""
     correct = [d for d in gt.get("correct", []) if isinstance(d, dict)]
     distr = [d for d in gt.get("distractors", []) if isinstance(d, dict)]
-    targets = [(d.get("icd10") or "", 1.0) for d in correct] + [(d.get("icd10") or "", DISTRACTOR_GAIN) for d in distr]
+    targets = [(d.get("icd10") or "", 1.0, d.get("display_name") or d.get("name") or "") for d in correct] + \
+              [(d.get("icd10") or "", DISTRACTOR_GAIN, d.get("display_name") or d.get("name") or "") for d in distr]
     preds = _dx_list(pred)
     used: set[int] = set()
     gains: list[float] = []
     top1 = 0.0
     for i, p in enumerate(preds):
         best, best_j = 0.0, None
-        for j, (code, gain) in enumerate(targets):
+        for j, (code, gain, tname) in enumerate(targets):
             if j in used or not code:
                 continue
-            c = _icd_credit(p.get("icd10") or "", code) * gain
+            c = _icd_credit(p.get("icd10") or "", code, str(p.get("name") or ""), tname) * gain
             if c > best:
                 best, best_j = c, j
         if best_j is not None:
@@ -69,7 +71,7 @@ def score_differential_item(pred: dict, gt: dict) -> dict:
                 top1 = best
         gains.append(best)
     dcg = sum(g / math.log2(i + 2) for i, g in enumerate(gains))
-    ideal = sorted((g for _, g in targets), reverse=True)[:DIFFERENTIAL_K]
+    ideal = sorted((g for _, g, _ in targets), reverse=True)[:DIFFERENTIAL_K]
     idcg = sum(g / math.log2(i + 2) for i, g in enumerate(ideal))
     return {"differential_ndcg_5": (dcg / idcg) if idcg else 0.0, "differential_top1": top1,
             "differential_distractor_recall": (sum(1 for j in used if j >= len(correct)) / len(distr)) if distr else 0.0,
@@ -91,13 +93,13 @@ def score_test_selection_item(pred: dict, gt: dict) -> dict:
     if not isinstance(pred, dict):
         pred = {}
     dx = pred.get("diagnosis") if isinstance(pred.get("diagnosis"), dict) else pred
-    credit = _icd_credit(str(dx.get("icd10") or ""), str((gt.get("diagnosis") or {}).get("icd10") or ""))
+    gdx = gt.get("diagnosis") or {}
+    credit = _icd_credit(str(dx.get("icd10") or ""), str(gdx.get("icd10") or ""), str(dx.get("name") or ""), str(gdx.get("name") or ""))
     disc = [d for d in gt.get("discriminating", [])]
     orders = pred.get("tests_ordered") or []
-    if orders and isinstance(orders[0], str):                       # single-turn: names only
-        cand = [f["name"] for f in orderable_from_gt(gt)]
-        m = match_names([str(o) for o in orders], cand)
-        matched = {v for v in m.values() if v}
+    if orders and isinstance(orders[0], str):                       # single-turn: names only, matched like order_test
+        orderable = orderable_from_gt(gt)
+        matched = {n for o in orders for n in order_matches(str(o), orderable)}
         n_orders = len(orders)
     else:
         matched = ordered_names([o for o in orders if isinstance(o, dict)])

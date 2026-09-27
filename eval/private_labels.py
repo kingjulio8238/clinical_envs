@@ -53,18 +53,22 @@ def strip_labels(task: str, gt: dict) -> dict:
 class PrivateLabels:
     def __init__(self, path: Path):
         self.path = Path(path)
-        # read-only and shared by the process; worker threads (eval.protocol_run) read it concurrently
+        # read-only and shared by the process; worker threads (eval.protocol_run) read it through a lock
         self.conn = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True, check_same_thread=False)
+        self.lock = __import__("threading").Lock()
 
     def ground_truth(self, gt_id: int) -> dict | None:
-        row = self.conn.execute("select ground_truth from benchmark_ground_truth where gt_id=?", (gt_id,)).fetchone()
+        with self.lock:
+            row = self.conn.execute("select ground_truth from benchmark_ground_truth where gt_id=?", (gt_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
     def judgments(self, gt_id: int) -> dict[str, int]:
-        return dict(self.conn.execute("select passage_id, relevance_grade from relevance_judgments where gt_id=?", (gt_id,)).fetchall())
+        with self.lock:
+            return dict(self.conn.execute("select passage_id, relevance_grade from relevance_judgments where gt_id=?", (gt_id,)).fetchall())
 
     def gt_ids(self) -> set[int]:
-        return {r[0] for r in self.conn.execute("select gt_id from benchmark_ground_truth")}
+        with self.lock:
+            return {r[0] for r in self.conn.execute("select gt_id from benchmark_ground_truth")}
 
 
 def path() -> Path:

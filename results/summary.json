@@ -1,0 +1,614 @@
+{
+  "split": "public",
+  "cells": [
+    {
+      "model": "gpt-6-sol",
+      "generator": false,
+      "n": 23,
+      "raw": 0.625,
+      "raw_ci": [
+        0.5,
+        0.75
+      ],
+      "norm": 0.6112291350531108,
+      "norm_ci": [
+        0.481638846737481,
+        0.7408194233687405
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.354198,
+      "steps": 6.304347826086956,
+      "dir": "gpt-6-sol__atypical_diagnosis__agent__public__s0",
+      "task": "atypical_diagnosis",
+      "arm": "agent",
+      "delta_vs_best": null
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 77,
+      "raw": 0.2711038961038961,
+      "raw_ci": [
+        0.20292207792207792,
+        0.34415584415584416
+      ],
+      "norm": 0.24433714995171749,
+      "norm_ci": [
+        0.17365153814319217,
+        0.3200717340322803
+      ],
+      "errors": 0,
+      "forced": 2,
+      "cost_usd": 0.36950175,
+      "steps": 10.35064935064935,
+      "dir": "qwen3.5-9b__atypical_diagnosis__agent__public__s0",
+      "task": "atypical_diagnosis",
+      "arm": "agent",
+      "delta_vs_best": {
+        "n": 23,
+        "mean": -0.391304347826087,
+        "ci": [
+          -0.5597826086956522,
+          -0.2391304347826087
+        ],
+        "significant": true
+      }
+    },
+    {
+      "model": "gpt-6-sol",
+      "generator": false,
+      "n": 40,
+      "raw": 0.619161585626306,
+      "raw_ci": [
+        0.5764902693403734,
+        0.6659091643102549
+      ],
+      "norm": 0.2578800216542257,
+      "norm_ci": [
+        0.1747286505663585,
+        0.3489745929245705
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 1.215586,
+      "steps": 11.125,
+      "dir": "gpt-6-sol__context_summarization__agent__public__s0",
+      "task": "context_summarization",
+      "arm": "agent",
+      "delta_vs_best": null
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.524883305749009,
+      "raw_ci": [
+        0.48905079758467923,
+        0.5592733643131876
+      ],
+      "norm": 0.07416484907616948,
+      "norm_ci": [
+        0.004339907107752363,
+        0.14117896465305924
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.30019579,
+      "steps": 7.441666666666666,
+      "dir": "qwen3.5-9b__context_summarization__agent__public__s0",
+      "task": "context_summarization",
+      "arm": "agent",
+      "delta_vs_best": {
+        "n": 40,
+        "mean": -0.07321700970442259,
+        "ci": [
+          -0.12056981070676356,
+          -0.026499261332766366
+        ],
+        "significant": true
+      }
+    },
+    {
+      "model": "gpt-6-sol",
+      "generator": false,
+      "n": 40,
+      "raw": 0.5241844393410114,
+      "raw_ci": [
+        0.45825557335626704,
+        0.5935665701210178
+      ],
+      "norm": 0.5110622199001349,
+      "norm_ci": [
+        0.4433151429982406,
+        0.582357797025002
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.569878,
+      "steps": 6.225,
+      "dir": "gpt-6-sol__differential_diagnosis__agent__public__s0",
+      "task": "differential_diagnosis",
+      "arm": "agent",
+      "delta_vs_best": null
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.38959846036282,
+      "raw_ci": [
+        0.3455395582911614,
+        0.4302364919614872
+      ],
+      "norm": 0.37276457847153704,
+      "norm_ci": [
+        0.327490603524776,
+        0.41452334090032766
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.30820197,
+      "steps": 6.625,
+      "dir": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+      "task": "differential_diagnosis",
+      "arm": "agent",
+      "delta_vs_best": {
+        "n": 40,
+        "mean": -0.13067131192670778,
+        "ci": [
+          -0.2078004185191476,
+          -0.05630923670066039
+        ],
+        "significant": true
+      }
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.32412566194458936,
+      "raw_ci": [
+        0.2806311628069756,
+        0.3665736481870754
+      ],
+      "norm": 0.30548614673803104,
+      "norm_ci": [
+        0.2607921400404621,
+        0.34910477941655577
+      ],
+      "errors": 0,
+      "forced": 8,
+      "cost_usd": 0.063832,
+      "steps": 1.0,
+      "dir": "qwen3.5-9b__differential_diagnosis__single__public__s0",
+      "task": "differential_diagnosis",
+      "arm": "single",
+      "delta_vs_best": null
+    },
+    {
+      "model": "gpt-6-sol",
+      "generator": false,
+      "n": 40,
+      "raw": 1.0,
+      "raw_ci": [
+        1.0,
+        1.0
+      ],
+      "norm": 1.0,
+      "norm_ci": [
+        1.0,
+        1.0
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.502128,
+      "steps": 5.175,
+      "dir": "gpt-6-sol__error_detection__agent__public__s0",
+      "task": "error_detection",
+      "arm": "agent",
+      "delta_vs_best": null
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.8916666666666667,
+      "raw_ci": [
+        0.8333333333333334,
+        0.9416666666666667
+      ],
+      "norm": 0.7859437751004017,
+      "norm_ci": [
+        0.6706827309236949,
+        0.8847389558232931
+      ],
+      "errors": 7,
+      "forced": 2,
+      "cost_usd": 0.31753887000000003,
+      "steps": 5.05,
+      "dir": "qwen3.5-9b__error_detection__agent__public__s0",
+      "task": "error_detection",
+      "arm": "agent",
+      "delta_vs_best": {
+        "n": 40,
+        "mean": -0.05,
+        "ci": [
+          -0.125,
+          0.0
+        ],
+        "significant": false
+      }
+    },
+    {
+      "model": "gpt-6-sol",
+      "generator": false,
+      "n": 40,
+      "raw": 0.7000240515651356,
+      "raw_ci": [
+        0.6259677823577781,
+        0.7642293749285923
+      ],
+      "norm": 0.4825144403003686,
+      "norm_ci": [
+        0.3547606983087593,
+        0.5932744124574318
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.898536,
+      "steps": 7.425,
+      "dir": "gpt-6-sol__evidence_retrieval__agent__public__s0",
+      "task": "evidence_retrieval",
+      "arm": "agent",
+      "delta_vs_best": null
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.5628370804091962,
+      "raw_ci": [
+        0.5167249003604494,
+        0.6100895382766383
+      ],
+      "norm": 0.24585454499031703,
+      "norm_ci": [
+        0.16630687649889692,
+        0.3273692955371463
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.34458849,
+      "steps": 7.55,
+      "dir": "qwen3.5-9b__evidence_retrieval__agent__public__s0",
+      "task": "evidence_retrieval",
+      "arm": "agent",
+      "delta_vs_best": {
+        "n": 40,
+        "mean": -0.15016390533443172,
+        "ci": [
+          -0.20277843901298764,
+          -0.09676975452296589
+        ],
+        "significant": true
+      }
+    },
+    {
+      "model": "gpt-6-sol",
+      "generator": false,
+      "n": 40,
+      "raw": 0.2887795071099015,
+      "raw_ci": [
+        0.2395645570478489,
+        0.3441763791987914
+      ],
+      "norm": 0.08974574728661859,
+      "norm_ci": [
+        0.026758083068705606,
+        0.16064533315347748
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.680804,
+      "steps": 5.65,
+      "dir": "gpt-6-sol__imaging_indication__agent__public__s0",
+      "task": "imaging_indication",
+      "arm": "agent",
+      "delta_vs_best": null
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.24933043318212925,
+      "raw_ci": [
+        0.22136521959815808,
+        0.2761418282682753
+      ],
+      "norm": 0.03925692185578544,
+      "norm_ci": [
+        0.003465694174187565,
+        0.07357143703401209
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.36271894,
+      "steps": 6.633333333333334,
+      "dir": "qwen3.5-9b__imaging_indication__agent__public__s0",
+      "task": "imaging_indication",
+      "arm": "agent",
+      "delta_vs_best": {
+        "n": 40,
+        "mean": -0.03130966844659805,
+        "ci": [
+          -0.07896900428918532,
+          0.02082428609215526
+        ],
+        "significant": false
+      }
+    },
+    {
+      "model": "gpt-6-sol",
+      "generator": false,
+      "n": 40,
+      "raw": 0.4874939300895183,
+      "raw_ci": [
+        0.39239893439893436,
+        0.5818845811051693
+      ],
+      "norm": -0.3899580891133054,
+      "norm_ci": [
+        -0.6478634413707124,
+        -0.13396297682362782
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.499004,
+      "steps": 3.875,
+      "dir": "gpt-6-sol__lab_triage__agent__public__s0",
+      "task": "lab_triage",
+      "arm": "agent",
+      "delta_vs_best": null
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.42506022092142365,
+      "raw_ci": [
+        0.37049653645114,
+        0.4801212011205617
+      ],
+      "norm": -0.5592833794590342,
+      "norm_ci": [
+        -0.7072645235936662,
+        -0.4099535289156694
+      ],
+      "errors": 0,
+      "forced": 4,
+      "cost_usd": 0.48181650000000004,
+      "steps": 7.725,
+      "dir": "qwen3.5-9b__lab_triage__agent__public__s0",
+      "task": "lab_triage",
+      "arm": "agent",
+      "delta_vs_best": {
+        "n": 40,
+        "mean": -0.007889302229455691,
+        "ci": [
+          -0.06612794966471439,
+          0.05386986553514685
+        ],
+        "significant": false
+      }
+    },
+    {
+      "model": "gpt-6-sol",
+      "generator": false,
+      "n": 40,
+      "raw": 0.5135416666666667,
+      "raw_ci": [
+        0.4020833333333333,
+        0.6135416666666667
+      ],
+      "norm": 0.4955246913580247,
+      "norm_ci": [
+        0.37993827160493826,
+        0.5992283950617284
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.608502,
+      "steps": 6.325,
+      "dir": "gpt-6-sol__patient_diagnosis__agent__public__s0",
+      "task": "patient_diagnosis",
+      "arm": "agent",
+      "delta_vs_best": null
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.30531250000000004,
+      "raw_ci": [
+        0.2516319444444444,
+        0.36163194444444446
+      ],
+      "norm": 0.2795833333333334,
+      "norm_ci": [
+        0.22391460905349794,
+        0.337988683127572
+      ],
+      "errors": 2,
+      "forced": 0,
+      "cost_usd": 0.33696231,
+      "steps": 7.033333333333333,
+      "dir": "qwen3.5-9b__patient_diagnosis__agent__public__s0",
+      "task": "patient_diagnosis",
+      "arm": "agent",
+      "delta_vs_best": {
+        "n": 40,
+        "mean": -0.2125,
+        "ci": [
+          -0.315625,
+          -0.109375
+        ],
+        "significant": true
+      }
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.22621527777777778,
+      "raw_ci": [
+        0.1778472222222222,
+        0.27538194444444447
+      ],
+      "norm": 0.19755658436213994,
+      "norm_ci": [
+        0.1473971193415638,
+        0.2485442386831276
+      ],
+      "errors": 1,
+      "forced": 17,
+      "cost_usd": 0.0840917,
+      "steps": 0.9916666666666667,
+      "dir": "qwen3.5-9b__patient_diagnosis__single__public__s0",
+      "task": "patient_diagnosis",
+      "arm": "single",
+      "delta_vs_best": null
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.5953983144865826,
+      "raw_ci": [
+        0.5175536665188262,
+        0.6739633018965109
+      ],
+      "norm": 0.3177985302578229,
+      "norm_ci": [
+        0.18654417527959882,
+        0.4502674541411153
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.31129568,
+      "steps": 9.35,
+      "dir": "qwen3.5-9b__specialty_conditioned__agent__public__s0",
+      "task": "specialty_conditioned",
+      "arm": "agent",
+      "delta_vs_best": null
+    },
+    {
+      "model": "gpt-6-sol",
+      "generator": false,
+      "n": 40,
+      "raw": 0.5887069603942668,
+      "raw_ci": [
+        0.4649288740155614,
+        0.7112798922783443
+      ],
+      "norm": 0.3065161956561995,
+      "norm_ci": [
+        0.09781317865745595,
+        0.5131871940130575
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 0.946466,
+      "steps": 9.075,
+      "dir": "gpt-6-sol__specialty_conditioned__agent__public__s0",
+      "task": "specialty_conditioned",
+      "arm": "agent",
+      "delta_vs_best": {
+        "n": 40,
+        "mean": 0.09094233506846465,
+        "ci": [
+          -0.030474784345049098,
+          0.20694647311123943
+        ],
+        "significant": false
+      }
+    },
+    {
+      "model": "gpt-6-sol",
+      "generator": false,
+      "n": 40,
+      "raw": 0.3148685515873016,
+      "raw_ci": [
+        0.22907738095238095,
+        0.4076884920634921
+      ],
+      "norm": 0.31428165093025545,
+      "norm_ci": [
+        0.22841698944254873,
+        0.4071811032784797
+      ],
+      "errors": 0,
+      "forced": 0,
+      "cost_usd": 1.679176,
+      "steps": 8.075,
+      "dir": "gpt-6-sol__test_selection__agent__public__s0",
+      "task": "test_selection",
+      "arm": "agent",
+      "delta_vs_best": null
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.24688378716871365,
+      "raw_ci": [
+        0.19679964133089134,
+        0.2983644419306184
+      ],
+      "norm": 0.24623864906978848,
+      "norm_ci": [
+        0.19611159990565133,
+        0.2977634034423226
+      ],
+      "errors": 0,
+      "forced": 1,
+      "cost_usd": 0.60264609,
+      "steps": 8.833333333333334,
+      "dir": "qwen3.5-9b__test_selection__agent__public__s0",
+      "task": "test_selection",
+      "arm": "agent",
+      "delta_vs_best": {
+        "n": 40,
+        "mean": -0.09288938492063492,
+        "ci": [
+          -0.17846230158730159,
+          -0.0024801587301587352
+        ],
+        "significant": true
+      }
+    },
+    {
+      "model": "qwen3.5-9b",
+      "generator": false,
+      "n": 120,
+      "raw": 0.0953125,
+      "raw_ci": [
+        0.07864583333333333,
+        0.11197916666666667
+      ],
+      "norm": 0.09453752216267904,
+      "norm_ci": [
+        0.07785657841438068,
+        0.11121846591097742
+      ],
+      "errors": 0,
+      "forced": 4,
+      "cost_usd": 0.06792125,
+      "steps": 1.0,
+      "dir": "qwen3.5-9b__test_selection__single__public__s0",
+      "task": "test_selection",
+      "arm": "single",
+      "delta_vs_best": null
+    }
+  ]
+}

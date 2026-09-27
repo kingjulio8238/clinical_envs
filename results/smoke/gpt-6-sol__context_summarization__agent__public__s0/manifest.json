@@ -1,0 +1,33 @@
+{
+  "run_id": "gpt-6-sol__context_summarization__agent__public__s0",
+  "model": "gpt-6-sol",
+  "provider_base_url": "https://api.openai.com/v1",
+  "model_id": "gpt-6-sol",
+  "task": "context_summarization",
+  "arm": "agent",
+  "split": "public",
+  "seed": 0,
+  "n_requested": 3,
+  "n_sampled": 3,
+  "n_recorded": 3,
+  "budget": 40,
+  "prices_per_million": {
+    "input": 2.0,
+    "output": 10.0
+  },
+  "temperature": null,
+  "extra": {
+    "reasoning_effort": "none"
+  },
+  "max_output_tokens_per_turn": 16384,
+  "episode_deadline_s": 900,
+  "prompt_hash": "db3bf41522aa17da",
+  "git_commit": "9331c43814aa8492b89f12808c4360f56fc5b475",
+  "floors_file": "eval/floors.json",
+  "started": "2026-09-27T18:06:09",
+  "duration_s": 47.6,
+  "cost_usd": 0.1035,
+  "max_usd": 12.0,
+  "stopped": null,
+  "protocol": "EVAL_PROTOCOL.md"
+}

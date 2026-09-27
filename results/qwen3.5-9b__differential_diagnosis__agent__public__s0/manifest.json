@@ -1,0 +1,31 @@
+{
+  "run_id": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+  "model": "qwen3.5-9b",
+  "provider_base_url": "https://openrouter.ai/api/v1",
+  "model_id": "qwen/qwen3.5-9b",
+  "task": "differential_diagnosis",
+  "arm": "agent",
+  "split": "public",
+  "seed": 0,
+  "n_requested": 120,
+  "n_sampled": 120,
+  "n_recorded": 120,
+  "budget": 40,
+  "prices_per_million": {
+    "input": 0.09999999999999999,
+    "output": 0.15
+  },
+  "temperature": 0.0,
+  "extra": {},
+  "max_output_tokens_per_turn": 4096,
+  "episode_deadline_s": 900,
+  "prompt_hash": "db3bf41522aa17da",
+  "git_commit": "7bf2f6d4e9bb746a7857fc8c5cbfa03dd34642b8",
+  "floors_file": "eval/floors.json",
+  "started": "2026-09-27T19:44:11",
+  "duration_s": 3146.8,
+  "cost_usd": 0.3082,
+  "max_usd": 4.5,
+  "stopped": null,
+  "protocol": "EVAL_PROTOCOL.md"
+}

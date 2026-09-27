@@ -216,6 +216,32 @@ python -m eval.cli run --task context_summarization --granularity specialty --mo
 
 Agentic (tool-use) evaluation against the live EHR simulator uses `eval/agents/` with the read-only bash sandbox defined in `docker-compose.override.yml`. The `bash_readonly` role that the sandbox uses is created automatically by the container entrypoint (or by `scripts/setup_bash_readonly.sql` in a manual install).
 
+## Protocol results (Stage 8)
+
+Every number below follows [EVAL_PROTOCOL.md](EVAL_PROTOCOL.md) (floors and ceilings, 95% bootstrap intervals,
+paired comparisons, failures scored 0, random seeded samples); the paper's Tables 2–3 and Appendix A are
+**non-protocol**. Public split, agentic episodes in the in-process environment; full tables with intervals in
+[results/leaderboard.md](results/leaderboard.md), the RL decision in [results/rl_decision.md](results/rl_decision.md).
+
+| unit | floor | Qwen3.5-9B, tools (n=120) | Qwen3.5-9B, no tools | GPT-6 Sol, tools (n=40) |
+|---|---|---|---|---|
+| patient_diagnosis | 0.036 | 0.305 | 0.226 | 0.514 |
+| atypical_diagnosis | 0.035 | 0.271 (n=77) | — | 0.625 (n=23) |
+| differential_diagnosis | 0.027 | 0.390 | 0.324 | 0.524 |
+| test_selection | 0.001 | 0.247 | 0.095 | 0.315 |
+| evidence_retrieval | 0.420 | 0.563 | — | 0.700 |
+| context_summarization | 0.487 | 0.525 | — | 0.619 |
+| specialty_conditioned | 0.407 | 0.595 | — | 0.589 |
+| imaging_indication | 0.219 | 0.249 | — | 0.289 |
+| error_detection | 0.494 | 0.892 | — | 1.000 |
+| lab_triage | 0.631 | 0.425 | — | 0.487 |
+
+Tools help the RL candidate on all three ablated units (paired, intervals above 0). Four units show learnable
+headroom for RL (above the floor, below saturation, a significant gap to the anchor): patient_diagnosis,
+atypical_diagnosis, evidence_retrieval, differential_diagnosis. lab_triage is below its flag-everything floor for
+both models and error_detection is saturated. Reproduce with `bash scripts/run_stage8_panel.sh results/logs`, then
+`python scripts/rescore_protocol_runs.py && python -m eval.protocol report && python scripts/stage8_rl_decision.py`.
+
 ## Floors, ceilings and the reward-hacking suite
 
 Raw scores on this benchmark are not interpretable on their own: on the public split a content-blind ranking of

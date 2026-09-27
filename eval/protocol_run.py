@@ -183,6 +183,19 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
             rec["input_tokens"] += resp.input_tokens
             rec["output_tokens"] += resp.output_tokens
             rec["latency_ms"] += resp.latency_ms
+            if arm == "single" and resp.tool_calls and all(c["name"] != ro.submit_tool for c in resp.tool_calls) \
+                    and not rec.get("format_retry"):
+                # the single arm has no chart tools; a model that still calls one (Qwen ordered tests in 43% of
+                # single-arm test_selection episodes) gets one corrective turn instead of a forced 0, and the calls
+                # are never executed (no steps, no revealed results)
+                rec["format_retry"] = [c["name"] for c in resp.tool_calls]
+                messages.append({"role": "assistant", "content": resp.text or "", "tool_calls": resp.raw_tool_calls})
+                for raw, call in zip(resp.raw_tool_calls or [{}] * len(resp.tool_calls), resp.tool_calls):
+                    messages.append({"role": "tool", "tool_call_id": raw.get("id", f"call_{turn}"), "name": call["name"],
+                                     "content": "Not available in this setting: no tools can be called."})
+                messages.append({"role": "user", "content": f"Tools are not available here. Answer now from the chart above: "
+                                                            f"call {ro.submit_tool} or reply with the JSON answer."})
+                continue
             if resp.tool_calls:
                 messages.append({"role": "assistant", "content": resp.text or "", "tool_calls": resp.raw_tool_calls})
                 for raw, call in zip(resp.raw_tool_calls or [{}] * len(resp.tool_calls), resp.tool_calls):
@@ -208,7 +221,7 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
                 messages.append({"role": "user", "content": f"Take an action: call a tool, or call {ro.submit_tool} with your answer. "
                                                             f"{max(0, budget - env.ep['steps'])} actions remain."})
             if arm == "single":
-                break
+                break                                               # one answer (after at most one format retry)
         if not done:
             # forced final submission: the best answer seen, else empty (scored 0), exactly like the server
             obs, reward, _, info = env.step(ro.submit_tool, last_parsed or {})
@@ -222,9 +235,15 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
         detail = ""
         cause = exc
         while cause is not None and not detail:                     # the provider's error body, when there is one
-            r = getattr(cause, "response", None)
+            try:
+                r = getattr(cause, "response", None)                # httpx raises when it is an unread stream
+            except Exception:  # noqa: BLE001
+                r = None
             if r is not None:
-                detail = f" | {getattr(r, 'text', '')[:300]}"
+                try:
+                    detail = f" | {r.text[:300]}"
+                except Exception:  # noqa: BLE001 — never let error reporting kill the run
+                    detail = " | (streamed response)"
             cause = cause.__cause__
         rec["error"] = f"{type(exc).__name__}: {str(exc)[:300]}{detail}"
         try:

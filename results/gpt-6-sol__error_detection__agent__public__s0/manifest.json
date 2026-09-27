@@ -1,0 +1,33 @@
+{
+  "run_id": "gpt-6-sol__error_detection__agent__public__s0",
+  "model": "gpt-6-sol",
+  "provider_base_url": "https://api.openai.com/v1",
+  "model_id": "gpt-6-sol",
+  "task": "error_detection",
+  "arm": "agent",
+  "split": "public",
+  "seed": 0,
+  "n_requested": 40,
+  "n_sampled": 40,
+  "n_recorded": 40,
+  "budget": 40,
+  "prices_per_million": {
+    "input": 2.0,
+    "output": 10.0
+  },
+  "temperature": null,
+  "extra": {
+    "reasoning_effort": "none"
+  },
+  "max_output_tokens_per_turn": 16384,
+  "episode_deadline_s": 900,
+  "prompt_hash": "db3bf41522aa17da",
+  "git_commit": "7bf2f6d4e9bb746a7857fc8c5cbfa03dd34642b8",
+  "floors_file": "eval/floors.json",
+  "started": "2026-09-27T19:07:21",
+  "duration_s": 396.2,
+  "cost_usd": 0.5021,
+  "max_usd": 12.0,
+  "stopped": null,
+  "protocol": "EVAL_PROTOCOL.md"
+}

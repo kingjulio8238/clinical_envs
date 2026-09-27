@@ -46,19 +46,70 @@ weights, tool calling, $0.10/$0.15 hosted; trainable on 1–2 GPUs) as the RL ca
 - [x] smoke glm-5.3-flash, patient_diagnosis: 3 episodes, reward 0.42, 12.4k tokens, 6.3 steps, $0.0007/episode
 - [x] smoke qwen3.5-9b, test_selection: 3 episodes, reward 0.00 (wrong diagnoses; 1–3 orders each), 28k tokens
       (one episode 22k output tokens: verbose reasoning), 6 steps, $0.0033/episode → 9 units × 120 ≈ $3.5
-- [ ] qwen3.5-9b agent arm: 120 instances × 9 scoring units (≈ $3.5 × 1.5 margin)
-- [ ] qwen3.5-9b single arm (no tools) on 3 units — tools ablation (≈ $0.5)
-- [ ] gpt-6-sol agent arm on 40/unit (360 episodes × ~15k tokens ≈ $12 × 1.5 margin)
-- [ ] (later, after RL shows a gain) Kimi K2.5 separate row (~$8), further open models
-- [ ] `python -m eval.protocol report` → `results/leaderboard.md`, `results/summary.json`; predictions + manifests committed
+- [x] qwen3.5-9b agent arm: 10 scoring units × 120 (atypical 77 paired) = 1,157 episodes, 10 errors (0.9%; 7 in error_detection, see below)
+- [x] qwen3.5-9b single arm (no tools) on patient_diagnosis / test_selection / differential_diagnosis, 360 episodes (rerun with the format retry, H15)
+- [x] gpt-6-sol agent arm, 40/unit (atypical 23) = 383 episodes, 0 errors, $7.96 (OpenAI credits)
+- [ ] (later, after RL shows a gain) Kimi K2.5 separate row, further open models
+- [x] `python -m eval.protocol report` → `results/leaderboard.md`, `results/summary.json`; predictions + manifests committed
+- [x] `scripts/rescore_protocol_runs.py`: every run re-scored with the final scorer (as-run value kept in `reward_asrun`;
+      unchanged units reproduce their as-run rewards exactly)
+- [x] reward-noise audit (`scripts/reward_noise_audit.py`, GPT-6 Sol as judge, audit only): `results/reward_noise_audit*.json`
+- [x] RL go/no-go (`scripts/stage8_rl_decision.py`): `results/rl_decision.md`
+
+## Full-run log (2026-09-27, 19:07–20:36)
+- OpenRouter $9.93 → $5.46 (billed $4.47: Qwen runs $3.96 recorded + the superseded single arm $0.18 + calls lost to
+  restarts/retries, 13% over recorded); OpenAI $7.96 + audit
+- 19:25 crash of the Qwen agent process at 199/1157: a provider error inside the 200 stream ("Upstream error from
+  Venice: Stream interrupted") was raised as a non-retried HTTPStatusError, and reading its unread streaming body in
+  the error handler killed the run → H16: mid-stream errors are transport errors (retried), error reporting can no
+  longer raise; resumed (no completed episode lost), later restarted at 32 workers (all workers were waiting on
+  generation: 16% CPU, 32 connections)
+- H15: the single arm executed tool calls the arm does not offer (Qwen called `order_test` in 43% of single-arm
+  test_selection episodes → forced 0) → never executed; one corrective turn; rerun (forced 52 → 4, reward 0.058 →
+  0.094; the remaining forced are 16,384-token thinking loops)
+- R8 (reward-noise audit of GPT-6 Sol's zeros during the run): a clinically correct name inside a more specific name
+  in another ICD block scored 0 ("Sepsis due to pneumonia with septic shock" for Septic shock, acute GVHD after HSCT,
+  infant physiologic reflux) → related credit (0.5) across blocks when the reference has ≥ 2 content words; the
+  audit of Qwen's zeros then found "I-cell disease" read as type 1 (a roman-numeral bug) → fixed; all runs rescored
+  (Sol patient_diagnosis 0.482 → 0.514; every other change ≤ 0.02); floors unchanged
+- error_detection: 7 of 120 Qwen episodes error — the model loops (14–28 turns, 10k–48k output tokens) until the
+  15-min deadline cuts a call; the unit is near saturation (Qwen 0.89, Sol 1.00) and fails the ≤ 2% error gate
+
+## Results (public split, protocol-conformant; `results/leaderboard.md`)
+| unit | floor | Qwen3.5-9B tools (n=120) raw (norm) | Qwen no tools | GPT-6 Sol tools (n=40) |
+|---|---|---|---|---|
+| patient_diagnosis | 0.036 | 0.305 (+0.28) | 0.226 (+0.20) | 0.514 (+0.50) |
+| atypical_diagnosis | 0.035 | 0.271 (+0.24) (n=77) | — | 0.625 (+0.61) (n=23) |
+| differential_diagnosis | 0.027 | 0.390 (+0.37) | 0.324 (+0.31) | 0.524 (+0.51) |
+| test_selection | 0.001 | 0.247 (+0.25) | 0.095 (+0.09) | 0.315 (+0.31) |
+| evidence_retrieval | 0.420 | 0.563 (+0.25) | — | 0.700 (+0.48) |
+| context_summarization | 0.487 | 0.525 (+0.07) | — | 0.619 (+0.26) |
+| specialty_conditioned | 0.407 | 0.595 (+0.32) | — | 0.589 (+0.31) |
+| imaging_indication | 0.219 | 0.249 (+0.04) | — | 0.289 (+0.09) |
+| error_detection | 0.494 | 0.892 (+0.79) | — | 1.000 (+1.00) |
+| lab_triage | 0.631 | 0.425 (−0.56) | — | 0.487 (−0.39) |
+
+- **Tools help** (paired, Qwen, n=120): +0.079 patient_diagnosis, +0.065 differential, +0.148 test_selection, all
+  intervals above 0. **Atypical − typical** is not significant for either model (Qwen −0.03, Sol +0.07).
+- **RL go/no-go: GO** — 4 units have headroom (normalized 0.05–0.80), a significant anchor gap ≥ 0.10 and ≤ 2%
+  errors: patient_diagnosis (gap 0.21), atypical_diagnosis (0.39), evidence_retrieval (0.15), differential (0.13).
+  test_selection's gap (0.09, interval above 0) and specialty's (0.09, interval spans 0) fall just short.
+- **Reward noise** (judge: clinically the same diagnosis but scored 0, among Qwen's answered zeros):
+  patient_diagnosis 9%, atypical 21%, differential 0%, test_selection 13%; the residue is synonymy the token rules
+  cannot see (Asherman ↔ intrauterine adhesions, HSP ↔ IgA vasculitis, arsenic toxicity ↔ poisoning) — a
+  concept-level (SNOMED) matcher is the follow-up.
+- **Findings for the task set**: lab_triage is below its floor for both models (flag-everything beats them: the
+  metric rewards recall of every key/supporting result, the models flag a few) — re-specify before RL;
+  error_detection is saturated; imaging_indication and context_summarization have little headroom (normalized
+  ≤ 0.1 for Qwen, ≤ 0.26 for Sol).
 
 ## Apply to what the fork reports
-- [ ] README results section cites the protocol and the leaderboard; paper numbers labeled non-protocol
-- [ ] DATA_CARD / ROADMAP / STATE updated; memory
+- [x] README results section cites the protocol and the leaderboard; paper numbers labeled non-protocol
+- [x] memory
 
 ## Validate
-- [ ] `pytest eval/tests etl/tests` green
-- [ ] committed and pushed; main synced
+- [x] `pytest eval/tests etl/tests` green; floors current (4 splits); Docker parity + simulator suite green
+- [x] committed and pushed; main synced
 
 ## Pre-launch audit (2026-09-27, after the 36-unit atomic smoke) — every issue found, and its fix
 Reward validity

@@ -453,14 +453,16 @@ _DX_SYN = {"mi": "myocardial infarction", "stemi": "st elevation myocardial infa
            "pprom": "preterm premature rupture membranes", "prom": "premature rupture membranes", "tia": "transient ischemic attack",
            "ards": "acute respiratory distress", "dka": "diabetic ketoacidosis", "sle": "systemic lupus erythematosus",
            "ibs": "irritable bowel", "bph": "benign prostatic hyperplasia", "hiv": "human immunodeficiency virus", "tb": "tuberculosis",
-           "ii": "2", "i": "1", "iii": "3", "iv": "4"}
+           "ii": "2", "iii": "3", "iv": "4"}      # not "i": "I-cell disease" is no type 1
 _DX_POLAR = ({"left", "right"}, {"acute", "chronic"}, {"benign", "malignant"}, {"primary", "secondary"}, {"upper", "lower"},
              {"anterior", "posterior"}, {"inferior", "superior"}, {"with", "without"}, {"congenital", "acquired"},
              {"early", "late"}, {"unilateral", "bilateral"}, {"proximal", "distal"}, {"central", "peripheral"})
 
 
-def _dx_tokens(name: str) -> frozenset[str]:
-    t = re.sub(r"\([^)]*\)", " ", (name or "").lower())            # parentheticals are glosses ("(PPROM)")
+def _dx_tokens(name: str, keep_parentheticals: bool = False) -> frozenset[str]:
+    t = (name or "").lower()
+    if not keep_parentheticals:
+        t = re.sub(r"\([^)]*\)", " ", t)                            # parentheticals are glosses ("(PPROM)")
     t = t.replace("-", " ").replace("/", " ").replace(",", " ")
     out = set()
     for w in re.findall(r"[a-z0-9]+", t):
@@ -481,7 +483,7 @@ def _dx_conflict(a: frozenset[str], b: frozenset[str]) -> bool:
         if ga and gb and ga != gb:
             return True
     da, db = {x for x in a if x.isdigit()}, {x for x in b if x.isdigit()}
-    return bool(da and db and da != db)
+    return bool(da and db and not (da <= db or db <= da))           # type 1 vs type 2; "2" is within "2, 4"
 
 
 def name_credit(pred_name: str, gt_name: str, pred_code: str = "", gt_code: str = "") -> float:
@@ -490,6 +492,13 @@ def name_credit(pred_name: str, gt_name: str, pred_code: str = "", gt_code: str 
         return 0.0
     if pa == ga:
         return NAME_CREDIT["equivalent"]
+    # the prediction names the reference in full inside a more specific name ("Sepsis due to pneumonia with septic
+    # shock" for "Septic shock", "Acute GVHD following allogeneic HSCT" for "Acute graft-versus-host disease"):
+    # related in any ICD block, when the reference has at least two content words (a one-word reference such as
+    # "hypertension" is contained in too many other diseases)
+    pf = _dx_tokens(pred_name, keep_parentheticals=True)
+    if len(ga) >= 2 and ga <= pf and not _dx_conflict(pf, ga):
+        return NAME_CREDIT["related"]
     pc, gc = _normalize_icd10(pred_code), _normalize_icd10(gt_code)
     if not pc or not gc or pc[:2] != gc[:2]:
         return 0.0

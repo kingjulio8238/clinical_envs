@@ -1,0 +1,247 @@
+{
+ "model": "gpt-6-sol",
+ "judge": "gpt-6-sol",
+ "split": "public",
+ "patient_diagnosis": {
+  "zero_scored_answered": 8,
+  "judged": 8,
+  "same": 1,
+  "related": 7,
+  "different": 0,
+  "correct_zero_rate": 0.125
+ },
+ "atypical_diagnosis": {
+  "zero_scored_answered": 2,
+  "judged": 2,
+  "same": 1,
+  "related": 1,
+  "different": 0,
+  "correct_zero_rate": 0.5
+ },
+ "differential_diagnosis": {
+  "zero_scored_answered": 1,
+  "judged": 1,
+  "same": 0,
+  "related": 0,
+  "different": 1,
+  "correct_zero_rate": 0.0
+ },
+ "test_selection": {
+  "zero_scored_answered": 5,
+  "judged": 5,
+  "same": 0,
+  "related": 5,
+  "different": 0,
+  "correct_zero_rate": 0.0
+ },
+ "cases": [
+  {
+   "unit": "patient_diagnosis",
+   "gt_id": 71552,
+   "reference": [
+    "Urolithiasis (Renal Colic)"
+   ],
+   "answer": [
+    "Gross hematuria (R31.0)"
+   ],
+   "verdict": "related",
+   "reason": "Gross hematuria can be a symptom of urolithiasis, but it does not name the reference diagnosis.",
+   "cost_input_tokens": 135
+  },
+  {
+   "unit": "patient_diagnosis",
+   "gt_id": 70299,
+   "reference": [
+    "Coagulopathy due to vitamin K deficiency"
+   ],
+   "answer": [
+    "Acquired coagulation factor deficiency due to vitamin K deficiency, with bleeding (D68.4)"
+   ],
+   "verdict": "same",
+   "reason": "Both describe a vitamin K deficiency\u2013induced coagulopathy; the model adds bleeding as a manifestation.",
+   "cost_input_tokens": 144
+  },
+  {
+   "unit": "patient_diagnosis",
+   "gt_id": 70475,
+   "reference": [
+    "L5-S1 intervertebral disc herniation"
+   ],
+   "answer": [
+    "Left S1 lumbosacral radiculopathy, acute exacerbation (M54.17)"
+   ],
+   "verdict": "related",
+   "reason": "S1 radiculopathy can result from an L5-S1 disc herniation, but it does not name the herniation itself.",
+   "cost_input_tokens": 148
+  },
+  {
+   "unit": "patient_diagnosis",
+   "gt_id": 70393,
+   "reference": [
+    "Systemic inflammatory response syndrome"
+   ],
+   "answer": [
+    "Acute viral infection following upper respiratory illness (B34.9)"
+   ],
+   "verdict": "related",
+   "reason": "An acute viral infection may trigger systemic inflammatory response syndrome, but it does not name the syndrome.",
+   "cost_input_tokens": 134
+  },
+  {
+   "unit": "patient_diagnosis",
+   "gt_id": 72020,
+   "reference": [
+    "Compartment syndrome of hand"
+   ],
+   "answer": [
+    "Traumatic compartment syndrome of left lower extremity (T79.A22A)"
+   ],
+   "verdict": "related",
+   "reason": "Both are compartment syndrome, but the model identifies the lower extremity rather than the hand.",
+   "cost_input_tokens": 137
+  },
+  {
+   "unit": "patient_diagnosis",
+   "gt_id": 69536,
+   "reference": [
+    "Lymphoma (Hodgkin or non-Hodgkin)"
+   ],
+   "answer": [
+    "Localized enlarged lymph nodes (cervical and supraclavicular lymphadenopathy) (R59.0)"
+   ],
+   "verdict": "related",
+   "reason": "Lymphadenopathy can be a sign of lymphoma, but it does not name lymphoma as the diagnosis.",
+   "cost_input_tokens": 154
+  },
+  {
+   "unit": "patient_diagnosis",
+   "gt_id": 72038,
+   "reference": [
+    "Homozygous Normal CFTR Genotype (Daughter)"
+   ],
+   "answer": [
+    "Encounter for genetic counseling for family history of cystic fibrosis (Z31.5)"
+   ],
+   "verdict": "related",
+   "reason": "Genetic counseling for a family history of cystic fibrosis is related but does not identify the daughter's homozygous normal CFTR genotype.",
+   "cost_input_tokens": 144
+  },
+  {
+   "unit": "patient_diagnosis",
+   "gt_id": 70973,
+   "reference": [
+    "Urethral stricture"
+   ],
+   "answer": [
+    "Gross hematuria (initial-stream hematuria) (R31.0)"
+   ],
+   "verdict": "related",
+   "reason": "Initial-stream hematuria can occur with urethral stricture, but it is a symptom rather than the diagnosis.",
+   "cost_input_tokens": 138
+  },
+  {
+   "unit": "atypical_diagnosis",
+   "gt_id": 84092,
+   "reference": [
+    "Acetaminophen overdose"
+   ],
+   "answer": [
+    "Acute liver failure without coma due to acetaminophen toxicity (K72.00)"
+   ],
+   "verdict": "same",
+   "reason": "Acetaminophen toxicity with acute liver failure identifies the acetaminophen overdose and its complication.",
+   "cost_input_tokens": 138
+  },
+  {
+   "unit": "atypical_diagnosis",
+   "gt_id": 83716,
+   "reference": [
+    "Factitious diarrhea"
+   ],
+   "answer": [
+    "Osmotic diarrhea due to magnesium-containing laxative use (K52.1)"
+   ],
+   "verdict": "related",
+   "reason": "Magnesium laxative use can cause factitious diarrhea, but the answer does not identify intentional or surreptitious laxative use.",
+   "cost_input_tokens": 135
+  },
+  {
+   "unit": "differential_diagnosis",
+   "gt_id": 74745,
+   "reference": [
+    "Aortic valve stenosis"
+   ],
+   "answer": [
+    "Dissection of thoracic aorta (acute ascending aortic dissection) (I71.01)"
+   ],
+   "verdict": "different",
+   "reason": "An acute ascending aortic dissection is distinct from aortic valve stenosis.",
+   "cost_input_tokens": 142
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78544,
+   "reference": [
+    "Prolactinoma"
+   ],
+   "answer": [
+    "Hyperprolactinemia (E22.1)"
+   ],
+   "verdict": "related",
+   "reason": "Hyperprolactinemia is elevated prolactin, but it does not establish a prolactin-secreting pituitary tumor.",
+   "cost_input_tokens": 132
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77645,
+   "reference": [
+    "L5-S1 intervertebral disc herniation"
+   ],
+   "answer": [
+    "Left S1 lumbosacral radiculopathy (M54.17)"
+   ],
+   "verdict": "related",
+   "reason": "S1 radiculopathy may result from an L5-S1 disc herniation but does not identify the herniation itself.",
+   "cost_input_tokens": 144
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78347,
+   "reference": [
+    "Acute Liver Failure"
+   ],
+   "answer": [
+    "Exertional heatstroke (T67.01XA)"
+   ],
+   "verdict": "related",
+   "reason": "Exertional heatstroke can cause acute liver failure, but it names the underlying cause rather than the reference diagnosis.",
+   "cost_input_tokens": 131
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 76997,
+   "reference": [
+    "Gestational Trophoblastic Neoplasia"
+   ],
+   "answer": [
+    "Hydatidiform mole (O02.0)"
+   ],
+   "verdict": "related",
+   "reason": "Hydatidiform mole is a gestational trophoblastic condition, but it does not by itself establish gestational trophoblastic neoplasia.",
+   "cost_input_tokens": 135
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77212,
+   "reference": [
+    "Herpes simplex encephalitis"
+   ],
+   "answer": [
+    "Viral meningitis, unspecified (A87.9)"
+   ],
+   "verdict": "related",
+   "reason": "Viral meningitis is a related CNS infection but does not identify herpes simplex encephalitis.",
+   "cost_input_tokens": 133
+  }
+ ]
+}

@@ -292,8 +292,9 @@ class OpenAICompatibleAdapter(ModelAdapter):
                             break
                         chunk = json.loads(body)
                         if chunk.get("error"):
-                            raise httpx.HTTPStatusError(f"stream error: {json.dumps(chunk['error'])[:300]}",
-                                                        request=r.request, response=r)
+                            # a provider failure after the 200 (e.g. "Upstream error from Venice: Stream interrupted")
+                            # is transient: a transport error, retried like a dropped connection (Stage-8 full run)
+                            raise httpx.ReadError(f"stream error: {json.dumps(chunk['error'])[:300]}", request=r.request)
                         provider = chunk.get("provider") or provider
                         if chunk.get("usage"):
                             usage = chunk["usage"]

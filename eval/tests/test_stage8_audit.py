@@ -115,6 +115,15 @@ def test_single_turn_workup_is_matched_like_order_test(db):
     ("Non-ST elevation myocardial infarction", "ST elevation myocardial infarction", "I25.2", "I20.0", 0.0),
     ("Anemia", "Sickle cell anemia", "D64.9", "D57.1", 0.0),
     ("Whatever", "Presbycusis", "H91.13", "H91.13", 1.0),                                              # the exact code still wins
+    # reward-noise audit of the full run's zeros (GPT-6 Sol): the reference named in full inside a more specific name
+    ("Sepsis due to right lower lobe pneumonia with septic shock", "Septic shock", "A41.9", "R65.21", 0.5),
+    ("Acute graft-versus-host disease following allogeneic HSCT", "Acute graft-versus-host disease", "T86.09", "D89.810", 0.5),
+    ("Gastroesophageal reflux in infant (physiologic reflux without esophagitis)",
+     "Physiologic gastroesophageal reflux (Infant regurgitation)", "K21.9", "P92.1", 0.5),
+    ("Pulmonary hypertension", "Hypertension", "I27.0", "I10", 0.0),                                    # one-word reference
+    ("Mucolipidosis type II (I-cell disease)", "Mucolipidosis II (I-cell disease)", "Q77.1", "E77.0", 0.5),   # "I-cell" is no digit
+    ("Chronic kidney disease stage 3", "Acute kidney injury", "N18.3", "N17.9", 0.0),
+    ("Traumatic compartment syndrome of left lower extremity", "Compartment syndrome of hand", "T79.A22A", "T79.A12A", 0.0),
 ])
 def test_name_credit(pred_name, gt_name, pc, gc, expect):
     assert dx_credit(pc, gc, pred_name, gt_name) == pytest.approx(expect)
@@ -282,3 +291,59 @@ def test_stalled_stream_fails_fast(monkeypatch):
     with pytest.raises(_httpx.ReadTimeout, match="first token"):
         a.call("s", "u")
     assert _t.time() - t0 < 6
+
+
+def test_mid_stream_provider_error_is_retried_and_never_kills_the_run(monkeypatch, tmp_path, db):
+    """Full run: a provider failure inside the 200 stream raised a non-retried HTTPStatusError, and reading its
+    unread streaming body in the error handler crashed the whole run."""
+    calls = {"n": 0}
+
+    def body():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            yield b'data: {"error": {"code": 502, "message": "Upstream error from Venice: Stream interrupted"}}\n\n'
+            return
+        ev = {"choices": [{"delta": {"content": json.dumps({"active_diagnoses": []})}}],
+              "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 0.0}}
+        yield ("data: " + json.dumps(ev) + "\n\n").encode()
+        yield b"data: [DONE]\n\n"
+    monkeypatch.setenv("OPENROUTER_API_KEY", "x")
+    monkeypatch.setenv("EVAL_RETRY_BASE_DELAY", "0")
+    a = _mock_openrouter(monkeypatch, body)
+    r = a.call_multi_turn_with_retry("s", [{"role": "user", "content": "u"}])
+    assert calls["n"] == 2 and "active_diagnoses" in r.text
+    # an exception whose response is an unread stream is recorded as an episode error, not raised
+    import httpx as _httpx
+
+    class Boom:
+        config = type("C", (), {"name": "b", "temperature": 0.0})()
+
+        def call_multi_turn_with_retry(self, *a, **k):
+            req = _httpx.Request("POST", "http://x")
+            resp = _httpx.Response(200, stream=_httpx.ByteStream(b""), request=req)
+            raise RuntimeError("exhausted") from _httpx.HTTPStatusError("s", request=req, response=resp)
+    out = R.run("glm-5.3-flash", "patient_diagnosis", n=1, seed=8, workers=1, out_root=tmp_path, adapter=Boom(), prices=(1.0, 1.0), quiet=True)
+    p = json.loads((out / "predictions.jsonl").read_text().splitlines()[0])
+    assert p["reward"] == 0.0 and "exhausted" in p["error"]
+
+
+def test_single_arm_tool_call_gets_one_format_retry_and_is_not_executed(tmp_path, db):
+    """Full run: in the single arm Qwen called order_test (not offered) in 43% of test_selection episodes, which
+    executed the order and then forced an empty submission (0)."""
+
+    class OrdersFirst(ScriptedAdapter):
+        def call_multi_turn_with_retry(self, system, messages, tools=None, max_retries=None):
+            if len(messages) == 1:
+                call = {"name": "order_test", "arguments": {"name": "CBC"}}
+                raw = [{"id": "c0", "type": "function", "function": {"name": "order_test", "arguments": json.dumps(call["arguments"])}}]
+                return ModelResponse(text="", input_tokens=10, output_tokens=5, latency_ms=1, raw_json=None, tool_calls=[call], raw_tool_calls=raw)
+            args = R._env().oracle(); args.pop("tests_ordered", None)
+            call = {"name": R._env().submit_tool, "arguments": args}
+            raw = [{"id": "c1", "type": "function", "function": {"name": call["name"], "arguments": json.dumps(args)}}]
+            return ModelResponse(text="", input_tokens=10, output_tokens=5, latency_ms=1, raw_json=None, tool_calls=[call], raw_tool_calls=raw)
+
+    out = R.run("glm-5.3-flash", "differential_diagnosis", n=2, arm="single", seed=9, workers=1, out_root=tmp_path,
+                adapter=OrdersFirst(R._env), prices=(1.0, 1.0), quiet=True)
+    preds = [json.loads(l) for l in (out / "predictions.jsonl").read_text().splitlines()]
+    assert all(p["reward"] >= 1 - 1e-9 and p["format_retry"] == ["order_test"] and p["turns"] == 2 and p["steps"] <= 1
+               and p["orders"] == 0 for p in preds), preds

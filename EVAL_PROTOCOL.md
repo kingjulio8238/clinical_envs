@@ -72,6 +72,10 @@ sample was the longest charts minus a ceiling filter, and the data generator sat
 - Diagnosis credit is the ICD credit, or a lower name credit when the model named the reference diagnosis but
   coded it differently (`eval/scoring.py dx_credit`: 0.75 same name, 0.5 related name in the same ICD block,
   0 on a contradicting qualifier), in every diagnosis-scored task.
+- The single arm offers only the submit tool; a model that still calls another tool gets one corrective turn and
+  the call is never executed (recorded as `format_retry`).
+- A scorer fix that lands after a run is applied to every run with `scripts/rescore_protocol_runs.py` (the as-run
+  value is kept as `reward_asrun`), so all models in a table are scored by one scorer.
 - Arms: the agent arm caps each model turn at 4,096 output tokens (an RL-rollout-like limit); the single arm is
   one call and gets the registry's 16,384 so a thinking model is not truncated before it answers. Sampling
   settings differ by provider where the API forces them (GPT-6 accepts only its default temperature and

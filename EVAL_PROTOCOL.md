@@ -39,6 +39,14 @@ sample was the longest charts minus a ceiling filter, and the data generator sat
   separate, unranked row**, because its familiarity with the material is a confound, not a capability.
 - Model identity is pinned per run: provider, model id, prices at run time, the prompt hash, the budget, the
   seed, the git commit and the floors file version are written to `results/<run>/manifest.json`.
+- **The panel serves the fork's question — does RL on this environment improve a model?** — so it is
+  built around **one RL candidate** (an open-weights model small enough to train, tool-calling, hosted for a
+  cheap baseline: `qwen3.5-9b` first) plus **one frontier anchor** (`gpt-6-sol`) that shows the headroom
+  prompting alone reaches. The RL result itself is a paired before/after comparison of the base and the
+  trained weights under **identical local serving**, on the same instances, with the intervals of §3; the
+  hosted baseline is a preview, never the comparison. More models join the panel only after RL shows a
+  gain on the first one. `scripts/refresh_model_registry.py --check` keeps every model id honest against the
+  provider's live catalog (`eval/model_prices.json`).
 
 ## 5. Ablations
 - An ablation changes **exactly one factor** and keeps the instances, seed, prompts, budget and model fixed:

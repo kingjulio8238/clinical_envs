@@ -34,15 +34,22 @@ split, validation filled in.
 - [x] `EVAL_PROTOCOL.md` (instances/splits, floors/ceilings, intervals, panel vs generator, ablations, agentic sampling, artifacts, cost discipline)
 - [x] `eval/protocol.py`: bootstrap CI, paired differences, normalization, leaderboard + ablation tables, `report` CLI
 - [x] `eval/protocol_run.py`: LocalEnv episodes with the model adapters, both arms, seeded sampling, failure = 0, resume, cost cap, manifest
-- [x] registry: protocol panel (`gpt-6-sol`, `gpt-6-luna` via OpenAI; `mimo-v2.6-pro`, `muse-spark-1.3`, `deepseek-v4-pro`, `glm-5.3-flash`, `opus-5.5`, `kimi-k2.5` via OpenRouter) with prices
+- [x] registry: protocol panel + RL candidates (`qwen3.5-9b`, `qwen3.5-27b`, `muse-glimmer-30b`, `qwen3.5-35b-a3b`) + current frontier ids; `scripts/refresh_model_registry.py --check/--update` validates every id against OpenRouter and refreshes `eval/model_prices.json` (legacy `gpt-5.3`, `opus-4.6` ids no longer served, kept for the record)
 - [x] runner fixes: `select_patients` seeded random / default public / ceiling filter off; `eval/split.py` and `scripts/build_rl_split.py` no longer reference the retired task
-- [ ] `eval/tests/test_protocol.py` green (arithmetic; scripted-adapter runs: oracle agent → 1.0 incl. `order_test`, failure → 0 recorded, resume, single arm sees the visible chart only)
+- [x] `eval/tests/test_protocol.py` green (8) (arithmetic; scripted-adapter runs: oracle agent → 1.0 incl. `order_test`, failure → 0 recorded, resume, single arm sees the visible chart only)
 
-## Runs (public split; need OPENROUTER_API_KEY / OPENAI_API_KEY and balance)
-- [ ] smoke: 3 instances × each panel model; measured tokens/episode and $/episode recorded here
-- [ ] agent arm: 120 instances × 9 scoring units for the value/open models; frontier anchor on 60/unit
-- [ ] single arm (no tools) on 3 units for 3 models — tools ablation
-- [ ] Kimi K2.5 with identical settings — separate row
+## Runs (public split; OPENROUTER_API_KEY in .env; balance was $0.54 of $130 on 2026-09-27 → top-up needed)
+Decision (2026-09-27): the fork's question is whether RL on this environment improves a model, so the paid
+panel is one RL candidate + one anchor, not a leaderboard of ten. Models: **qwen3.5-9b** (9B dense, open
+weights, tool calling, $0.10/$0.15 hosted; trainable on 1–2 GPUs) as the RL candidate; **gpt-6-sol**
+($2/$10) on 40 instances/unit as the prompting ceiling; Kimi K2.5 and other models only after RL shows a gain.
+- [x] smoke glm-5.3-flash, patient_diagnosis: 3 episodes, reward 0.42, 12.4k tokens, 6.3 steps, $0.0007/episode
+- [x] smoke qwen3.5-9b, test_selection: 3 episodes, reward 0.00 (wrong diagnoses; 1–3 orders each), 28k tokens
+      (one episode 22k output tokens: verbose reasoning), 6 steps, $0.0033/episode → 9 units × 120 ≈ $3.5
+- [ ] qwen3.5-9b agent arm: 120 instances × 9 scoring units (≈ $3.5 × 1.5 margin)
+- [ ] qwen3.5-9b single arm (no tools) on 3 units — tools ablation (≈ $0.5)
+- [ ] gpt-6-sol agent arm on 40/unit (360 episodes × ~15k tokens ≈ $12 × 1.5 margin)
+- [ ] (later, after RL shows a gain) Kimi K2.5 separate row (~$8), further open models
 - [ ] `python -m eval.protocol report` → `results/leaderboard.md`, `results/summary.json`; predictions + manifests committed
 
 ## Apply to what the fork reports

@@ -58,6 +58,16 @@ def _openai(name: str, model_id: str) -> "ModelConfig":
 
 # Stage 8 protocol panel (EVAL_PROTOCOL.md §4): chosen on Artificial Analysis intelligence vs price
 # (September 2026) among tool-calling models; Kimi K2.5 is the data generator and is never ranked.
+# RL candidates: open weights small enough to train (dense ≤ 30B or a small MoE), tool calling, hosted on
+# OpenRouter for a cheap hosted baseline; the paired before/after comparison uses our own serving of both
+# the base and the trained weights (EVAL_PROTOCOL.md §5).
+RL_CANDIDATES: dict[str, "ModelConfig"] = {
+    "qwen3.5-9b": _openrouter("qwen3.5-9b", "qwen/qwen3.5-9b"),                 # 9B dense, Apache-2.0, $0.10/$0.15
+    "qwen3.5-27b": _openrouter("qwen3.5-27b", "qwen/qwen3.5-27b"),              # 27B dense, $0.20/$1.56
+    "muse-glimmer-30b": _openrouter("muse-glimmer-30b", "meta/muse-glimmer-30b"),   # 30B dense, Apache-2.0, agent-tuned, $0.30/$1.20
+    "qwen3.5-35b-a3b": _openrouter("qwen3.5-35b-a3b", "qwen/qwen3.5-35b-a3b"),  # 35B MoE / 3B active, $0.31/$1.25
+}
+
 PROTOCOL_PANEL: dict[str, "ModelConfig"] = {
     "gpt-6-sol": _openai("gpt-6-sol", "gpt-6-sol"),                          # frontier anchor, $2/$10
     "gpt-6-luna": _openai("gpt-6-luna", "gpt-6-luna"),                       # value frontier, $0.10/$0.50
@@ -67,7 +77,18 @@ PROTOCOL_PANEL: dict[str, "ModelConfig"] = {
     "glm-5.3-flash": _openrouter("glm-5.3-flash", "z-ai/glm-5.3-flash"),     # cheapest tool-capable, $0.04/$0.14
     "opus-5.5": _openrouter("opus-5.5", "anthropic/claude-opus-5.5"),        # AA #1 (58), $4/$20; optional anchor
     "kimi-k2.5": _openrouter("kimi-k2.5", "moonshotai/kimi-k2.5"),           # the generator: separate row
+    # current frontier / value ids (September 2026) for later anchors
+    "gpt-6-astra": _openrouter("gpt-6-astra", "openai/gpt-6-astra"),
+    "sonnet-5": _openrouter("sonnet-5", "anthropic/claude-sonnet-5"),
+    "fable-5.1": _openrouter("fable-5.1", "anthropic/claude-fable-5.1"),
+    "gemini-3.8-flash": _openrouter("gemini-3.8-flash", "google/gemini-3.8-flash"),
+    "deepseek-v4-flash": _openrouter("deepseek-v4-flash", "deepseek/deepseek-v4-flash"),
+    "mimo-v2.6-flash": _openrouter("mimo-v2.6-flash", "xiaomi/mimo-v2.6-flash"),
 }
+PROTOCOL_PANEL.update(RL_CANDIDATES)
+
+# Paper-era entries whose OpenRouter ids no longer resolve (kept for the record; `scripts/refresh_model_registry.py --check` reports them)
+LEGACY_UNAVAILABLE = {"gpt-5.3", "opus-4.6"}
 
 MODEL_REGISTRY: dict[str, ModelConfig] = {
     # --- Proprietary (via OpenRouter) ---
@@ -233,11 +254,28 @@ RETRIEVAL_BASELINES = {"bm25", "sapbert", "hybrid"}
 
 MODEL_REGISTRY.update(PROTOCOL_PANEL)
 
+
+def _live_prices() -> dict[str, tuple[float, float]]:
+    """eval/model_prices.json: $ per 1M (input, output) per registry name, refreshed by scripts/refresh_model_registry.py."""
+    import json as _json
+    from pathlib import Path as _Path
+    p = _Path(__file__).with_name("model_prices.json")
+    if not p.exists():
+        return {}
+    try:
+        return {k: (float(v["input"]), float(v["output"])) for k, v in _json.loads(p.read_text()).get("models", {}).items()}
+    except (ValueError, KeyError, TypeError):
+        return {}
+
+
 # $ per 1M tokens (input, output); the Stage-8 runner re-prices from OpenRouter's live list when it can
 COST_RATES: dict[str, tuple[float, float]] = {
     "gpt-6-sol": (2.00, 10.00), "gpt-6-luna": (0.10, 0.50), "mimo-v2.6-pro": (0.43, 0.87),
     "muse-spark-1.3": (0.10, 0.20), "deepseek-v4-pro": (0.35, 0.70), "glm-5.3-flash": (0.04, 0.14),
     "opus-5.5": (4.00, 20.00), "kimi-k2.5": (0.45, 2.25),
+    "qwen3.5-9b": (0.10, 0.15), "qwen3.5-27b": (0.20, 1.56), "muse-glimmer-30b": (0.30, 1.20), "qwen3.5-35b-a3b": (0.31, 1.25),
+    "gpt-6-astra": (10.0, 50.0), "sonnet-5": (2.0, 10.0), "fable-5.1": (10.0, 50.0), "gemini-3.8-flash": (0.75, 3.75),
+    "deepseek-v4-flash": (0.05, 0.09), "mimo-v2.6-flash": (0.14, 0.28),
     "gpt-5.3":       (1.75, 14.00),
     "opus-4.6":      (5.00, 25.00),
     "gemini-3.1":    (2.00, 12.00),
@@ -255,6 +293,7 @@ COST_RATES: dict[str, tuple[float, float]] = {
     "glm-5":             (0.80, 2.56),
     "glm-5-agent":       (0.00, 0.00),  # self-hosted gateway
 }
+COST_RATES.update(_live_prices())   # live OpenRouter prices win over the table when refreshed
 
 
 def estimate_cost_usd(model_name: str, input_tokens: int, output_tokens: int) -> float:

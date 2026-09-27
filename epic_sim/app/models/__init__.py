@@ -11,6 +11,7 @@ from epic_sim.app.models.benchmark import (
 )
 from epic_sim.app.models.content import BoardQuestion, FactCard
 from epic_sim.app.models.ehr import EhrSection
+from epic_sim.app.models.fhir_store import FhirWrite
 from epic_sim.app.models.longitudinal import (
     EncounterEhrSection,
     LongitudinalEncounter,
@@ -40,4 +41,5 @@ __all__ = [
     "EvaluationRun", "EvaluationPrediction", "ImagingOrder",
     "ProcessingLog", "LlmCallLog",
     "AuthUser", "AuthToken", "PatientAssignment", "AgentSubmission",
+    "FhirWrite",
 ]

@@ -19,6 +19,8 @@ ALL_SCOPES = {
     "patient/Encounter.write",
     "patient/Condition.write",
     "patient/ServiceRequest.write",
+    "patient/Observation.write",
+    "patient/MedicationRequest.write",
 }
 
 # Role → default scopes
@@ -35,6 +37,8 @@ ROLE_SCOPES: dict[str, set[str]] = {
         "patient/AllergyIntolerance.read",
         "patient/Condition.write",
         "patient/ServiceRequest.write",
+        "patient/Observation.write",
+        "patient/MedicationRequest.write",
     },
     "resident": {
         "patient/Patient.read",
@@ -46,12 +50,17 @@ ROLE_SCOPES: dict[str, set[str]] = {
         "patient/DocumentReference.read",
         "patient/MedicationRequest.read",
         "patient/AllergyIntolerance.read",
+        "patient/Condition.write",
+        "patient/ServiceRequest.write",
+        "patient/Observation.write",
+        "patient/MedicationRequest.write",
     },
     "nurse": {
         "patient/Patient.read",
         "patient/Observation.read",
         "patient/MedicationRequest.read",
         "patient/AllergyIntolerance.read",
+        "patient/Observation.write",
     },
     "radiologist": {
         "patient/Patient.read",

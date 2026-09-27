@@ -6,7 +6,7 @@ CAPABILITY_STATEMENT = {
     "resourceType": "CapabilityStatement",
     "id": "epic-sim",
     "status": "active",
-    "date": "2026-03-02",
+    "date": "2026-09-27",
     "kind": "instance",
     "fhirVersion": "4.0.1",
     "format": ["json"],
@@ -63,6 +63,7 @@ CAPABILITY_STATEMENT = {
                     "interaction": [
                         {"code": "read"},
                         {"code": "search-type"},
+                        {"code": "create"},
                     ],
                     "searchParam": [
                         {"name": "patient", "type": "reference"},
@@ -73,15 +74,23 @@ CAPABILITY_STATEMENT = {
                 },
                 {
                     "type": "Observation",
+                    "documentation": "One Observation per measurement (a finding as extracted from one encounter). "
+                                     "interpretation POS/NEG carries the presence flag; effectiveDateTime and encounter come "
+                                     "from the source encounter; quantities carry UCUM units, blood pressure as components, "
+                                     "stated normal ranges as referenceRange. Honors the session cutoff (X-Session-Id).",
                     "interaction": [
                         {"code": "read"},
                         {"code": "search-type"},
+                        {"code": "create"},
                     ],
                     "searchParam": [
                         {"name": "patient", "type": "reference"},
                         {"name": "category", "type": "token"},
                         {"name": "code", "type": "token"},
+                        {"name": "date", "type": "date"},
+                        {"name": "encounter", "type": "reference"},
                         {"name": "_count", "type": "number"},
+                        {"name": "_offset", "type": "number"},
                     ],
                 },
                 {
@@ -101,6 +110,7 @@ CAPABILITY_STATEMENT = {
                     "interaction": [
                         {"code": "read"},
                         {"code": "search-type"},
+                        {"code": "create"},
                     ],
                     "searchParam": [
                         {"name": "patient", "type": "reference"},
@@ -125,6 +135,7 @@ CAPABILITY_STATEMENT = {
                     "interaction": [
                         {"code": "read"},
                         {"code": "search-type"},
+                        {"code": "create"},
                     ],
                     "searchParam": [
                         {"name": "patient", "type": "reference"},

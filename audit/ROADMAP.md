@@ -178,6 +178,18 @@ copyable lines and were left untouched (masking clinical content would alter the
 - `Condition`: fix at the service layer (Stage 2.1).
 - Add FHIR writes (orders, problem-list updates) if MedAgentBench-style action tasks are wanted.
 
+**Status: DONE (2026-09-27).** `Observation` is one resource per measurement (`id` = `question_findings.id`; the
+patient's 178 measurements were 1 resource per distinct finding before) with `encounter`, `effectiveDateTime`,
+`interpretation` POS/NEG (absent findings with no value carry SNOMED Absent), values parsed from `value_text` by
+`epic_sim/app/fhir/units.py` (UCUM units for 32,630 of the 38,953 numeric measurements, 2,212 blood pressures as
+components, 1,034 reference ranges, 217 comparators; unknown units are never guessed — 4,111 quantities are served
+without one and the raw text in `note`); `code`, `date` and `encounter` search params; the session cutoff applies to
+`Observation`, `DiagnosticReport`, `ServiceRequest`, `MedicationRequest` and `AllergyIntolerance` (only Encounter and
+DocumentReference honoured it before); a labs `DiagnosticReport` lists its Observations in `result`. FHIR `create` for
+Observation, ServiceRequest, MedicationRequest and Condition with write scopes, server-assigned ids, `Location`,
+OperationOutcome errors and a session-scoped `fhir_writes` table (Alembic `d0e1f2a3b4c5`). `epic_sim/tests/test_fhir.py`
++ `test_units.py` cover it; see `audit/STAGE4B_TODO.md`.
+
 ## Stage 5: Environment throughput (profile first)
 
 The `/env` step path is HTTP → FastAPI → Postgres → Redis. The scorer is already in-process and deterministic.

@@ -87,6 +87,8 @@ ROADMAP **Stages 1–4 are done**: reward-hacking suite and floors; label leaks 
 hardened (`SCORING_CHANGES.md`); data repaired in place (point-in-time medical/surgical history, profiles stripped of
 tested diagnoses, patient diagnosis redefined as index-encounter diagnosis with 4,424 scorable instances, ICD-10 codes
 validated against CMS FY2025 with per-node provenance and 969 duplicate nodes merged). No xfail remains in
-`eval/tests/test_reward_hacking.py`; `eval/tests/test_data_repairs.py` guards the data invariants. Next is **Stage 4b**
-(FHIR fidelity: Observation negation/dates/units, DocumentReference sections) or **Stage 5** (throughput: step latency
-under load, in-process scorer path, Harbor export) — Stage 5 first if the fork's purpose is RL training.
+`eval/tests/test_reward_hacking.py`; `eval/tests/test_data_repairs.py` guards the data invariants. **Stage 4b** (FHIR
+fidelity) is done too: Observation is one dated, encounter-linked resource per measurement with presence, UCUM units,
+blood-pressure components and reference ranges; every FHIR search honours the session cutoff; and FHIR `create` exists
+for Observation, ServiceRequest, MedicationRequest and Condition in a session-scoped store. Next is **Stage 5**
+(throughput: step latency under load, in-process scorer path, Harbor export).

@@ -38,7 +38,9 @@ See **[DATA_CARD.md](DATA_CARD.md)** for schemas, provenance, and what was exclu
 
 **Splits.** Patients are partitioned at the patient level: `public` (200 patients; the reported benchmark), `heldout` (268; labels shipped, so a second validation set), `train` (600; released for training, including reinforcement learning with the graph-derived rewards) and `private` (200, carved from train; **labels are not in the repository**, see *Private split* below). No patient shares source material with any other. Evidence retrieval is one instance per (patient, reference diagnosis), so its query never equals the patient's diagnosis answer key.
 
-**What the simulator never serves** (`epic_sim/app/services/visibility.py`): assessment and plan sections; the graph-derived diagnoses (the problem list is the chart's documented history); and, for an imaging-indication instance, any encounter after the ordering one. These rules apply to the Epic tool API, FHIR and `/env` alike. The "structured" prompt strategy adds ontology guidance only, no patient-specific concepts, and few-shot examples come from the train split.
+**What the simulator never serves** (`epic_sim/app/services/visibility.py`): assessment and plan sections; the graph-derived diagnoses (the problem list is the chart's documented history); and, for an imaging-indication or index-encounter diagnosis instance, any encounter after the index one. These rules apply to the Epic tool API, FHIR and `/env` alike. The "structured" prompt strategy adds ontology guidance only, no patient-specific concepts, and few-shot examples come from the train split.
+
+**FHIR.** `Observation` is one resource per measurement (a finding as extracted from one encounter; `id` = `question_findings.id`) with the source encounter and its date, the presence flag as `interpretation` POS/NEG (a finding with no value carries SNOMED Present/Absent), values parsed from the source text with UCUM units, blood pressure as systolic/diastolic components and a stated normal range as `referenceRange`; the unparsed remainder is kept in `note`. A labs `DiagnosticReport` lists its lab Observations in `result`. Every search honours the session cutoff (`X-Session-Id`). The server accepts FHIR `create` for `Observation`, `ServiceRequest`, `MedicationRequest` and `Condition` (scope `patient/<Type>.write`; attending and resident hold all four, nurse `Observation.write`): writes go to the `fhir_writes` table, never to the benchmark tables, and are visible only to the session (or, without one, the user) that made them.
 
 ## Repository Map
 
@@ -298,14 +300,12 @@ works anywhere Docker does and needs no compose file.
 
 ## Known issues and caveats
 
-- **The simulator's problem-list tools reveal the patient-diagnosis labels.** `view_problem_list` and the
-  `active_problems` field of `open_chart` (and the FHIR Condition resource) return the graph-derived
-  correct diagnoses of the patient's source questions with ICD-10 codes, which is the patient-diagnosis
-  reference itself. The `/env` endpoints and the Harbor tasks replace them with the chart's documented
-  history and hide assessment/plan sections server-side. The `eval/agents` harness used for the paper's
-  agentic runs does **not**: it hides assessment/plan client-side but leaves the problem list, so
-  agentic patient-diagnosis scores obtained through that harness are inflated. Use the environment
-  endpoints for any new agent evaluation.
+- **The paper's agentic patient-diagnosis scores are inflated.** Until Stage 2 of this fork,
+  `view_problem_list`, the `active_problems` field of `open_chart` and the FHIR Condition resource
+  returned the graph-derived correct diagnoses with ICD-10 codes, i.e. the label; the `eval/agents`
+  harness used for the paper's agentic runs hid assessment/plan client-side but left that list. Every
+  serving path now returns the chart's documented history instead and hides assessment/plan server-side.
+  Use the environment endpoints for any new agent evaluation.
 - Later encounter notes carry an "Active Problem List" of earlier encounters' diagnoses by construction
   (that is the chart); only the current encounter's diagnosis and the coded list are withheld.
 - The imaging-indication reference question is LLM-authored (anchored to the graph diagnosis); the other

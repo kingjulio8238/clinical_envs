@@ -22,6 +22,7 @@ class DiagnosticReport(DomainResource):
     effective_date_time: str | None = Field(None, alias="effectiveDateTime")
     conclusion: str | None = None
     conclusion_code: list[CodeableConcept] = Field(default_factory=list, alias="conclusionCode")
+    result: list[Reference] = Field(default_factory=list)
 
     @classmethod
     def from_ehr_section(

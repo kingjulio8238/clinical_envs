@@ -57,6 +57,21 @@ RESOURCE_READ_SCOPES: dict[str, str] = {
 }
 
 
+# FHIR resource type → required scope for create (Stage 4b write API)
+RESOURCE_WRITE_SCOPES: dict[str, str] = {
+    "Observation": "patient/Observation.write",
+    "ServiceRequest": "patient/ServiceRequest.write",
+    "MedicationRequest": "patient/MedicationRequest.write",
+    "Condition": "patient/Condition.write",
+}
+
+
+def can_write_resource(role: str, resource_type: str, user_scopes: list[str]) -> bool:
+    """Check if a role with given scopes may create a FHIR resource type."""
+    required_scope = RESOURCE_WRITE_SCOPES.get(resource_type)
+    return required_scope is not None and required_scope in user_scopes
+
+
 def get_allowed_sections(role: str) -> set[str] | None:
     """Return the set of section types a role can access, or None for full access."""
     return ROLE_SECTION_ACCESS.get(role)

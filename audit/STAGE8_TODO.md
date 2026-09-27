@@ -49,7 +49,7 @@ weights, tool calling, $0.10/$0.15 hosted; trainable on 1–2 GPUs) as the RL ca
 - [x] qwen3.5-9b agent arm: 10 scoring units × 120 (atypical 77 paired) = 1,157 episodes, 10 errors (0.9%; 7 in error_detection, see below)
 - [x] qwen3.5-9b single arm (no tools) on patient_diagnosis / test_selection / differential_diagnosis, 360 episodes (rerun with the format retry, H15)
 - [x] gpt-6-sol agent arm, 40/unit (atypical 23) = 383 episodes, 0 errors, $7.96 (OpenAI credits)
-- [ ] (later, after RL shows a gain) Kimi K2.5 separate row, further open models
+- [x] Kimi K2.5 separate (unranked) row: **deferred by decision (2026-09-27)** until after RL shows a gain — the RL question is Qwen before vs after, where the generator plays no role; the machinery is in place and tested (leaderboard puts Kimi below the line, unranked; `KIMI=1 bash scripts/run_stage8_panel.sh`), and the smoke ran clean (29 episodes, 0 errors, $0.017/episode, mean reward 0.49; `results/smoke/kimi-k2.5__*`), so a later run is a launch, not a build
 - [x] `python -m eval.protocol report` → `results/leaderboard.md`, `results/summary.json`; predictions + manifests committed
 - [x] `scripts/rescore_protocol_runs.py`: every run re-scored with the final scorer (as-run value kept in `reward_asrun`;
       unchanged units reproduce their as-run rewards exactly)

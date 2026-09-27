@@ -1,0 +1,31 @@
+{
+  "run_id": "kimi-k2.5__context_summarization__agent__public__s0",
+  "model": "kimi-k2.5",
+  "provider_base_url": "https://openrouter.ai/api/v1",
+  "model_id": "moonshotai/kimi-k2.5",
+  "task": "context_summarization",
+  "arm": "agent",
+  "split": "public",
+  "seed": 0,
+  "n_requested": 3,
+  "n_sampled": 3,
+  "n_recorded": 3,
+  "budget": 40,
+  "prices_per_million": {
+    "input": 0.44999999999999996,
+    "output": 2.25
+  },
+  "temperature": 0.0,
+  "extra": {},
+  "max_output_tokens_per_turn": 4096,
+  "episode_deadline_s": 900,
+  "prompt_hash": "db3bf41522aa17da",
+  "git_commit": "9531045643164e1b09eae87a061d210038ff03dd",
+  "floors_file": "eval/floors.json",
+  "started": "2026-09-27T20:58:23",
+  "duration_s": 285.4,
+  "cost_usd": 0.0337,
+  "max_usd": 0.5,
+  "stopped": null,
+  "protocol": "EVAL_PROTOCOL.md"
+}

@@ -29,7 +29,7 @@ for pid, sq in q("select patient_id, source_question_ids from longitudinal_encou
 R = [(p, json.loads(g)) for p, g in q("select patient_id, ground_truth from benchmark_ground_truth where task='patient_diagnosis' and split='public'")]
 P, G, pen = [], [], []
 for p, g in R:
-    ref = [d["icd10"] for d in g["active_diagnoses"] + g["chronic_conditions"] if d.get("icd10")]
+    ref = [d["icd10"] for d in g.get("active_diagnoses", []) + g.get("chronic_conditions", []) if d.get("icd10")]
     refcat = {x[:3] for x in ref}; neu = set(NEUTRAL.get(p, []))
     extra = sorted({x for x in sec[p] if x[:3] not in refcat})
     pen.append(sum(1 for x in extra if x[:3] not in neu))

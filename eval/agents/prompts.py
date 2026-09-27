@@ -488,7 +488,12 @@ def build_patient_intro(
     """Build the initial user message introducing the patient assignment."""
     parts = [f"Your assigned patient is patient_id = {patient_id}."]
 
-    if task == "evidence_retrieval" and diagnosis_names:
+    if task == "patient_diagnosis" and encounter_id:
+        parts.append(
+            f"Index encounter_id = {encounter_id}. Diagnose THIS visit: report the diagnosis established at the index "
+            "encounter (ICD-10-CM code, name, acuity), using only the chart up to and including it. Earlier encounters "
+            "are context; conditions documented before the index visit are not the target.")
+    elif task == "evidence_retrieval" and diagnosis_names:
         parts.append(f"Target diagnoses: {diagnosis_names}")
     elif task == "imaging_indication" and encounter_id:
         parts.append(f"Imaging order encounter_id = {encounter_id}")

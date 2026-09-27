@@ -20,6 +20,7 @@ TABLES_ORDERED = [
     "board_questions",
     "fact_cards",
     "diagnoses",
+    "diagnosis_merges",
     "clinical_findings",
     "question_diagnoses",
     "question_findings",

@@ -8,6 +8,7 @@ rules lives in epic_sim/tests (test_env.py, test_epic.py, test_fhir.py).
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import sqlite3
 import warnings
@@ -87,8 +88,11 @@ def test_allowed_encounters_for_imaging_instance(db, orm_sqlite_url):
     target = orders[inst["encounter_id"]]
     assert allowed == {e for e, o in orders.items() if o <= target}
     assert len(allowed) < len(orders)
+    # index-encounter diagnosis instances are point-in-time too (Stage 4); patient-scoped units have no cutoff
     dx_inst = db.instances("patient_diagnosis", SPLIT)[0]
-    assert _run(_with_session(orm_sqlite_url, lambda s: visibility.allowed_encounter_ids(s, dx_inst["gt_id"]))) is None
+    assert _run(_with_session(orm_sqlite_url, lambda s: visibility.allowed_encounter_ids(s, dx_inst["gt_id"]))) == db.encounters_upto(dx_inst["patient_id"], dx_inst["encounter_id"])
+    summ_inst = db.instances("context_summarization", SPLIT)[0]
+    assert _run(_with_session(orm_sqlite_url, lambda s: visibility.allowed_encounter_ids(s, summ_inst["gt_id"]))) is None
 
 
 def test_filter_future_encounters_covers_tool_and_fhir_shapes():
@@ -134,12 +138,15 @@ def test_strip_outcome_sections_shapes():
 def test_retrieval_instances_are_per_diagnosis(db):
     insts = db.instances("evidence_retrieval", SPLIT)
     assert insts and all(len(i["gt"]["query_diagnoses"]) == 1 for i in insts)
-    dx_ref = {i["patient_id"]: {d["diagnosis_id"] for d in i["gt"]["active_diagnoses"] + i["gt"]["chronic_conditions"]}
-              for i in db.instances("patient_diagnosis", SPLIT)}
-    # no instance's query is the patient's whole answer key (unless the patient has one diagnosis)
+    # the query names one of the patient's correct diagnoses, never the whole set (the Stage-1 leak)
+    corr = collections.defaultdict(set)
+    for pid, q in db.q("select patient_id, source_question_ids from longitudinal_encounters"):
+        for qid in json.loads(q):
+            corr[pid].update(d for (d,) in db.q("select diagnosis_id from question_diagnoses where question_id=? and role='correct'", qid))
     for i in insts:
         q = {d["diagnosis_id"] for d in i["gt"]["query_diagnoses"]}
-        assert q < dx_ref[i["patient_id"]] or len(dx_ref[i["patient_id"]]) == 1
+        assert len(q) == 1 and q <= corr[i["patient_id"]]
+        assert q < corr[i["patient_id"]] or len(corr[i["patient_id"]]) == 1
     superseded = db.q("select count(*) from benchmark_ground_truth where task='evidence_retrieval' and is_diagnostic=0 "
                       "and exclusion_reason like 'superseded%'")[0][0]
     assert superseded == 1268

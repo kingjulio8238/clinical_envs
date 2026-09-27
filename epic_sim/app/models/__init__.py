@@ -17,7 +17,7 @@ from epic_sim.app.models.longitudinal import (
     LongitudinalPatient,
 )
 from epic_sim.app.models.metadata import LlmCallLog, ProcessingLog
-from epic_sim.app.models.ontology import ClinicalFinding, Diagnosis, TerminologyCode
+from epic_sim.app.models.ontology import ClinicalFinding, Diagnosis, DiagnosisMerge, TerminologyCode
 from epic_sim.app.models.provenance import RawCard, SourceDeck
 from epic_sim.app.models.relationships import (
     DiagnosisFinding,
@@ -31,7 +31,7 @@ __all__ = [
     "Base",
     "SourceDeck", "RawCard",
     "BoardQuestion", "FactCard",
-    "Diagnosis", "ClinicalFinding", "TerminologyCode",
+    "Diagnosis", "DiagnosisMerge", "ClinicalFinding", "TerminologyCode",
     "QuestionDiagnosis", "QuestionFinding", "DiagnosisFinding",
     "FactDiagnosisLink", "FactFindingLink",
     "EhrSection",

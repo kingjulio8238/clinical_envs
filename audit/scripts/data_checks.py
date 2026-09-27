@@ -80,7 +80,7 @@ for pid, t in q("select patient_id, note_text from longitudinal_encounters"):
 hit = total = 0
 for pid, g in q("select patient_id, ground_truth from benchmark_ground_truth where task='patient_diagnosis'"):
     g = json.loads(g)
-    for d in g["active_diagnoses"] + g["chronic_conditions"]:
+    for d in g.get("active_diagnoses", []) + g.get("chronic_conditions", []):   # private rows are stripped
         total += 1; hit += f"{d['display_name'].lower()} (diagnosed" in notes[pid]
 print(f"reference dx appearing verbatim as '<name> (diagnosed ...)' in the chart: {hit}/{total} = {hit/total:.1%}")
 gt = json.loads(q("select ground_truth from benchmark_ground_truth where gt_id=7304")[0][0])
@@ -89,7 +89,7 @@ print("patient 1973 reward for bare categories E11.9/K35/J96:",
       compute_all_metrics("patient_diagnosis", [bare], [gt])["weighted_problem_list_f1_neutral"])
 
 # ---- evidence retrieval ---------------------------------------------------------
-pd_ref = {p: {d["diagnosis_id"] for d in json.loads(g)["active_diagnoses"] + json.loads(g)["chronic_conditions"]}
+pd_ref = {p: {d["diagnosis_id"] for d in json.loads(g).get("active_diagnoses", []) + json.loads(g).get("chronic_conditions", [])}
           for p, g in q("select patient_id, ground_truth from benchmark_ground_truth where task='patient_diagnosis'")}
 same = sum(1 for p, g in q("select patient_id, ground_truth from benchmark_ground_truth where task='evidence_retrieval'")
            if {d["diagnosis_id"] for d in json.loads(g)["query_diagnoses"]} == pd_ref[p])
@@ -98,7 +98,7 @@ print("public share of sections graded >=2:",
       q("select round(avg(relevance_grade>=2),3) from relevance_judgments join benchmark_ground_truth using(gt_id) where split='public'")[0][0])
 stype = {f"ees_{i}": t for i, t in q("select id, section_type from encounter_ehr_sections")}
 P, G = [], []
-for (gid,) in q("select gt_id from benchmark_ground_truth where task='evidence_retrieval' and split='public'"):
+for (gid,) in q("select gt_id from benchmark_ground_truth where task='evidence_retrieval' and split='public' and is_diagnostic"):   # superseded duplicates carry no judgments
     j = dict(q("select passage_id, relevance_grade from relevance_judgments where gt_id=?", gid))
     one = [p for p in j if stype[p] == "hpi"][:1] or list(j)[:1]
     P.append({"rankings": [{"passage_id": one[0]}]}); G.append({"_judgments": j})

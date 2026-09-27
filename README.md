@@ -5,7 +5,7 @@
       Synthetic Hospital:<br>
       A Medical Benchmark & EHR Simulation Platform</h1>
 
-Converts USMLE-style medical education source content into a ground-truth benchmark database of synthetic longitudinal patient records, served through an Epic-faithful EHR simulation platform (FHIR R4 + OAuth2/RBAC), for evaluating clinical AI agents on four longitudinal-chart tasks: patient diagnosis (problem-list reconstruction), context summarization (with whole-patient, current-visit, and specialty-conditioned variants), evidence retrieval, and imaging indication. The benchmark ships with a labelled training split so it can also be used as a verifiable-reward environment.
+Converts USMLE-style medical education source content into a ground-truth benchmark database of synthetic longitudinal patient records, served through an Epic-faithful EHR simulation platform (FHIR R4 + OAuth2/RBAC), for evaluating clinical AI agents on four longitudinal-chart tasks: patient diagnosis (index-encounter diagnosis from the chart up to that visit; the longitudinal problem-list task is kept as a superseded extraction task), context summarization (with whole-patient, current-visit, and specialty-conditioned variants), evidence retrieval, and imaging indication. The benchmark ships with a labelled training split so it can also be used as a verifiable-reward environment.
 
 > **Paper:** Park, Chen, Dettmers. _Synthetic Hospital: An Open, Verifiable, Physician-Validated Longitudinal EHR Benchmark._ Preprint, 2026. arXiv link: (https://arxiv.org/abs/2609.30027).
 > If you use this work, please cite it (see [CITATION.cff](CITATION.cff)).

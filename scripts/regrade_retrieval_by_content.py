@@ -136,10 +136,11 @@ def main() -> int:
     ap.add_argument("--db", default="benchmark_v1.3.db")
     ap.add_argument("--overlay", default=str(private_labels.DEFAULT_PATH))
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true", help="regrade even if already applied (after section text changed)")
     a = ap.parse_args()
     conn = sqlite3.connect(a.db)
-    if conn.execute("select count(*) from benchmark_ground_truth where json_extract(ground_truth,'$.graded')=?", (MARK,)).fetchone()[0]:
-        print("already applied to the release; nothing to do")
+    if not a.force and conn.execute("select count(*) from benchmark_ground_truth where json_extract(ground_truth,'$.graded')=?", (MARK,)).fetchone()[0]:
+        print("already applied to the release; nothing to do (use --force after section edits)")
         return 0
     graph = Graph(conn)
     before = collections.Counter(g for (g,) in conn.execute("select relevance_grade from relevance_judgments"))

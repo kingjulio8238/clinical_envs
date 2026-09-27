@@ -31,7 +31,9 @@ from epic_sim.app.models.longitudinal import LongitudinalEncounter, Longitudinal
 from epic_sim.app.schemas.epic import ProblemEntry
 
 OUTCOME_SECTIONS: frozenset[str] = frozenset({"assessment", "plan"})
-POINT_IN_TIME_TASKS: frozenset[str] = frozenset({"imaging_indication"})
+POINT_IN_TIME_TASKS: frozenset[str] = frozenset({"imaging_indication", "patient_diagnosis"})
+"""Tasks whose instance is bound to an encounter (encounter_id set): nothing after it is visible.
+Longitudinal rows (encounter_id NULL) have no cutoff."""
 
 
 def hidden_sections() -> frozenset[str]:
@@ -130,7 +132,7 @@ def filter_future_encounters(obj: Any, allowed: set[int]) -> Any:
         return [filter_future_encounters(i, allowed) for i in obj if _visible(i, allowed)]
     if isinstance(obj, dict):
         if not _visible(obj, allowed):   # a single encounter (or section) past the cutoff
-            return {"error": "This encounter is after the imaging order and is not accessible in this task."}
+            return {"error": "This encounter is after the task's index encounter and is not accessible in this episode."}
         return {k: filter_future_encounters(v, allowed) for k, v in obj.items()}
     return obj
 

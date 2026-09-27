@@ -21,6 +21,12 @@ class Diagnosis(Base):
     category: Mapped[str | None] = mapped_column(Text)
     acuity: Mapped[Acuity | None] = mapped_column(Enum(Acuity, name="acuity"))
     created_at: Mapped[str] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    # ICD-10-CM provenance (Stage 4, scripts/repair_icd_codes.py)
+    icd10_status: Mapped[str | None] = mapped_column(Text)          # billable | header | invalid_code | invalid_category | uncoded
+    icd10_repaired_from: Mapped[str | None] = mapped_column(Text)
+    icd10_repair_reason: Mapped[str | None] = mapped_column(Text)
+    icd10_flag: Mapped[str | None] = mapped_column(Text)            # semantic mismatch note, if any
+    merged_into: Mapped[int | None] = mapped_column(Integer)        # canonical node when this one was merged away
 
     __table_args__ = (
         UniqueConstraint("icd10_code", "snomed_id", name="uq_diagnoses_icd10_snomed"),
@@ -64,3 +70,12 @@ class TerminologyCode(Base):
         UniqueConstraint("system", "code", name="uq_terminology_system_code"),
         Index("idx_term_system_code", "system", "code"),
     )
+
+
+class DiagnosisMerge(Base):
+    """Provenance of diagnosis-node merges (Stage 4): old node -> canonical node."""
+    __tablename__ = "diagnosis_merges"
+
+    old_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    new_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)

@@ -109,7 +109,7 @@ def _attach_context(conn, inst: dict) -> dict:
     gt = dict(inst["ground_truth"])
     task = inst["task"]
     if task == "patient_diagnosis":
-        gt["_neutral_categories"] = sorted(neutral_categories_for(conn, inst["patient_id"]))
+        gt["_neutral_categories"] = sorted(set(neutral_categories_for(conn, inst["patient_id"])) | set(gt.get("neutral_extra") or []))
     elif task == "context_summarization":
         gt["_chart_text"] = chart_text_for(conn, inst["patient_id"])
         gt["_patient_terms"] = patient_terms_for(conn, inst["patient_id"])

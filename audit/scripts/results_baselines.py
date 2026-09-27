@@ -88,7 +88,7 @@ for name, pids in SUBSETS.items():
     m = compute_all_metrics("patient_diagnosis", [copy_dx(p) for _, p, _, _ in R], [with_neutral(p, g) for _, p, _, g in R])
     out["dx_copy_chart"] = round(m["weighted_problem_list_f1_neutral"], 3)
     # the agent harness's view_problem_list returns exactly the reference diagnoses (epic_service.get_problem_list)
-    m = compute_all_metrics("patient_diagnosis", [{"active_diagnoses": [{"icd10": d["icd10"]} for d in g["active_diagnoses"] + g["chronic_conditions"]]}
+    m = compute_all_metrics("patient_diagnosis", [{"active_diagnoses": [{"icd10": d["icd10"]} for d in g.get("active_diagnoses", []) + g.get("chronic_conditions", [])]}
                                                   for _, _, _, g in R], [with_neutral(p, g) for _, p, _, g in R])
     out["dx_echo_problem_list_tool"] = round(m["weighted_problem_list_f1_neutral"], 3)
     R = rows("context_summarization", pids, "json_extract(b.ground_truth,'$.variant') is null")

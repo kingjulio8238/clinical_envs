@@ -78,16 +78,15 @@ present but defective for its stated purpose · **Absent** = not in the repo.
 
 ## What is still unverified
 
-- **The simulator and `/env` end to end.** Docker was down, so FHIR, RBAC, `/env` hiding and budget, step latency, and the Harbor oracle are untested. This is the cheapest next check and the one gating Stage 5 (throughput) of the roadmap.
+- **Simulator throughput and the Harbor oracle.** The simulator, `/env` hiding, budget and reward now run and pass in Docker (Stages 2–4); step latency and the Harbor export are still unmeasured, which gates Stage 5 (throughput).
 - **Any model run.** A targeted run is warranted only where it would change a decision, e.g. one model with vs without the summarization hints to size #12.
 
 ## Recommended next move
 
-ROADMAP **Stages 1–3 are done**: reward-hacking suite and floors; label leaks closed at the serving layer; rewards
-hardened (`SCORING_CHANGES.md`: graded ICD credit and acuity, documented conditions neutral, fixed-k P@k, content-graded
-retrieval with nDCG@10 as reward, summarization = HM(negation-aware concept recall, grounded precision) × length with
-per-encounter must-include quotas, explicit `abstain` field with involvement-weighted absent specialties and a critical
-fallback, imaging concept F1 against graph reference terms). Every previously known exploit is now a passing gate in
-`eval/tests/test_reward_hacking.py`. Next is **Stage 4**: repair the data in place, starting with the one remaining
-xfail, `test_copying_the_problem_list_does_not_solve_diagnosis` (80% of diagnosis labels are still copyable from later
-notes; the fix is the point-in-time index-encounter redefinition of patient diagnosis plus date-aware history).
+ROADMAP **Stages 1–4 are done**: reward-hacking suite and floors; label leaks closed at the serving layer; rewards
+hardened (`SCORING_CHANGES.md`); data repaired in place (point-in-time medical/surgical history, profiles stripped of
+tested diagnoses, patient diagnosis redefined as index-encounter diagnosis with 4,424 scorable instances, ICD-10 codes
+validated against CMS FY2025 with per-node provenance and 969 duplicate nodes merged). No xfail remains in
+`eval/tests/test_reward_hacking.py`; `eval/tests/test_data_repairs.py` guards the data invariants. Next is **Stage 4b**
+(FHIR fidelity: Observation negation/dates/units, DocumentReference sections) or **Stage 5** (throughput: step latency
+under load, in-process scorer path, Harbor export) — Stage 5 first if the fork's purpose is RL training.

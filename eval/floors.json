@@ -10,7 +10,7 @@
       "floor_policy": "echo_structured_hints",
       "headroom": 0.5411047007230295,
       "policies": {
-       "chart_dump": 0.41453280153856475,
+       "chart_dump": 0.4175469423053976,
        "echo_structured_hints": 0.4588952992769705,
        "empty": 0.0
       }
@@ -22,30 +22,30 @@
     "metrics": {
      "ndcg_10": {
       "ceiling": 1.0,
-      "floor": 0.43838915903350967,
+      "floor": 0.4291498737079516,
       "floor_policy": "section_type_prior",
-      "headroom": 0.5616108409664904,
+      "headroom": 0.5708501262920485,
       "policies": {
        "empty": 0.0,
-       "random": 0.25105671923702727,
-       "section_type_prior": 0.43838915903350967,
-       "single_hpi": 0.08004849443857415
+       "random": 0.25090415167486074,
+       "section_type_prior": 0.4291498737079516,
+       "single_hpi": 0.08048214975311489
       }
      },
      "precision_5": {
-      "ceiling": 0.9344608879492601,
-      "floor": 0.4124735729386892,
+      "ceiling": 0.9351812366737741,
+      "floor": 0.39936034115138597,
       "floor_policy": "section_type_prior",
-      "headroom": 0.5219873150105709,
+      "headroom": 0.5358208955223881,
       "policies": {
        "empty": 0.0,
-       "random": 0.22401691331923887,
-       "section_type_prior": 0.4124735729386892,
-       "single_hpi": 0.06765327695560253
+       "random": 0.22434968017057572,
+       "section_type_prior": 0.39936034115138597,
+       "single_hpi": 0.06823027718550106
       }
      }
     },
-    "n": 946
+    "n": 938
    },
    "imaging_indication": {
     "metrics": {
@@ -69,19 +69,19 @@
       "agentic_floor": 0.0,
       "agentic_floor_policy": "echo_problem_list_tool",
       "ceiling": 1.0,
-      "floor": 0.6005717734339401,
+      "floor": 0.03103130755064457,
       "floor_policy": "copy_problem_list_plus_chronic",
-      "headroom": 0.3994282265660599,
+      "headroom": 0.9689686924493555,
       "policies": {
-       "copy_problem_list": 0.5969639420418505,
-       "copy_problem_list_plus_chronic": 0.6005717734339401,
+       "copy_problem_list": 0.01998158379373849,
+       "copy_problem_list_plus_chronic": 0.03103130755064457,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
-       "profile_chronic": 0.06311844932000261
+       "profile_chronic": 0.011602209944751382
       }
      }
     },
-    "n": 268
+    "n": 905
    },
    "specialty_absent": {
     "metrics": {
@@ -106,14 +106,14 @@
     "metrics": {
      "conditioned_f1": {
       "ceiling": 0.9993662864385298,
-      "floor": 0.1797968392659378,
+      "floor": 0.1811794871938598,
       "floor_policy": "chart_dump",
-      "headroom": 0.819569447172592,
+      "headroom": 0.81818679924467,
       "policies": {
        "abstain_always": 0.0,
-       "abstain_by_name": 0.1736654940630799,
-       "chart_dump": 0.1797968392659378,
-       "chart_dump_plus_phrase": 0.17806004181413207,
+       "abstain_by_name": 0.17499305828218786,
+       "chart_dump": 0.1811794871938598,
+       "chart_dump_plus_phrase": 0.17942399745844625,
        "empty": 0.0,
        "phrase_only": 0.0
       }
@@ -131,7 +131,7 @@
       "floor_policy": "echo_structured_hints",
       "headroom": 0.5251397502531194,
       "policies": {
-       "chart_dump": 0.42107416333620756,
+       "chart_dump": 0.4244883293187408,
        "echo_structured_hints": 0.4748602497468806,
        "empty": 0.0
       }
@@ -143,30 +143,30 @@
     "metrics": {
      "ndcg_10": {
       "ceiling": 1.0,
-      "floor": 0.44692054476410137,
+      "floor": 0.432067013339715,
       "floor_policy": "section_type_prior",
-      "headroom": 0.5530794552358986,
+      "headroom": 0.567932986660285,
       "policies": {
        "empty": 0.0,
-       "random": 0.26099457708812573,
-       "section_type_prior": 0.44692054476410137,
-       "single_hpi": 0.07845086797645451
+       "random": 0.2614476991229443,
+       "section_type_prior": 0.432067013339715,
+       "single_hpi": 0.0789549609917241
       }
      },
      "precision_5": {
-      "ceiling": 0.9321525885558584,
-      "floor": 0.4100817438692098,
+      "ceiling": 0.9339699863574352,
+      "floor": 0.3858117326057299,
       "floor_policy": "section_type_prior",
-      "headroom": 0.5220708446866485,
+      "headroom": 0.5481582537517053,
       "policies": {
        "empty": 0.0,
-       "random": 0.2304087193460491,
-       "section_type_prior": 0.4100817438692098,
-       "single_hpi": 0.06866485013623978
+       "random": 0.23061391541609824,
+       "section_type_prior": 0.3858117326057299,
+       "single_hpi": 0.06930422919508868
       }
      }
     },
-    "n": 734
+    "n": 733
    },
    "imaging_indication": {
     "metrics": {
@@ -190,19 +190,19 @@
       "agentic_floor": 0.0,
       "agentic_floor_policy": "echo_problem_list_tool",
       "ceiling": 1.0,
-      "floor": 0.6130242330274944,
+      "floor": 0.03568917018284107,
       "floor_policy": "copy_problem_list_plus_chronic",
-      "headroom": 0.3869757669725056,
+      "headroom": 0.964310829817159,
       "policies": {
-       "copy_problem_list": 0.6107106813782692,
-       "copy_problem_list_plus_chronic": 0.6130242330274944,
+       "copy_problem_list": 0.015646976090014066,
+       "copy_problem_list_plus_chronic": 0.03568917018284107,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
-       "profile_chronic": 0.08156433703283138
+       "profile_chronic": 0.02109704641350211
       }
      }
     },
-    "n": 200
+    "n": 711
    },
    "specialty_absent": {
     "metrics": {
@@ -227,14 +227,14 @@
     "metrics": {
      "conditioned_f1": {
       "ceiling": 1.0,
-      "floor": 0.15788735361918813,
+      "floor": 0.15937016228867526,
       "floor_policy": "chart_dump",
-      "headroom": 0.8421126463808118,
+      "headroom": 0.8406298377113247,
       "policies": {
        "abstain_always": 0.0,
-       "abstain_by_name": 0.15523293935709248,
-       "chart_dump": 0.15788735361918813,
-       "chart_dump_plus_phrase": 0.15755783723891298,
+       "abstain_by_name": 0.15666975740699524,
+       "chart_dump": 0.15937016228867526,
+       "chart_dump_plus_phrase": 0.1590322830856017,
        "empty": 0.0,
        "phrase_only": 0.0
       }
@@ -252,7 +252,7 @@
       "floor_policy": "echo_structured_hints",
       "headroom": 0.5131763400610823,
       "policies": {
-       "chart_dump": 0.4321010630034894,
+       "chart_dump": 0.43531021448099766,
        "echo_structured_hints": 0.4868236599389178,
        "empty": 0.0
       }
@@ -264,30 +264,30 @@
     "metrics": {
      "ndcg_10": {
       "ceiling": 1.0,
-      "floor": 0.43199241327104576,
+      "floor": 0.4203201561624597,
       "floor_policy": "section_type_prior",
-      "headroom": 0.5680075867289542,
+      "headroom": 0.5796798438375403,
       "policies": {
        "empty": 0.0,
-       "random": 0.24883805414715654,
-       "section_type_prior": 0.43199241327104576,
-       "single_hpi": 0.07124919405983042
+       "random": 0.24842792253392085,
+       "section_type_prior": 0.4203201561624597,
+       "single_hpi": 0.07277018045392132
       }
      },
      "precision_5": {
-      "ceiling": 0.9175977653631285,
-      "floor": 0.39804469273743015,
+      "ceiling": 0.9196605374823197,
+      "floor": 0.38415841584158417,
       "floor_policy": "section_type_prior",
-      "headroom": 0.5195530726256984,
+      "headroom": 0.5355021216407355,
       "policies": {
        "empty": 0.0,
-       "random": 0.2169832402234637,
-       "section_type_prior": 0.39804469273743015,
-       "single_hpi": 0.061731843575419
+       "random": 0.21691654879773695,
+       "section_type_prior": 0.38415841584158417,
+       "single_hpi": 0.06336633663366337
       }
      }
     },
-    "n": 716
+    "n": 707
    },
    "imaging_indication": {
     "metrics": {
@@ -311,19 +311,19 @@
       "agentic_floor": 0.0,
       "agentic_floor_policy": "echo_problem_list_tool",
       "ceiling": 1.0,
-      "floor": 0.5696699919733387,
+      "floor": 0.03571428571428571,
       "floor_policy": "copy_problem_list_plus_chronic",
-      "headroom": 0.4303300080266613,
+      "headroom": 0.9642857142857143,
       "policies": {
-       "copy_problem_list": 0.5668612264066424,
-       "copy_problem_list_plus_chronic": 0.5696699919733387,
+       "copy_problem_list": 0.023448773448773448,
+       "copy_problem_list_plus_chronic": 0.03571428571428571,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
-       "profile_chronic": 0.060989916623501284
+       "profile_chronic": 0.012265512265512266
       }
      }
     },
-    "n": 200
+    "n": 693
    },
    "specialty_absent": {
     "metrics": {
@@ -348,14 +348,14 @@
     "metrics": {
      "conditioned_f1": {
       "ceiling": 1.0,
-      "floor": 0.18294318825845707,
+      "floor": 0.1844306943846871,
       "floor_policy": "chart_dump",
-      "headroom": 0.8170568117415429,
+      "headroom": 0.8155693056153129,
       "policies": {
        "abstain_always": 0.0,
-       "abstain_by_name": 0.17637920085053627,
-       "chart_dump": 0.18294318825845707,
-       "chart_dump_plus_phrase": 0.1822451808127537,
+       "abstain_by_name": 0.1778190285105733,
+       "chart_dump": 0.1844306943846871,
+       "chart_dump_plus_phrase": 0.18372315816968277,
        "empty": 0.0,
        "phrase_only": 0.0
       }
@@ -373,7 +373,7 @@
       "floor_policy": "echo_structured_hints",
       "headroom": 0.5320534472196552,
       "policies": {
-       "chart_dump": 0.41018786936541707,
+       "chart_dump": 0.41275039961560345,
        "echo_structured_hints": 0.46794655278034486,
        "empty": 0.0
       }
@@ -385,30 +385,30 @@
     "metrics": {
      "ndcg_10": {
       "ceiling": 1.0,
-      "floor": 0.44169813742497577,
+      "floor": 0.42136346804142416,
       "floor_policy": "section_type_prior",
-      "headroom": 0.5583018625750242,
+      "headroom": 0.5786365319585758,
       "policies": {
        "empty": 0.0,
-       "random": 0.2504530644811756,
-       "section_type_prior": 0.44169813742497577,
-       "single_hpi": 0.07565432468776326
+       "random": 0.2503885033021457,
+       "section_type_prior": 0.42136346804142416,
+       "single_hpi": 0.07615991683492454
       }
      },
      "precision_5": {
-      "ceiling": 0.9379405034324944,
-      "floor": 0.40695652173913044,
+      "ceiling": 0.9383341003221352,
+      "floor": 0.3785549930971008,
       "floor_policy": "section_type_prior",
-      "headroom": 0.5309839816933639,
+      "headroom": 0.5597791072250344,
       "policies": {
        "empty": 0.0,
-       "random": 0.22299313501144163,
-       "section_type_prior": 0.40695652173913044,
-       "single_hpi": 0.06535469107551488
+       "random": 0.22308329498389326,
+       "section_type_prior": 0.3785549930971008,
+       "single_hpi": 0.06589967786470319
       }
      }
     },
-    "n": 2185
+    "n": 2173
    },
    "imaging_indication": {
     "metrics": {
@@ -432,19 +432,19 @@
       "agentic_floor": 0.0,
       "agentic_floor_policy": "echo_problem_list_tool",
       "ceiling": 1.0,
-      "floor": 0.6052181482874537,
+      "floor": 0.03500788022064617,
       "floor_policy": "copy_problem_list_plus_chronic",
-      "headroom": 0.3947818517125463,
+      "headroom": 0.9649921197793538,
       "policies": {
-       "copy_problem_list": 0.6027369774890148,
-       "copy_problem_list_plus_chronic": 0.6052181482874537,
+       "copy_problem_list": 0.019326241134751773,
+       "copy_problem_list_plus_chronic": 0.03500788022064617,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
-       "profile_chronic": 0.06243206681479532
+       "profile_chronic": 0.01702127659574468
       }
      }
     },
-    "n": 600
+    "n": 2115
    },
    "specialty_absent": {
     "metrics": {
@@ -469,14 +469,14 @@
     "metrics": {
      "conditioned_f1": {
       "ceiling": 1.0,
-      "floor": 0.1718957504338251,
+      "floor": 0.17331238551744851,
       "floor_policy": "chart_dump",
-      "headroom": 0.8281042495661749,
+      "headroom": 0.8266876144825515,
       "policies": {
        "abstain_always": 0.0,
-       "abstain_by_name": 0.16643237715350778,
-       "chart_dump": 0.1718957504338251,
-       "chart_dump_plus_phrase": 0.1712061291653248,
+       "abstain_by_name": 0.1678116440860034,
+       "chart_dump": 0.17331238551744851,
+       "chart_dump_plus_phrase": 0.1726244488626841,
        "empty": 0.0,
        "phrase_only": 0.0
       }

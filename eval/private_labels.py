@@ -27,7 +27,7 @@ REMOVED_FLAG = "_labels_removed"
 # Ground-truth keys that are labels, per task. Everything else in the JSON is an input the policy
 # legitimately sees (retrieval query, clinical question, specialty name) and stays in the release.
 LABEL_KEYS: dict[str, tuple[str, ...]] = {
-    "patient_diagnosis": ("active_diagnoses", "chronic_conditions", "encounter_diagnosis_map"),
+    "patient_diagnosis": ("active_diagnoses", "chronic_conditions", "encounter_diagnosis_map", "neutral_extra"),
     "evidence_retrieval": ("grade_distribution", "num_passages"),      # judgments live in their own table
     "context_summarization": ("must_include_findings", "reference_summary", "key_encounters",
                               "tiers", "involvement", "tau_residual"),

@@ -148,8 +148,23 @@ class ReleaseDB:
             return d
         return self._memo("sections", load_all).get(patient_id, [])
 
-    def chart_text(self, patient_id: int) -> str:
-        return "\n".join(f"[{st.upper()}]\n{txt}" for _, st, txt in self.sections(patient_id))
+    def chart_text(self, patient_id: int, upto_encounter_id: int | None = None) -> str:
+        """The chart as a policy may read it; for an index-encounter instance, up to that encounter."""
+        secs = self.sections(patient_id)
+        if upto_encounter_id is not None:
+            allowed = self.encounters_upto(patient_id, upto_encounter_id)
+            secs = [s for s in secs if self._section_encounter(s[0]) in allowed]
+        return "\n".join(f"[{st.upper()}]\n{txt}" for _, st, txt in secs)
+
+    def encounters_upto(self, patient_id: int, encounter_id: int) -> set[int]:
+        orders = self._memo("enc_orders", lambda: {e: (p, o) for e, p, o in self.q(
+            "select encounter_id, patient_id, encounter_order from longitudinal_encounters")})
+        _, target = orders[encounter_id]
+        return {e for e, (p, o) in orders.items() if p == patient_id and o <= target}
+
+    def _section_encounter(self, passage_id: str) -> int:
+        return self._memo("sec_enc", lambda: {f"ees_{i}": e for i, e in self.q(
+            "select id, encounter_id from encounter_ehr_sections")})[passage_id]
 
     def section_type(self, passage_id: str) -> str:
         return self._memo("stype", lambda: {f"ees_{i}": t for i, t in self.q(
@@ -312,7 +327,7 @@ def attach_context(db: ReleaseDB, inst: Instance) -> dict:
     """The ground truth plus the per-instance context score_one._attach_context adds."""
     gt = dict(inst["gt"])
     if inst["task"] == "patient_diagnosis":
-        gt["_neutral_categories"] = db.neutral_categories(inst["patient_id"])
+        gt["_neutral_categories"] = sorted(set(db.neutral_categories(inst["patient_id"])) | set(gt.get("neutral_extra") or []))
     elif inst["task"] in ("context_summarization", "specialty_involved", "specialty_absent"):
         gt["_chart_text"] = db.chart_text(inst["patient_id"])
         gt["_patient_terms"] = db.patient_terms(inst["patient_id"])
@@ -409,7 +424,7 @@ _PROBLEM_LINE = re.compile(r"^- (.+?) \(diagnosed \d{4}-\d\d-\d\d\)", re.M)
 def dx_copy_problem_list(db: ReleaseDB, inst: Instance) -> dict:
     """Regex-copy the `<name> (diagnosed YYYY-MM-DD)` lines from the chart's problem lists and map
     each name to a code with the benchmark's own diagnosis table."""
-    names = set(_PROBLEM_LINE.findall(db.chart_text(inst["patient_id"])))
+    names = set(_PROBLEM_LINE.findall(db.chart_text(inst["patient_id"], inst.get("encounter_id"))))
     n2c = db.name_to_icd()
     return {"active_diagnoses": [{"icd10": n2c[n.lower()], "acuity": "acute"} for n in sorted(names) if n.lower() in n2c],
             "chronic_conditions": []}

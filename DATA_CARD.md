@@ -79,11 +79,11 @@ The JSONL already nests encounters in that order.
 | `benchmark_ground_truth` | 16,595 (15,527 scorable) | One row per task instance: `task`, `granularity`, `patient_id` / `encounter_id`, `ground_truth` (JSON), `split`; 1,268 superseded patient-level retrieval rows carry `is_diagnostic = 0` |
 | `relevance_judgments` | 239,545 | Graded relevance (0–3) of each chart section for the per-diagnosis evidence-retrieval instance it belongs to, graded from the section **content** (`scripts/regrade_retrieval_by_content.py`; private-split judgments are held outside the release) |
 | `imaging_orders` | 1,865 | Underspecified imaging orders for the imaging-indication task, keyed to their ground truth |
-| `diagnoses`, `clinical_findings`, `diagnosis_findings` | 9,623 / 36,620 / 52,082 | The ontology-grounded knowledge graph: diagnoses (ICD-10-CM, SNOMED CT), findings (SNOMED CT, LOINC), and typed diagnosis–finding relations |
+| `diagnoses`, `clinical_findings`, `diagnosis_findings` | 9,623 (8,654 live; 969 merged) / 36,620 / ≤52,082 | The ontology-grounded knowledge graph: diagnoses (ICD-10-CM validated against CMS FY2025, with provenance columns; SNOMED CT), findings (SNOMED CT, LOINC), and typed diagnosis–finding relations |
 | `question_findings`, `question_diagnoses`, `board_questions` | 138,777 / 51,075 / 7,003 | Per-source-question annotation links (finding and diagnosis ids with roles) and question metadata (subject, organ system, difficulty). No question text is included |
 | `release_info` | — | Version, export date, task list, split definitions, and change notes |
 
-**Tasks** (`benchmark_ground_truth.task`, scorable rows): `patient_diagnosis` (1,268 instances), `context_summarization` (7,613: 1,268 whole-patient plus 6,345 specialty-conditioned), `evidence_retrieval` (4,581, one per patient × reference diagnosis), `imaging_indication` (1,865).
+**Tasks** (`benchmark_ground_truth.task`, scorable rows): `patient_diagnosis` (4,545 **index-encounter** instances, `granularity = encounter`: diagnose one visit from the chart up to it; 4,424 scorable — 121 carry `is_diagnostic = 0` because every label is a non-diagnostic entry or has no billable ICD-10 code after the CMS repair; the 1,268 longitudinal problem-list rows are kept with `is_diagnostic = 0`), `context_summarization` (7,613: 1,268 whole-patient plus 6,345 specialty-conditioned), `evidence_retrieval` (4,551 scorable, one per patient × reference diagnosis), `imaging_indication` (1,865).
 
 **Splits** (`benchmark_ground_truth.split`), assigned at the patient level:
 
@@ -95,6 +95,8 @@ The JSONL already nests encounters in that order.
 | `private` | 200 | 2,628 | Carved from the original 800-patient train split (`scripts/carve_private_split.py`, seed 20260927). **Labels are not in this file**: the rows keep their inputs only (`"_labels_removed": true`) and the scorer overlays the labels from an operator-held file (`eval/private_labels.py`) |
 
 Instance counts include the per-diagnosis evidence-retrieval instances (below).
+
+**Data repairs in this fork (Stage 4, `scripts/repair_history.py`, `redefine_patient_diagnosis.py`, `repair_icd_codes.py`)**: history is point-in-time (profile conditions that name a tested diagnosis removed from profiles and notes; procedures that treat a diagnosis shown only after it; the polished HPI never names the visit's own new diagnosis; `note_text` rebuilt); `longitudinal_patients.primary_diagnoses` is NULL (labels live in `benchmark_ground_truth`); ICD-10-CM codes validated against CMS FY2025 with per-node provenance (`icd10_status`, `icd10_repaired_from`, `icd10_repair_reason`, `icd10_flag`, `merged_into`; `diagnosis_merges` table); 969 duplicate nodes (same name and SNOMED id) merged and label references repointed. `patient_profiles.db` / `.jsonl` were regenerated from the repaired tables.
 
 **Label revisions in this fork** (all deterministic, scripted, applied to the release and the private overlay): retrieval judgments graded from section content; whole-patient must-include findings selected round-robin across encounters (critical first, cap 20); absent specialties resampled per patient in proportion to involvement; imaging `reference_terms` (correct diagnosis, differential, key findings) as the scored reference. See `SCORING_CHANGES.md` and `release_info`.
 

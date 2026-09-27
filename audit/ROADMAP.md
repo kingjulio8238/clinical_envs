@@ -134,6 +134,23 @@ shared matcher. Floors before → after (public): retrieval P@5 0.995 → 0.38 (
 
 ## Stage 4: Repair the data in place (release DB only; deterministic)
 
+**Status: DONE (2026-09-27).** `scripts/repair_history.py` (profiles: 564 changed, 1,128 tested conditions removed;
+4,536 PMH profile lines removed; 203 HPIs masked; 348 PSH procedures hidden until after their diagnosis; 2,660 notes
+rebuilt; `primary_diagnoses` nulled; profile files regenerated), `scripts/repair_icd_codes.py` (CMS FY2025 validation,
+1,226 codes repaired, 1,544 flagged, 969 nodes merged into tombstones that release their code so the simulator's
+`UNIQUE(icd10_code, snomed_id)` and edge uniqueness hold, provenance columns + `diagnosis_merges`, labels refreshed),
+`scripts/redefine_patient_diagnosis.py` (4,545 index-encounter instances, 4,424 scorable: 73 all-non-diagnostic and 48
+whose only label lost its code are `is_diagnostic = 0`; 1,057 repeat encounters excluded; earlier keyed diagnoses
+chart-neutral; longitudinal rows superseded), retrieval regraded on the edited text. Verified live: Postgres reload
+count-exact, simulator suite green in Docker, `/env` index-encounter episodes hide later encounters and the label, and
+the oracle scores 1.0. Acceptance:
+HPI self-naming 0/4,388 (was 210); profiles naming a tested diagnosis 1/1,268 (was 500); salpingectomy anachronisms
+0/12; the two remaining appendectomy lines follow an earlier appendicitis visit; copy-the-problem-list policy 0.07 on
+the new unit (was 0.84). The last Stage-1 xfail is un-marked. Residual: 99/705 public index charts still contain the
+label's name somewhere, mostly in family history ("Father: type 2 diabetes") and source-vignette prose; these are not
+copyable lines and were left untouched (masking clinical content would alter the case).
+
+
 1. **Temporal consistency.**
    - Remove from each encounter's PSH any procedure whose triggering diagnosis is first keyed at or after that encounter. The appendicitis→appendectomy style map already exists in `scripts/chart_neutral_sets.py:SURG`.
    - Remove later-keyed diagnoses from encounter-0+ PMH (322 patients). The root cause is that 500/1,268 profiles list the patient's own tested diagnoses as chronic conditions (F§12). Strip those from `profile.chronic_conditions` before rendering the PMH, and recompute the chart-neutral sets.

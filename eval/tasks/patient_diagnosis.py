@@ -62,7 +62,7 @@ def load_inputs(conn, split: str = "public", granularity: str | None = None,
     cur = conn.cursor()
 
     sql = """
-        SELECT gt_id, patient_id, ground_truth
+        SELECT gt_id, patient_id, ground_truth, encounter_id
         FROM benchmark_ground_truth
         WHERE task = 'patient_diagnosis' AND is_diagnostic AND split = %s
         ORDER BY gt_id
@@ -77,13 +77,16 @@ def load_inputs(conn, split: str = "public", granularity: str | None = None,
     log.info("Loading %d patient_diagnosis GT items (split=%s)", len(rows), split)
 
     inputs = []
-    for gt_id, pid, gt_json in rows:
+    for gt_id, pid, gt_json, encounter_id in rows:
         if not pid:
             log.warning("Skipping gt_id=%d: no patient_id", gt_id)
             continue
 
         gt = gt_json if isinstance(gt_json, dict) else json.loads(gt_json)
-        ehr_text = _assemble_patient_ehr(cur, pid)
+        if encounter_id:
+            ehr_text = assemble_index_encounter_ehr(cur, pid, encounter_id)   # Stage 4: chart up to the index encounter
+        else:
+            ehr_text = _assemble_patient_ehr(cur, pid)
         if not ehr_text:
             log.warning("Empty EHR text for gt_id=%d patient_id=%d", gt_id, pid)
             continue
@@ -102,6 +105,27 @@ def load_inputs(conn, split: str = "public", granularity: str | None = None,
 
     log.info("Loaded %d patient_diagnosis inputs with EHR text", len(inputs))
     return inputs
+
+
+INDEX_ENCOUNTER_PREAMBLE = (
+    "TASK: The LAST encounter below is the index encounter. Report the diagnosis established at that visit "
+    "(ICD-10-CM code, name, acuity) under active_diagnoses or chronic_conditions as appropriate. Earlier "
+    "encounters are context only; conditions already documented before the index visit are not the target.\n"
+    "INDEX ENCOUNTER: {date} ({etype}), encounter_id {eid}\n"
+)
+
+
+def assemble_index_encounter_ehr(cur, patient_id: int, encounter_id: int) -> str:
+    """The chart up to and including the index encounter (no assessment/plan), with the task preamble."""
+    cur.execute("SELECT encounter_order, encounter_date, encounter_type FROM longitudinal_encounters WHERE encounter_id = %s",
+                (encounter_id,))
+    row = cur.fetchone()
+    if row is None:
+        return ""
+    order, date, etype = row
+    from eval.tasks.imaging import _assemble_temporal_ehr
+    body = _assemble_temporal_ehr(cur, patient_id, order)
+    return INDEX_ENCOUNTER_PREAMBLE.format(date=date, etype=etype, eid=encounter_id) + body if body else ""
 
 
 def _assemble_patient_ehr(cur, patient_id: int) -> str:

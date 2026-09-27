@@ -116,6 +116,8 @@ def _load_context(gt_id: int) -> dict[str, Any]:
                     "body_region": row[1] or "unspecified",
                     "clinical_indication": row[2] or "clinical concern",
                 })
+            if inst["encounter_id"] and task in ("imaging_indication", "patient_diagnosis"):
+                # point-in-time instance: nothing after the index encounter is observable (Stage 2.2 / 4)
                 cur.execute(
                     """
                     SELECT e.encounter_id FROM longitudinal_encounters e

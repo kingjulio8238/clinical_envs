@@ -43,7 +43,7 @@ print(f"hallucination_rate: reference summary vs OWN chart {own:.3f}; vs a DIFFE
 from eval.scoring import _icd10_specificity_score, _match_icd10_sets
 spec = []
 for (g,) in q("select ground_truth from benchmark_ground_truth where task='patient_diagnosis' and split='public'"):
-    g = json.loads(g); codes = [d["icd10"] for d in g["active_diagnoses"] + g["chronic_conditions"] if d.get("icd10")]
+    g = json.loads(g); codes = [d["icd10"] for d in g.get("active_diagnoses", []) + g.get("chronic_conditions", []) if d.get("icd10")]
     m, _, _ = _match_icd10_sets([x[:3] for x in codes], codes); s = _icd10_specificity_score(m)
     if s is not None: spec.append(s)
 print(f"icd10_specificity when predicting ONLY 3-char categories: {np.mean(spec):.3f} (Table A range 0.824-0.940)")
@@ -52,8 +52,8 @@ print(f"icd10_specificity when predicting ONLY 3-char categories: {np.mean(spec)
 acu = collections.Counter()
 for (g,) in q("select ground_truth from benchmark_ground_truth where task='patient_diagnosis' and split='public'"):
     g = json.loads(g)
-    for d in g["active_diagnoses"]: acu["acute_on_chronic" if d.get("acuity") == "acute_on_chronic" else "acute"] += 1
-    for d in g["chronic_conditions"]: acu["chronic"] += 1
+    for d in g.get("active_diagnoses", []): acu["acute_on_chronic" if d.get("acuity") == "acute_on_chronic" else "acute"] += 1
+    for d in g.get("chronic_conditions", []): acu["chronic"] += 1
 tot = sum(acu.values()); print("reference acuity mix (public):", {k: f"{v/tot:.1%}" for k, v in acu.items()})
 
 # ---- retrieval MRR / MAP@10: chance levels ----------------------------------------

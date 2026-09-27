@@ -224,8 +224,9 @@ def test_specialty_name_does_not_predict_absence(db):
 # patient diagnosis
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason=f"{S4}: 80% of reference diagnoses appear verbatim in later problem lists (#2)")
 def test_copying_the_problem_list_does_not_solve_diagnosis(floors):
+    # Stage 4: the task is index-encounter diagnosis and the chart up to the index visit never names its
+    # diagnosis; copying the problem list yields earlier (chart-neutral) diagnoses only.
     assert _pol(floors, "patient_diagnosis", "copy_problem_list") <= GATES["copy_problem_list"]
 
 

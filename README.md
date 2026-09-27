@@ -261,6 +261,29 @@ scripted policy end to end and is the template to replace with a model. What the
 - **Reproducibility.** `reset(task=, split=, seed=)` samples deterministically; `env.instances()` lists
   every instance id so you can build your own curriculum over the 7,310 training instances.
 
+### In-process environment (no server)
+
+For training throughput, `eval.local_env.LocalEnv` is the same environment without HTTP, Postgres or
+Redis: it reads `benchmark_v1.3.db` directly, serves the same 9 tools with the same observations, applies
+the same visibility rules and budget, and computes the same reward in-process. One `LocalEnv` per process;
+processes scale independently.
+
+```python
+from eval.local_env import LocalEnv
+
+env = LocalEnv()                      # + env.warmup() once per process (~15 s of caches)
+obs = env.reset(task="patient_diagnosis", split="train", seed=0)
+o, reward, done, info = env.step("view_encounters", {"patient_id": obs.patient_id})
+o, reward, done, info = env.step(obs.submit_tool, env.oracle())     # env.oracle(): label-derived answer
+```
+
+`eval/tests/test_local_env.py` checks parity: the Stage-1 degenerate policies and the oracles score
+identically through `LocalEnv` and through the scorer, and, when a server is up, every tool observation
+and reward matches the HTTP env on sampled episodes (`search_chart` returns the same candidate set; its
+rank order comes from an FTS5 bm25 index instead of Postgres `ts_rank`). `python -m eval.bench_env
+{http,local,components}` is the throughput harness; `audit/bench/*.json` holds the measurements
+(see `audit/STAGE5_TODO.md` for the before/after table).
+
 ## Container images, Harbor tasks, and Apptainer
 
 The Dockerfile has three targets:

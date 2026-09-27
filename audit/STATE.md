@@ -90,5 +90,9 @@ validated against CMS FY2025 with per-node provenance and 969 duplicate nodes me
 `eval/tests/test_reward_hacking.py`; `eval/tests/test_data_repairs.py` guards the data invariants. **Stage 4b** (FHIR
 fidelity) is done too: Observation is one dated, encounter-linked resource per measurement with presence, UCUM units,
 blood-pressure components and reference ranges; every FHIR search honours the session cutoff; and FHIR `create` exists
-for Observation, ServiceRequest, MedicationRequest and Condition in a session-scoped store. Next is **Stage 5**
-(throughput: step latency under load, in-process scorer path, Harbor export).
+for Observation, ServiceRequest, MedicationRequest and Condition in a session-scoped store. **Stage 5** (throughput)
+is done: the HTTP env was measured (13.6 steps/s sequential, 105 peak, bottleneck = the single-process app server),
+and `eval/local_env.py` now runs the same environment in-process over SQLite at 470 steps/s per process with
+byte-identical observations and rewards (`eval/tests/test_local_env.py`). Next is **Stage 6** (pipeline
+reproducibility) or **Stage 7** (new, verifiable action tasks on top of the FHIR write path) — Stage 7 if the goal is
+RL training signal, Stage 6 if the goal is regenerating data.

@@ -1,0 +1,85 @@
+{
+  "mode": "components",
+  "gt_id": 71200,
+  "reps": 200,
+  "latency_ms": {
+    "GET /health (framework floor)": {
+      "p50": 2.17,
+      "p95": 4.05,
+      "mean": 2.37
+    },
+    "GET /env/state (Redis read + framework)": {
+      "p50": 3.35,
+      "p95": 5.29,
+      "mean": 3.55
+    },
+    "step view_problem_list (Redis + 1 small Postgres query)": {
+      "p50": 7.57,
+      "p95": 13.15,
+      "mean": 7.8
+    },
+    "step view_encounter_detail (Redis + Postgres, large payload)": {
+      "p50": 10.67,
+      "p95": 18.32,
+      "mean": 11.35
+    },
+    "step search_chart (Redis + tsvector query)": {
+      "p50": 8.59,
+      "p95": 16.01,
+      "mean": 9.27
+    },
+    "POST /env/reset (Postgres context + prompt build)": {
+      "p50": 19.43,
+      "p95": 25.53,
+      "mean": 19.56
+    },
+    "step submit (scorer)": {
+      "p50": 18.69,
+      "p95": 22.92,
+      "mean": 18.73
+    }
+  },
+  "meta": {
+    "host": "macOS-26.6.1-arm64-arm-64bit",
+    "cpus": 8,
+    "python": "3.12.10",
+    "episodes": 32,
+    "split": "public",
+    "seed": 0,
+    "gt_ids": [
+      71200,
+      9008,
+      67289,
+      11125,
+      71361,
+      8446,
+      68355,
+      11209,
+      68801,
+      9057,
+      64317,
+      11926,
+      70498,
+      8838,
+      66931,
+      10872,
+      72003,
+      9427,
+      66122,
+      11518,
+      71855,
+      8688,
+      64833,
+      11173,
+      71295,
+      8458,
+      67292,
+      10870,
+      70711,
+      8314,
+      64256,
+      11954
+    ],
+    "ts": "2026-09-27T13:28:08"
+  }
+}

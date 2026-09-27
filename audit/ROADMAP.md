@@ -198,6 +198,22 @@ The `/env` step path is HTTP → FastAPI → Postgres → Redis. The scorer is a
 - **Likely win if the step dominates:** an **in-process gym-style env over the read-only SQLite DB**, with tools as SQL, no network, and trivially parallel across workers. This matches the "environment step is the critical path" rule for RL.
 - **Keep parity:** the HTTP env stays for Harbor/external agents, and both must pass the Stage 1 suite.
 
+**Status: DONE (2026-09-27).** Baseline (`eval/bench_env.py`, compose stack on an 8-core laptop, single uvicorn
+worker): 13.6 steps/s for one sequential client, 105 steps/s at 4 concurrent clients, falling to 64 at 64 clients
+(p50 reset 769 ms); under load the app container sits at 100% of one core while Postgres is at 40–60% and Redis at
+4%, so the bottleneck was the single-process Python server (framework + ORM + JSON), not the databases. Component
+floors: framework 2.2 ms, Redis +1.2 ms, a Postgres tool 5–8 ms, the scorer 19 ms, reset 19 ms. Fix:
+`eval/local_env.py` (`LocalEnv`), the same environment in-process over the SQLite release — same brief, tools,
+observation shapes, visibility rules, budget and reward, checked by `eval/tests/test_local_env.py` (28 tests, incl.
+byte-for-byte observation and reward parity against the live server). With HTTP gone the scorer dominated (60 ms
+mean per submit, 1.6 s worst: first-touch concept extraction over a chart), so two hot paths in
+`eval/imaging_concepts.py` were made output-identical but 4× faster each (precomputed curated-pattern table +
+per-call token stems; fuzzy-snap vocabulary bucketed by first letter and length); `floors --check` stays bit-exact
+and runs 3× faster. Result on the same 64 public episodes, single process: **470 steps/s vs 13.6 (35×) and vs the
+server's 4-client peak of 105 (4.5×)**; tool steps 0.05–0.3 ms, search 2.4 ms, submit 2.8 ms p50 / 12.9 ms mean.
+Multi-process scaling was measured on a host with load average 30 (an unrelated 4-core job running), so it is
+reported but not trusted: see `audit/STAGE5_TODO.md` and `audit/bench/*.json`.
+
 ## Stage 6: Reproducibility of the pipeline (only if the fork will regenerate data)
 
 - **Pipeline wiring:** wire stages 7–12 into `etl/main.py`, and make `run()` execute every sub-step.

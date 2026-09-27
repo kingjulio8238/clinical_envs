@@ -144,6 +144,12 @@ CONCEPTS: dict[str, list[str]] = {
     "tracheal deviation": ["trachea* deviat*"], "pain / swelling": ["hand pain", "swollen", "swelling"], "weakness / deficit": ["weakness", "neurologic deficit*", "sensory", "paralysis"], "chest pain": ["chest pain"],
 }
 
+# (concept, [[(is_prefix, canon-prefix | stems-set) per part] per form]) — the pattern table _cur_hits scans
+_CURATED_PARTS: list[tuple[str, list[list[tuple[bool, object]]]]] = [
+    (c, [[(p.endswith("*"), canon(p[:-1]) if p.endswith("*") else stems(p)) for p in f.split()] for f in forms])
+    for c, forms in CONCEPTS.items()
+]
+
 GENERIC: frozenset[str] = frozenset({
     "obstruction", "malignancy / mass", "fracture", "hemorrhage / free fluid", "pneumonia / infection", "trauma",
     "structural cause", "opacity", "organ injury", "arterial occlusion / perfusion", "atresia / stenosis",
@@ -200,21 +206,23 @@ class ConceptExtractor:
 
     @staticmethod
     def _cur_hits(tk_list: list[str]) -> dict[str, set[str]]:
+        """Curated-concept hits in a token list. Same result as the straightforward loop, but the
+        token stems are computed once per call and the pattern parts once per process: the loop
+        was 382 parts x N tokens x stems() per scored chart (Stage 5 profile, 12 ms per text)."""
         out: dict[str, set[str]] = {}
-        for c, forms in CONCEPTS.items():
-            for f in forms:
+        tstems = [(t, stems(t)) for t in tk_list]
+        for c, parts_list in _CURATED_PARTS:
+            for parts in parts_list:
                 ev: list[str] | None = []
-                for p in f.split():
-                    if p.endswith("*"):
-                        pref = canon(p[:-1])
-                        m = [t for t in tk_list if t.startswith(pref)]
+                for is_prefix, key in parts:
+                    if is_prefix:
+                        m = next((t for t in tk_list if t.startswith(key)), None)
                     else:
-                        sp = stems(p)
-                        m = [t for t in tk_list if sp & stems(t)]
-                    if not m:
+                        m = next((t for t, st in tstems if key & st), None)
+                    if m is None:
                         ev = None
                         break
-                    ev.append(m[0])
+                    ev.append(m)
                 if ev:
                     out.setdefault("C:" + c, set()).update(ev)
                     break
@@ -225,7 +233,15 @@ class ConceptExtractor:
         if t in self.vocab or len(t) < 6:
             return t
         if t not in self._snap_cache:
-            cands = [v for v in self.vocab if abs(len(v) - len(t)) <= 2 and v[0] == t[0]]
+            # candidates: vocabulary words with the same first letter and length within 2, from buckets
+            # built once (the per-token scan of the whole vocabulary was the top self-time in Stage 5)
+            buckets = self.__dict__.setdefault("_vocab_buckets", None)
+            if buckets is None:
+                buckets = {}
+                for v in self.vocab:
+                    buckets.setdefault((v[0], len(v)), []).append(v)
+                self._vocab_buckets = buckets
+            cands = [v for n in range(len(t) - 2, len(t) + 3) for v in buckets.get((t[0], n), ())]
             m = difflib.get_close_matches(t, cands, n=1, cutoff=0.86)
             self._snap_cache[t] = m[0] if m else t
         return self._snap_cache[t]

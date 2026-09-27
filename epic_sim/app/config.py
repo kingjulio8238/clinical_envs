@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # Splits whose /score and /env responses carry the full metric breakdown; the private split gets
     # the reward only (a per-metric breakdown lets a caller probe the labels).
     verbose_score_splits: str = "public,heldout,train"
+    # Private-split rewards from /score per window (Redis-counted across workers); 0 disables the limit.
+    private_score_limit: int = 2000
+    private_score_window_s: int = 3600
     # Reset-and-step environment: default action budget per episode (the paper used 40).
     env_default_budget: int = 40
     # Start one episode at boot (Harbor tasks): the agent reads it from GET /env/current.

@@ -34,6 +34,7 @@ from epic_sim.app.schemas.score import (
     ScoreResponse,
     TaskInfo,
 )
+from epic_sim.app.services.score_limits import limiter
 from eval.config import EVAL_TASKS
 from eval.private_labels import LabelsUnavailable
 from eval.score_one import (
@@ -124,6 +125,8 @@ def _score_or_raise(conn, req: ScoreRequest) -> ScoreResponse:
         raise HTTPException(503, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    if result.get("split") == "private" and not limiter().consume(1):
+        raise HTTPException(429, "private-split scoring limit reached for this window (EPIC_SIM_PRIVATE_SCORE_LIMIT)")
     return ScoreResponse(**redact_metrics(result))
 
 

@@ -12,7 +12,7 @@ Scope: ROADMAP Stage 2 only. Goal: remove answer information from what models se
 - [x] 2.6 few-shot selection from train runs only; frozen examples regenerated from train patients 1672/1676/1677 with `_meta` (`scripts/build_few_shot_examples.py`, `eval/few_shot_examples.json`)
 - [x] 2.7 `private` split: 200 patients / 2,628 instances carved from train (seed 20260927); labels and 54,948 judgments moved to gitignored `private/labels_v1.3.db`; release keeps inputs only; scorer overlay `eval/private_labels.py` (`SH_PRIVATE_LABELS_DB`); Alembic `b8c9d0e1f2a3` adds the enum value; ORM `SplitType`/`EvalTask` enums fixed
 - [x] 2.8 `/score` and `/env` return the reward only for private items (`EPIC_SIM_VERBOSE_SCORE_SPLITS`); `503` without the overlay
-- [ ] (deferred to Stage 5) rate limiting on `/score`; needs a Redis-backed counter
+- [x] (deferred to Stage 5, closed in Stage 8) rate limiting on `/score`: private-split rewards counted per window in Redis across workers (per-process fallback), 429 beyond `EPIC_SIM_PRIVATE_SCORE_LIMIT` (default 2,000 per hour; 0 disables); public/heldout/train never limited (`epic_sim/app/services/score_limits.py`, `test_private_split_scoring_is_rate_limited`)
 
 ## Cross-cutting
 - [x] Stage-1 xfails owned by this stage flipped and un-marked: `test_problem_list_tool_reveals_nothing_beyond_the_profile`, structured-hints test rewritten against the real prompt builders

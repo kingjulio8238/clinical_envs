@@ -211,3 +211,21 @@ async def test_batch(client: AsyncClient):
     items = resp.json()["items"]
     assert items[0]["ok"] is True and items[0]["result"]["reward"] == 0.0
     assert items[1]["ok"] is False and "no benchmark instance" in items[1]["error"]
+
+
+async def test_private_split_scoring_is_rate_limited(client: AsyncClient, monkeypatch):
+    """Stage 2 (deferred): private-split rewards are counted per window and refused beyond the limit;
+    public scoring is never limited."""
+    from epic_sim.app.services import score_limits
+    monkeypatch.setattr(score_limits, "_LIMITER", score_limits.PrivateScoreLimiter(2, 3600, None))
+    gt_id, _pid, _gt = _gt_row("patient_diagnosis", split="private")
+    codes = []
+    for _ in range(3):
+        resp = await client.post("/score", headers=HEADERS, json={"gt_id": gt_id, "prediction": {}})
+        codes.append(resp.status_code)
+    if codes[0] == 503:
+        pytest.skip("private label overlay not mounted")
+    assert codes == [200, 200, 429], codes
+    pub, _p, _g = _gt_row("patient_diagnosis")
+    for _ in range(3):
+        assert (await client.post("/score", headers=HEADERS, json={"gt_id": pub, "prediction": {}})).status_code == 200

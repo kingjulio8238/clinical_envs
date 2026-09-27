@@ -51,9 +51,11 @@ def _openrouter(name: str, model_id: str, **extra) -> "ModelConfig":
                        api_key_env="OPENROUTER_API_KEY", model_id=model_id, extra=extra)
 
 
-def _openai(name: str, model_id: str) -> "ModelConfig":
+def _openai(name: str, model_id: str, **extra) -> "ModelConfig":
+    # GPT-6 through chat/completions with function tools requires reasoning_effort='none'; the anchor is
+    # therefore the non-reasoning configuration of the model (recorded in every manifest under `extra`).
     return ModelConfig(name=name, adapter_type=AdapterType.OPENAI_COMPATIBLE, base_url=OPENAI_URL,
-                       api_key_env="OPENAI_API_KEY", model_id=model_id)
+                       api_key_env="OPENAI_API_KEY", model_id=model_id, extra={"reasoning_effort": "none", **extra})
 
 
 # Stage 8 protocol panel (EVAL_PROTOCOL.md §4): chosen on Artificial Analysis intelligence vs price

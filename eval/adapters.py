@@ -215,6 +215,14 @@ class OpenAICompatibleAdapter(ModelAdapter):
             "temperature": self.config.temperature,
             "max_tokens": self.config.max_tokens,
         }
+        if "api.openai.com" in self.config.base_url:
+            # OpenAI's current models reject `max_tokens` (use max_completion_tokens) and some reject temperature
+            payload["max_completion_tokens"] = payload.pop("max_tokens")
+            if self.config.extra.get("no_temperature", True):      # GPT-6 / GPT-5 reasoning models accept only the default
+                payload.pop("temperature", None)
+        if self.config.extra.get("reasoning_effort") is not None:
+            # chat/completions + function tools on GPT-6 requires reasoning_effort 'none' (else /v1/responses)
+            payload["reasoning_effort"] = self.config.extra["reasoning_effort"]
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"

@@ -187,7 +187,14 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
                        submission=last_parsed)
         rec["steps"] = env.ep["steps"]
     except (EpisodeError, Exception) as exc:  # noqa: BLE001 — an API failure is a scored 0, recorded
-        rec["error"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+        detail = ""
+        cause = exc
+        while cause is not None and not detail:                     # the provider's error body, when there is one
+            resp = getattr(cause, "response", None)
+            if resp is not None:
+                detail = f" | {getattr(resp, 'text', '')[:300]}"
+            cause = cause.__cause__
+        rec["error"] = f"{type(exc).__name__}: {str(exc)[:300]}{detail}"
         try:
             env.close()
         except Exception:  # noqa: BLE001
@@ -252,7 +259,9 @@ def run(model: str, task: str, n: int, arm: str = "agent", split: str = "public"
     manifest = {
         "run_id": run_id, "model": model, "provider_base_url": cfg.base_url, "model_id": cfg.model_id, "task": task,
         "arm": arm, "split": split, "seed": seed, "n_requested": n, "n_sampled": len(insts), "budget": budget,
-        "prices_per_million": {"input": prices[0], "output": prices[1]}, "temperature": cfg.temperature,
+        "prices_per_million": {"input": prices[0], "output": prices[1]},
+        "temperature": None if "api.openai.com" in cfg.base_url and cfg.extra.get("no_temperature", True) else cfg.temperature,   # None = provider default
+        "extra": dict(cfg.extra),
         "prompt_hash": hashlib.sha256((_env().reset(gt_id=insts[0]["gt_id"]).instructions if insts else "").encode()).hexdigest()[:16],
         "git_commit": _git(), "floors_file": "eval/floors.json", "started": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(t0)),
         "duration_s": round(time.time() - t0, 1), "cost_usd": round(spent, 4), "max_usd": max_usd,

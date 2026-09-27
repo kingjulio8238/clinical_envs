@@ -19,7 +19,7 @@ DX = collections.defaultdict(set); CH = collections.defaultdict(collections.Coun
 for pid, did, code in cur.fetchall():
     DX[pid].add(did); CH[pid][(code or "?")[0]] += 1
 cur.execute("select patient_id,count(*) from longitudinal_encounters group by 1"); NENC = dict(cur.fetchall())
-pool = sorted(p for p, s in SPLIT.items() if s in ("test", "train", "heldout"))
+pool = sorted(p for p, s in SPLIT.items() if s in ("test", "train", "heldout", "private"))   # every non-public patient
 def bucket(n): return "2-3" if n <= 3 else "4-5" if n <= 5 else "6+"
 strata = collections.defaultdict(list)
 for p in pool: strata[(CH[p].most_common(1)[0][0] if CH[p] else "?", bucket(NENC[p]))].append(p)

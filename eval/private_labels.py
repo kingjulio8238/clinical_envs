@@ -53,7 +53,8 @@ def strip_labels(task: str, gt: dict) -> dict:
 class PrivateLabels:
     def __init__(self, path: Path):
         self.path = Path(path)
-        self.conn = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
+        # read-only and shared by the process; worker threads (eval.protocol_run) read it concurrently
+        self.conn = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True, check_same_thread=False)
 
     def ground_truth(self, gt_id: int) -> dict | None:
         row = self.conn.execute("select ground_truth from benchmark_ground_truth where gt_id=?", (gt_id,)).fetchone()

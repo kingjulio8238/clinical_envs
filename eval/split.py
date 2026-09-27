@@ -47,7 +47,7 @@ def _do_split(conn, seed: int, dev_patients: int) -> None:
                COALESCE(lp.num_encounters, 0) AS num_enc
         FROM benchmark_ground_truth bgt
         JOIN longitudinal_patients lp ON bgt.patient_id = lp.patient_id
-        WHERE bgt.task = 'diagnosis_accuracy'
+        WHERE bgt.task = 'patient_diagnosis'
           AND bgt.granularity = 'patient'
     """)
     patients = []

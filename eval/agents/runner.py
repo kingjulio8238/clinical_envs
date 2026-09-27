@@ -59,23 +59,28 @@ DEFAULT_API_BASE = "http://localhost:8000"
 
 def select_patients(
     conn,
-    split: str = "val",
+    split: str = "public",
     n: int = 100,
     min_encounters: int = 2,
     max_encounters: int = 8,
-    exclude_ceiling: bool = True,
+    exclude_ceiling: bool = False,
     ceiling_threshold: int = 7,
+    seed: int = 0,
 ) -> list[dict]:
-    """Select patients for Phase F evaluation.
+    """Select patients for agentic evaluation: a seeded random sample (EVAL_PROTOCOL.md §6).
 
     Criteria:
-    - From the specified split
+    - From the specified split (default public; the retired 'val' label is not accepted)
     - Have 2–8 encounters
-    - Have GT for all required tasks (diagnosis, patient_dx, summarization, retrieval)
-    - Optionally exclude ceiling items (≥7/11 models correct in E1 zero_shot)
+    - Have GT for the required tasks (patient_diagnosis, context_summarization)
+    - `exclude_ceiling` (off by default) is the paper's filter that dropped patients most single-turn
+      models got right; it biases the sample and is kept only for reproducing the paper's numbers.
 
-    Returns list of dicts with patient_id, num_encounters, difficulty, gt_ids per task.
+    The paper's harness sorted by encounter count and took the longest charts; the protocol samples at
+    random with a fixed seed so the agentic sample is representative of the split.
     """
+    if split == "val":
+        raise ValueError("split 'val' was retired; use 'public' (the reported benchmark)")
     with conn.cursor() as cur:
         # Get patients with encounter counts
         cur.execute("""
@@ -150,11 +155,12 @@ def select_patients(
             log.info("Excluded %d ceiling patients (≥%d models correct)",
                      before - len(eligible), ceiling_threshold)
 
-    # Sort by difficulty (prefer hard) then by encounter count spread
-    eligible.sort(key=lambda p: (-p["num_encounters"], p["patient_id"]))
-
-    selected = eligible[:n]
-    log.info("Selected %d patients for Phase F", len(selected))
+    # Seeded random sample over the eligible patients (protocol), deterministic for a given seed
+    import random as _random
+    eligible.sort(key=lambda p: p["patient_id"])
+    _random.Random(seed).shuffle(eligible)
+    selected = sorted(eligible[:n], key=lambda p: p["patient_id"])
+    log.info("Selected %d patients (seeded random sample, seed=%d)", len(selected), seed)
     return selected
 
 

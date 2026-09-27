@@ -42,6 +42,33 @@ class ModelConfig:
 # the release: set SH_LLM_GATEWAY_URL to your own endpoint, or use the OpenRouter entries.
 LLM_GATEWAY_URL = os.environ.get("SH_LLM_GATEWAY_URL", "http://localhost:8080")
 
+OPENAI_URL = "https://api.openai.com/v1"
+OPENROUTER_URL = "https://openrouter.ai/api/v1"
+
+
+def _openrouter(name: str, model_id: str, **extra) -> "ModelConfig":
+    return ModelConfig(name=name, adapter_type=AdapterType.OPENAI_COMPATIBLE, base_url=OPENROUTER_URL,
+                       api_key_env="OPENROUTER_API_KEY", model_id=model_id, extra=extra)
+
+
+def _openai(name: str, model_id: str) -> "ModelConfig":
+    return ModelConfig(name=name, adapter_type=AdapterType.OPENAI_COMPATIBLE, base_url=OPENAI_URL,
+                       api_key_env="OPENAI_API_KEY", model_id=model_id)
+
+
+# Stage 8 protocol panel (EVAL_PROTOCOL.md §4): chosen on Artificial Analysis intelligence vs price
+# (September 2026) among tool-calling models; Kimi K2.5 is the data generator and is never ranked.
+PROTOCOL_PANEL: dict[str, "ModelConfig"] = {
+    "gpt-6-sol": _openai("gpt-6-sol", "gpt-6-sol"),                          # frontier anchor, $2/$10
+    "gpt-6-luna": _openai("gpt-6-luna", "gpt-6-luna"),                       # value frontier, $0.10/$0.50
+    "mimo-v2.6-pro": _openrouter("mimo-v2.6-pro", "xiaomi/mimo-v2.6-pro"),   # top open weights (AA 46), $0.43/$0.87
+    "muse-spark-1.3": _openrouter("muse-spark-1.3", "meta/muse-spark-1.3-contributor"),   # Meta open weights (AA 48), contributor tier $0.10/$0.20
+    "deepseek-v4-pro": _openrouter("deepseek-v4-pro", "deepseek/deepseek-v4-pro"),      # AA 44, $0.35/$0.70
+    "glm-5.3-flash": _openrouter("glm-5.3-flash", "z-ai/glm-5.3-flash"),     # cheapest tool-capable, $0.04/$0.14
+    "opus-5.5": _openrouter("opus-5.5", "anthropic/claude-opus-5.5"),        # AA #1 (58), $4/$20; optional anchor
+    "kimi-k2.5": _openrouter("kimi-k2.5", "moonshotai/kimi-k2.5"),           # the generator: separate row
+}
+
 MODEL_REGISTRY: dict[str, ModelConfig] = {
     # --- Proprietary (via OpenRouter) ---
     "gpt-5.3": ModelConfig(
@@ -204,7 +231,13 @@ RETRIEVAL_BASELINES = {"bm25", "sapbert", "hybrid"}
 # Cost rates: USD per 1M tokens (input, output)
 # ---------------------------------------------------------------------------
 
+MODEL_REGISTRY.update(PROTOCOL_PANEL)
+
+# $ per 1M tokens (input, output); the Stage-8 runner re-prices from OpenRouter's live list when it can
 COST_RATES: dict[str, tuple[float, float]] = {
+    "gpt-6-sol": (2.00, 10.00), "gpt-6-luna": (0.10, 0.50), "mimo-v2.6-pro": (0.43, 0.87),
+    "muse-spark-1.3": (0.10, 0.20), "deepseek-v4-pro": (0.35, 0.70), "glm-5.3-flash": (0.04, 0.14),
+    "opus-5.5": (4.00, 20.00), "kimi-k2.5": (0.45, 2.25),
     "gpt-5.3":       (1.75, 14.00),
     "opus-4.6":      (5.00, 25.00),
     "gemini-3.1":    (2.00, 12.00),

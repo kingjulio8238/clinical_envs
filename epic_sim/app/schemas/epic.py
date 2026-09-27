@@ -10,10 +10,14 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 
 class ProblemEntry(BaseModel):
-    diagnosis_id: int
+    """An entry of the chart's problem list: the documented history (profile chronic conditions), as
+    the notes list it. Never a graph diagnosis node, which would be the patient-diagnosis label."""
+    diagnosis_id: int | None = None
     display_name: str
     icd10_code: str | None = None
     snomed_id: str | None = None
+    source: str = "chart_history"
+    problem_id: str | None = None
 
 
 class EncounterSummary(BaseModel):

@@ -75,23 +75,28 @@ The JSONL already nests encounters in that order.
 |---|---|---|
 | `longitudinal_patients` | 1,268 | Patient profiles (same fields as `patients` above) |
 | `longitudinal_encounters` | 5,602 | Encounters with `note_text`; `source_question_ids` are opaque integer keys into the annotation tables |
-| `encounter_ehr_sections` | 59,964 | The note split into typed sections (`hpi`, `pmh`, `medications`, `labs`, ...) — the passage unit for retrieval |
-| `benchmark_ground_truth` | 12,014 | One row per task instance: `task`, `granularity`, `patient_id` / `encounter_id`, `ground_truth` (JSON), `split` |
-| `relevance_judgments` | 58,926 | Graded relevance (0–3) of each chart section for the evidence-retrieval instance it belongs to |
+| `encounter_ehr_sections` | 59,964 | The note split into typed sections (`hpi`, `pmh`, `medications`, `labs`, ...) — the passage unit for retrieval. `search_vector` ships NULL (PostgreSQL recomputes it on load). The simulator never serves `assessment` / `plan` |
+| `benchmark_ground_truth` | 16,595 (15,527 scorable) | One row per task instance: `task`, `granularity`, `patient_id` / `encounter_id`, `ground_truth` (JSON), `split`; 1,268 superseded patient-level retrieval rows carry `is_diagnostic = 0` |
+| `relevance_judgments` | 239,545 | Graded relevance (0–3) of each chart section for the per-diagnosis evidence-retrieval instance it belongs to (private-split judgments are held outside the release) |
 | `imaging_orders` | 1,865 | Underspecified imaging orders for the imaging-indication task, keyed to their ground truth |
 | `diagnoses`, `clinical_findings`, `diagnosis_findings` | 9,623 / 36,620 / 52,082 | The ontology-grounded knowledge graph: diagnoses (ICD-10-CM, SNOMED CT), findings (SNOMED CT, LOINC), and typed diagnosis–finding relations |
 | `question_findings`, `question_diagnoses`, `board_questions` | 138,777 / 51,075 / 7,003 | Per-source-question annotation links (finding and diagnosis ids with roles) and question metadata (subject, organ system, difficulty). No question text is included |
 | `release_info` | — | Version, export date, task list, split definitions, and change notes |
 
-**Tasks** (`benchmark_ground_truth.task`): `patient_diagnosis` (1,268 instances), `context_summarization` (7,613: 1,268 whole-patient plus 6,345 specialty-conditioned), `evidence_retrieval` (1,268), `imaging_indication` (1,865).
+**Tasks** (`benchmark_ground_truth.task`, scorable rows): `patient_diagnosis` (1,268 instances), `context_summarization` (7,613: 1,268 whole-patient plus 6,345 specialty-conditioned), `evidence_retrieval` (4,581, one per patient × reference diagnosis), `imaging_indication` (1,865).
 
 **Splits** (`benchmark_ground_truth.split`), assigned at the patient level:
 
 | Split | Patients | Instances | Role |
 |---|---|---|---|
-| `public` | 200 | 1,859 | The reported benchmark |
-| `heldout` | 268 | 2,536 | Private evaluation set; do not train on it |
-| `train` | 800 | 7,619 | Training pool, including RL with the graph-derived rewards |
+| `public` | 200 | 2,375 | The reported benchmark |
+| `heldout` | 268 | 3,214 | Labels shipped in this file: use as a second validation set, not as a private test |
+| `train` | 600 | 7,310 | Training pool, including RL with the graph-derived rewards |
+| `private` | 200 | 2,628 | Carved from the original 800-patient train split (`scripts/carve_private_split.py`, seed 20260927). **Labels are not in this file**: the rows keep their inputs only (`"_labels_removed": true`) and the scorer overlays the labels from an operator-held file (`eval/private_labels.py`) |
+
+Instance counts include the per-diagnosis evidence-retrieval instances (below).
+
+**Evidence retrieval is one instance per (patient, reference diagnosis)** (4,581 instances; `ground_truth.derived = "per_diagnosis_v1"`, `parent_gt_id` points at the original patient-level row). The query names a single diagnosis, so it is no longer the patient's full diagnosis answer key; judgments are derived with the release's own section-grading rule restricted to that diagnosis (`scripts/split_retrieval_by_diagnosis.py`, which first proves the rule reproduces every original judgment). The 1,268 patient-level rows are kept with `is_diagnostic = 0` and `exclusion_reason` set; their judgments were dropped for file size and are exactly reproducible with the same script.
 
 The held-out split was drawn from the same pool as the training split by stratified sampling over dominant ICD-10 chapter and encounter count (seed 20260922); membership is in `scripts/build_rl_split.py`. Every encounter derives from a distinct source question, so no patient shares source material with any other.
 

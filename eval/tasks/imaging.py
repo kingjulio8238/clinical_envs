@@ -60,8 +60,7 @@ def load_inputs(conn, split: str = "public", granularity: str | None = None,
             log.warning("Empty EHR text for gt_id=%d", gt_id)
             continue
 
-        # Preload ontology hints for structured strategy
-        relevant_findings, differential_codes = _load_imaging_hints(cur, enc_id)
+        relevant_findings, differential_codes = [], []   # Stage 2.5: the correct diagnosis never enters the prompt
 
         inputs.append(ImagingInput(
             gt_id=gt_id,
@@ -106,50 +105,6 @@ def _assemble_temporal_ehr(cur, patient_id: int, max_encounter_order: int) -> st
     return "\n\n".join(parts)
 
 
-def _load_imaging_hints(cur, encounter_id: int) -> tuple[list[dict], list[dict]]:
-    """Preload findings and differentials for structured hints."""
-    # Get source question_ids for this encounter
-    cur.execute("""
-        SELECT source_question_ids FROM longitudinal_encounters
-        WHERE encounter_id = %s AND source_question_ids IS NOT NULL
-    """, (encounter_id,))
-    row = cur.fetchone()
-    if not row:
-        return [], []
-
-    qids = json.loads(row[0])
-    if not isinstance(qids, list) or not qids:
-        return [], []
-
-    src_qid = int(qids[0])
-
-    # Findings with LOINC codes
-    cur.execute("""
-        SELECT cf.display_name, cf.loinc_code, cf.finding_type
-        FROM question_findings qf
-        JOIN clinical_findings cf ON qf.finding_id = cf.finding_id
-        WHERE qf.question_id = %s AND qf.relevance IN ('key', 'supporting')
-        ORDER BY cf.finding_type
-        LIMIT 10
-    """, (src_qid,))
-    findings = [{"name": r[0], "loinc_code": r[1] or "", "type": r[2]}
-                for r in cur.fetchall()]
-
-    # Differential diagnoses with ICD-10
-    cur.execute("""
-        SELECT d.display_name, d.icd10_code, qd.role
-        FROM question_diagnoses qd
-        JOIN diagnoses d ON qd.diagnosis_id = d.diagnosis_id
-        WHERE qd.question_id = %s AND qd.role IN ('correct', 'distractor')
-        ORDER BY qd.role, d.display_name
-        LIMIT 8
-    """, (src_qid,))
-    differentials = [{"name": r[0], "icd10_code": r[1] or "", "role": r[2]}
-                     for r in cur.fetchall()]
-
-    return findings, differentials
-
-
 def format_prompt(inp: ImagingInput, strategy: str) -> tuple[str, str]:
     """Format the prompt for an imaging indication input."""
     template = get_prompt("imaging_indication", strategy)
@@ -165,9 +120,7 @@ def format_prompt(inp: ImagingInput, strategy: str) -> tuple[str, str]:
     structured_hints = ""
     if strategy == "structured":
         from eval.hints import format_imaging_hints
-        structured_hints = format_imaging_hints(
-            inp.relevant_findings_with_loinc, inp.differential_icd10_codes,
-        )
+        structured_hints = format_imaging_hints()
 
     user = template.user.format(
         modality=inp.modality,

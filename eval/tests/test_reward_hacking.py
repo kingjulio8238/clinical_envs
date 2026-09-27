@@ -149,15 +149,39 @@ def test_chart_dump_is_not_a_good_summary(floors):
     assert _pol(floors, "context_summarization", "chart_dump") <= GATES["chart_dump_summary"] * _unit(floors, "context_summarization")["ceiling"]
 
 
-@pytest.mark.xfail(strict=True, reason=f"{S2}: the structured prompt injects the patient's key findings, which are the scored must-include names (#12)")
-def test_structured_hints_do_not_contain_scored_findings(db):
-    insts = db.instances("context_summarization", SPLIT)
-    overlap = n = 0
-    for i in insts:
-        hinted = set(db.key_finding_names(i["patient_id"])[:10])
-        must = {f["display_name"] for f in i["gt"]["must_include_findings"]}
-        overlap += len(hinted & must); n += len(hinted)
-    assert overlap == 0, f"{overlap}/{n} hinted names are must-include findings"
+def test_structured_prompts_carry_no_graph_concepts(db):
+    """Stage 2.5: the 'structured' strategy may add ontology *guidance*, never patient-specific
+    concepts from the label graph. Exercised on the real prompt builders with inputs that carry
+    the graph fields the old loaders used to fill."""
+    from eval.tasks import imaging, patient_diagnosis, summarization
+
+    inst = db.instances("context_summarization", SPLIT)[0]
+    pid = inst["patient_id"]
+    key = db.key_finding_names(pid)[:10]
+    must = [f["display_name"] for f in inst["gt"]["must_include_findings"]]
+    s_inp = summarization.SummarizationInput(
+        gt_id=inst["gt_id"], patient_id=pid, clinical_question="q", must_include_findings=inst["gt"]["must_include_findings"],
+        ehr_text="RECORD", ground_truth=inst["gt"], variant="unconditioned",
+        key_findings_hint=[{"name": n, "type": "symptom"} for n in key])
+    _, user = summarization.format_prompt(s_inp, "structured")
+    assert "RECORD" in user and not any(n in user for n in must + key)
+
+    d_inst = db.instances("patient_diagnosis", SPLIT)[0]
+    d_inp = patient_diagnosis.PatientDiagnosisInput(
+        gt_id=d_inst["gt_id"], patient_id=d_inst["patient_id"], ehr_text="RECORD", ehr_token_estimate=1,
+        ground_truth=d_inst["gt"], organ_systems=["Cardiovascular System"],
+        key_findings=[{"name": "Polyuria", "snomed_id": "28442001", "type": "symptom"}])
+    _, user = patient_diagnosis.format_prompt(d_inp, "structured")
+    assert "Polyuria" not in user and "28442001" not in user and "I00" not in user
+
+    i_inst = db.instances("imaging_indication", SPLIT)[0]
+    i_inp = imaging.ImagingInput(
+        gt_id=i_inst["gt_id"], encounter_id=i_inst["encounter_id"], patient_id=i_inst["patient_id"], modality="ct",
+        body_region="abdomen", clinical_indication="pain", ehr_text="RECORD", ground_truth=i_inst["gt"],
+        relevant_findings_with_loinc=[{"name": "Leukocytosis", "loinc_code": "6690-2", "type": "lab_value"}],
+        differential_icd10_codes=[{"name": "Acute appendicitis", "icd10_code": "K35.80", "role": "correct"}])
+    _, user = imaging.format_prompt(i_inp, "structured")
+    assert "Acute appendicitis" not in user and "K35.80" not in user and "Leukocytosis" not in user
 
 
 @pytest.mark.xfail(strict=True, reason=f"{S3}: the whole-patient matcher (phrase_in_text) has no negation guard (F§13)")
@@ -199,8 +223,9 @@ def test_copying_the_problem_list_does_not_solve_diagnosis(floors):
     assert _pol(floors, "patient_diagnosis", "copy_problem_list") <= GATES["copy_problem_list"]
 
 
-@pytest.mark.xfail(strict=True, reason=f"{S2}: epic_service.get_problem_list returns the reference diagnoses (#10)")
 def test_problem_list_tool_reveals_nothing_beyond_the_profile(floors):
+    # Fixed in Stage 2.1: the tool returns the chart's documented history (profile conditions), which
+    # carries no codes, so echoing it can only score what the profile-only policy scores.
     tool = _pol(floors, "patient_diagnosis", "echo_problem_list_tool")
     profile = _pol(floors, "patient_diagnosis", "profile_chronic")
     assert tool <= profile + GATES["tool_echo_margin"], f"tool echo {tool:.3f} vs profile-only {profile:.3f}"

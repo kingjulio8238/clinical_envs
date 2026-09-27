@@ -1,5 +1,7 @@
 # Where the fork should extend Synthetic Hospital
 
+After Phase 1 (this roadmap + RL on train + evals) is done, continue with `audit/SCALE_UP_PLAN.md`.
+
 Companion to `audit/FINDINGS.md` (evidence referenced as F§n / headline #n). Written 2026-09-27, after the
 audit of paper §3–§6.
 
@@ -56,6 +58,21 @@ Also report every score as **(model − floor) / (ceiling − floor)**, with flo
 ceiling = oracle. Absolute numbers on this benchmark are not interpretable without it (F§6).
 
 ## Stage 2: Close the label leaks (serving layer; no data change)
+
+**Status: DONE (2026-09-27).** `epic_sim/app/services/visibility.py` holds the three rules (hidden outcome
+sections, documented-history problem list, point-in-time cutoff) and every consumer uses it: `epic_service`
+(problem list, encounter detail, section, search), the agent tool router (session-bound cutoff), FHIR
+(`Condition` from the chart, `DocumentReference`/`Encounter` filtered, `X-Session-Id` cutoff) and `/env`.
+Retrieval is one instance per (patient, diagnosis) (`scripts/split_retrieval_by_diagnosis.py`, 4,581 instances,
+grading rule reproduced on 58,926 judgments with 0 mismatches). The "structured" strategy carries ontology
+guidance only (`eval/hints.py`); few-shot examples are train-only (`scripts/build_few_shot_examples.py`). A
+200-patient `private` split has its labels in a gitignored overlay (`scripts/carve_private_split.py`,
+`eval/private_labels.py`); `/score` and `/env` return the reward only for it. Regression tests:
+`eval/tests/test_label_leaks.py`; the two Stage-1 xfails owned by this stage are unmarked. Not done: rate limiting
+on `/score` (needs a Redis-backed counter; noted for Stage 5). "No data change" was not held to: item 4 required
+new retrieval rows and item 7 moved labels out of the release DB (89 MB after dropping the recomputable
+`search_vector` text and the superseded judgments).
+
 
 1. **Fix `epic_service.get_problem_list`** (`epic_sim/app/services/epic_service.py:297`) at the source, so every consumer is safe: `open_chart.active_problems`, `view_problem_list`, FHIR Condition, and the paper's `eval/agents` harness. Today only `/env` substitutes the profile history (#10).
 2. **Point-in-time filtering in one place.** Move `filter_future_encounters` from `env_service` into the service layer so the agent harness and FHIR honor it too (F§6 5.3).

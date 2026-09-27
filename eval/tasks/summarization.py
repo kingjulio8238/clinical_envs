@@ -75,8 +75,7 @@ def load_inputs(conn, split: str = "public", granularity: str | None = None,
             log.warning("Empty EHR text for gt_id=%d, patient_id=%d", gt_id, pid)
             continue
 
-        # Preload key findings for structured strategy
-        key_findings_hint = _load_key_findings(cur, pid)
+        key_findings_hint: list[dict] = []   # Stage 2.5: the scored findings never enter the prompt
 
         inputs.append(SummarizationInput(
             gt_id=gt_id,
@@ -243,32 +242,6 @@ def _assemble_patient_ehr_upto(cur, patient_id: int, max_order: int | None) -> s
     return "\n\n".join(parts)
 
 
-def _load_key_findings(cur, patient_id: int) -> list[dict]:
-    """Preload key findings for structured hints."""
-    # Get source question_ids for this patient
-    cur.execute("""
-        SELECT source_question_ids FROM longitudinal_encounters
-        WHERE patient_id = %s AND source_question_ids IS NOT NULL
-    """, (patient_id,))
-    all_qids: set[int] = set()
-    for (sq_ids_str,) in cur.fetchall():
-        qids = json.loads(sq_ids_str)
-        if isinstance(qids, list):
-            all_qids.update(int(q) for q in qids)
-
-    if not all_qids:
-        return []
-
-    cur.execute("""
-        SELECT DISTINCT cf.display_name, cf.finding_type
-        FROM question_findings qf
-        JOIN clinical_findings cf ON qf.finding_id = cf.finding_id
-        WHERE qf.question_id = ANY(%s) AND qf.relevance = 'key'
-        LIMIT 10
-    """, (list(all_qids),))
-    return [{"name": r[0], "type": r[1]} for r in cur.fetchall()]
-
-
 def format_prompt(inp: SummarizationInput, strategy: str) -> tuple[str, str]:
     """Format the prompt for a summarization input (variant-aware)."""
     if inp.variant == "current_visit":
@@ -293,7 +266,7 @@ def format_prompt(inp: SummarizationInput, strategy: str) -> tuple[str, str]:
     structured_hints = ""
     if strategy == "structured":
         from eval.hints import format_summarization_hints
-        structured_hints = format_summarization_hints(inp.key_findings_hint)
+        structured_hints = format_summarization_hints()
 
     user = template.user.format(
         clinical_question=inp.clinical_question,

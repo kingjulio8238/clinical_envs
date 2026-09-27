@@ -90,19 +90,7 @@ def load_inputs(conn, split: str = "public", granularity: str | None = None,
                         query_dx_ids.append(dx_id)
         query = " ".join(query_parts) if query_parts else "clinical diagnosis"
 
-        # Pathognomonic/highly suggestive findings for structured hints
-        pathognomonic_findings = []
-        if query_dx_ids:
-            cur.execute("""
-                SELECT DISTINCT cf.display_name, cf.snomed_id
-                FROM diagnosis_findings df
-                JOIN clinical_findings cf ON df.finding_id = cf.finding_id
-                WHERE df.diagnosis_id = ANY(%s)
-                  AND df.relationship IN ('pathognomonic', 'highly_suggestive')
-                LIMIT 10
-            """, (query_dx_ids,))
-            pathognomonic_findings = [{"name": r[0], "snomed_id": r[1]}
-                                      for r in cur.fetchall()]
+        pathognomonic_findings: list[dict] = []   # Stage 2.5: graph edges never enter the prompt
 
         # Build corpus: EHR sections + fact cards
         corpus = _build_corpus(cur, pid, gt)
@@ -292,9 +280,7 @@ def format_prompt(inp: RetrievalInput, strategy: str) -> tuple[str, str]:
     structured_hints = ""
     if strategy == "structured":
         from eval.hints import format_retrieval_hints
-        structured_hints = format_retrieval_hints(
-            inp.target_diagnoses_with_codes, inp.pathognomonic_findings,
-        )
+        structured_hints = format_retrieval_hints()
 
     user = template.user.format(
         diagnosis=inp.query,

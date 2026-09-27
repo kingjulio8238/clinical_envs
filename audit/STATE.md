@@ -83,25 +83,8 @@ present but defective for its stated purpose · **Absent** = not in the repo.
 
 ## Recommended next move
 
-ROADMAP **Stage 1 is done** (reward-hacking suite, floors/ceilings, normalized reporting, CI). Next is **Stage 2**: close
-the label leaks at the serving layer, starting with `epic_service.get_problem_list`; the suite's strict xfails
-`test_problem_list_tool_reveals_nothing_beyond_the_profile` and `test_structured_hints_do_not_contain_scored_findings`
-are its acceptance tests. In parallel, bring the Docker stack up and smoke one `/env` episode per task, the only large
-unverified surface.
-
-## Engineering quality
-
-Well packaged, but weak at the core. The deployment, serving and scoring *plumbing* is good. The *correctness* of labels
-and metrics, the testing and the reproducibility are research-prototype grade.
-
-| Area | Grade | Evidence |
-|---|---|---|
-| Packaging and deployment | **Strong** | 3-target Dockerfile (app / with-data / all-in-one), compose stack, Apptainer def, Harbor exporter with oracle, idempotent entrypoint, 10 Alembic migrations, public ICD-10 auto-fetch |
-| Architecture of scoring and env | **Good** | one scorer (`compute_all_metrics`) shared by batch eval, `/score` and `/env`; in-process and deterministic; the `/env` design (server-side hiding, budget, scorer token) is sound |
-| Documentation honesty | **Good** | README and DATA_CARD disclose label exposure via the raw API, the LLM-authored imaging reference and the unlicensed terminology tables |
-| Metric correctness | **Poor** | basic bugs that property tests would catch: P@k `min(k, len)`; empty critical set → 0; no negation in the whole-patient matcher; empty predictions skipped, not zeroed; per-item reward ≠ corpus metric |
-| Label and data correctness | **Poor** | LLM output accepted without semantic checks; constraint violations logged, not enforced (profile, timeline, HPI length, segmentation); leaks fixed at the edge (`/env`) rather than at the source (`epic_service`) |
-| Tests and CI | **Weak** | 143 tests (epic_sim 92, eval 31, etl 20). No CI config, no lint or type config. eval tests cover specialty, imaging concepts and a *current-visit* variant absent from the release. **No tests of the patient-diagnosis, retrieval or whole-patient summarization metrics, none of any ETL stage, and none of reward properties** |
-| Failure handling | **Weak** | 45 broad `except Exception` handlers. Silent paths: a missing curated CSV silently changes labels; validation failures are dropped, not retried; API failures vanish from means |
-| Code hygiene | **Weak** | ~43k LOC of accreted research code; 31 files still reference v1.2 paths, `val`/`test` splits or the retired `diagnosis_accuracy` task; dead config (`prompt_revision`), dead branches (s02 LLM fallback, `demographics` section), stale docstrings and GT fields |
-| Reproducibility | **Poor** | `etl/main.py` runs stages 1–6 of ~12; the source, ontology files, curated CSVs, `llm_call_log` and model outputs are not shipped; a private LLM gateway; analysis scripts need Postgres state that is not released |
+ROADMAP **Stages 1 and 2 are done** (reward-hacking suite and floors; label leaks closed at the serving layer:
+shared visibility rules, per-diagnosis retrieval, hint-free prompts, train-only few-shot, private split with an
+operator-held label overlay, reward-only scoring for it). The simulator has now been run end to end in Docker and
+its suite passes. Next is **Stage 3**: harden the reward functions; the twelve Stage-3 strict xfails in
+`eval/tests/test_reward_hacking.py` are its acceptance tests, and `eval/floors.json` records the floors they must move.

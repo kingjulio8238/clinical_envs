@@ -32,11 +32,13 @@ source content                        (not distributed — see Data Setup)
 | File | Contents |
 |---|---|
 | `patient_profiles.db`, `patient_profiles.jsonl` | 1,268 synthetic longitudinal patients and their 5,602 clinical notes (SQLite and JSON Lines) |
-| `benchmark_v1.3.db` | The benchmark database: chart sections, ground truth for the four tasks, section-level relevance judgments, imaging orders, the ontology-grounded knowledge graph, and the public / held-out / training split labels |
+| `benchmark_v1.3.db` | The benchmark database: chart sections, ground truth for the four tasks (private-split labels excluded), section-level relevance judgments, imaging orders, the ontology-grounded knowledge graph, and the public / held-out / train / private split labels |
 
 See **[DATA_CARD.md](DATA_CARD.md)** for schemas, provenance, and what was excluded. The data is fully synthetic and not for clinical use.
 
-**Splits.** Patients are partitioned at the patient level: `public` (200 patients; the reported benchmark), `heldout` (268 patients; private evaluation set, reference labels are shipped so you can score locally but should not be trained on), and `train` (800 patients; released for training, including reinforcement learning with the graph-derived rewards). No patient shares source material with any other.
+**Splits.** Patients are partitioned at the patient level: `public` (200 patients; the reported benchmark), `heldout` (268; labels shipped, so a second validation set), `train` (600; released for training, including reinforcement learning with the graph-derived rewards) and `private` (200, carved from train; **labels are not in the repository**, see *Private split* below). No patient shares source material with any other. Evidence retrieval is one instance per (patient, reference diagnosis), so its query never equals the patient's diagnosis answer key.
+
+**What the simulator never serves** (`epic_sim/app/services/visibility.py`): assessment and plan sections; the graph-derived diagnoses (the problem list is the chart's documented history); and, for an imaging-indication instance, any encounter after the ordering one. These rules apply to the Epic tool API, FHIR and `/env` alike. The "structured" prompt strategy adds ontology guidance only, no patient-specific concepts, and few-shot examples come from the train split.
 
 ## Repository Map
 
@@ -186,6 +188,14 @@ green today, and a fix that lands without updating the suite (and `eval/floors.j
 (`.github/workflows/tests.yml`). Install `requirements-dev.txt` to run it; it drives the simulator's real
 problem-list service over the SQLite file through `aiosqlite`.
 
+## Private split
+
+`scripts/carve_private_split.py` moved the labels of 200 patients out of `benchmark_v1.3.db` into
+`private/labels_v1.3.db` (gitignored). Their rows keep the inputs only (`"_labels_removed": true`, no relevance
+judgments). Whoever holds the overlay scores them by pointing `SH_PRIVATE_LABELS_DB` at it (default
+`private/labels_v1.3.db`); `/score` and `/env` then return the **reward only** for private items, never the metric
+breakdown, and `503` when the overlay is absent. A copy of the labels is available to collaborators on request.
+
 ## Scoring Endpoint (rewards)
 
 The simulator exposes the paper's scorer over HTTP so that an external trainer can obtain a reward
@@ -246,7 +256,7 @@ scripted policy end to end and is the template to replace with a model. What the
   submission scores 0. Labels are never returned, and the policy holds no credential: the harness
   keeps the scorer token.
 - **Reproducibility.** `reset(task=, split=, seed=)` samples deterministically; `env.instances()` lists
-  every instance id so you can build your own curriculum over the 7,619 training instances.
+  every instance id so you can build your own curriculum over the 7,310 training instances.
 
 ## Container images, Harbor tasks, and Apptainer
 

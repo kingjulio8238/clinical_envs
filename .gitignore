@@ -29,3 +29,6 @@ results/
 # Exported Harbor tasks and Harbor job output (contain per-export scorer tokens)
 harbor_tasks/
 jobs/
+
+# Private-split labels (eval/private_labels.py): never committed
+private/

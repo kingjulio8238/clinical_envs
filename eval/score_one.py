@@ -31,6 +31,7 @@ import json
 import math
 from typing import Any
 
+from eval import private_labels
 from eval.chart_neutral import neutral_categories_for
 from eval.config import EVAL_TASKS
 from eval.scoring import compute_all_metrics
@@ -80,6 +81,15 @@ def load_instance(conn, gt_id: int) -> dict:
     if row is None:
         raise InstanceNotFound(f"no benchmark instance with gt_id={gt_id}")
     gt = row[9] if isinstance(row[9], dict) else json.loads(row[9])
+    if gt.get(private_labels.REMOVED_FLAG):
+        # Private split: the release holds the inputs only; the operator's overlay holds the labels.
+        overlay = private_labels.get()
+        full = overlay.ground_truth(row[0]) if overlay else None
+        if full is None:
+            raise private_labels.LabelsUnavailable(
+                f"gt_id={row[0]} is in the private split and this process holds no label overlay "
+                f"({private_labels.ENV_VAR})")
+        gt = full
     return {
         "gt_id": row[0],
         "task": row[1],
@@ -102,12 +112,16 @@ def _attach_context(conn, inst: dict) -> dict:
     if task == "patient_diagnosis":
         gt["_neutral_categories"] = sorted(neutral_categories_for(conn, inst["patient_id"]))
     elif task == "evidence_retrieval":
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT passage_id, relevance_grade FROM relevance_judgments WHERE gt_id = %s",
-                (inst["gt_id"],),
-            )
-            gt["_judgments"] = {pid: grade for pid, grade in cur.fetchall()}
+        overlay = private_labels.get() if inst["split"] == private_labels.PRIVATE_SPLIT else None
+        if overlay is not None:
+            gt["_judgments"] = overlay.judgments(inst["gt_id"])
+        else:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT passage_id, relevance_grade FROM relevance_judgments WHERE gt_id = %s",
+                    (inst["gt_id"],),
+                )
+                gt["_judgments"] = {pid: grade for pid, grade in cur.fetchall()}
     return gt
 
 

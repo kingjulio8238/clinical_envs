@@ -35,6 +35,7 @@ from epic_sim.app.schemas.score import (
     TaskInfo,
 )
 from eval.config import EVAL_TASKS
+from eval.private_labels import LabelsUnavailable
 from eval.score_one import (
     PRIMARY_METRIC,
     InstanceNotFound,
@@ -42,6 +43,15 @@ from eval.score_one import (
     list_instances,
     score_submission,
 )
+
+
+def redact_metrics(result: dict) -> dict:
+    """Private-split responses carry the reward only: the per-metric breakdown (recall, precision,
+    per-tier rates) would let a caller reconstruct the labels query by query (Stage 2.8)."""
+    verbose = {s.strip() for s in settings.verbose_score_splits.split(",") if s.strip()}
+    if result.get("split") in verbose:
+        return result
+    return {**result, "metrics": {}}
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -82,7 +92,7 @@ def scoring_tasks(x_scorer_token: str | None = Header(default=None)):
 @router.get("/instances", response_model=list[InstanceSummary])
 def scoring_instances(
     task: str | None = Query(default=None),
-    split: str | None = Query(default=None, pattern="^(public|heldout|train)$"),
+    split: str | None = Query(default=None, pattern="^(public|heldout|train|private)$"),
     variant: str | None = Query(default=None, description="context_summarization only"),
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -103,9 +113,11 @@ def _score_or_raise(conn, req: ScoreRequest) -> ScoreResponse:
         raise HTTPException(404, str(exc)) from exc
     except TaskMismatch as exc:
         raise HTTPException(422, str(exc)) from exc
+    except LabelsUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    return ScoreResponse(**result)
+    return ScoreResponse(**redact_metrics(result))
 
 
 @router.post("", response_model=ScoreResponse)

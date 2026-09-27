@@ -140,7 +140,7 @@ def format_table(split: str, block: dict) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--split", default="public", choices=["public", "heldout", "train"])
+    ap.add_argument("--split", default="public", choices=["public", "heldout", "train", "private"])
     ap.add_argument("--db", default=str(D.DEFAULT_DB))
     ap.add_argument("--write", action="store_true", help=f"update {FLOORS_PATH.name} for this split")
     ap.add_argument("--check", action="store_true", help=f"exit 1 if {FLOORS_PATH.name} is stale for this split")

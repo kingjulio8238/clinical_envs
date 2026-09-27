@@ -22,30 +22,30 @@
     "metrics": {
      "ndcg_10": {
       "ceiling": 1.0,
-      "floor": 0.7994854701217636,
+      "floor": 0.786404363245134,
       "floor_policy": "section_type_prior",
-      "headroom": 0.20051452987823637,
+      "headroom": 0.21359563675486604,
       "policies": {
        "empty": 0.0,
-       "random": 0.5311394584090128,
-       "section_type_prior": 0.7994854701217636,
-       "single_hpi": 0.1909896083939659
+       "random": 0.574398157689749,
+       "section_type_prior": 0.786404363245134,
+       "single_hpi": 0.1817853780013184
       }
      },
      "precision_5": {
       "ceiling": 1.0,
-      "floor": 0.9925373134328358,
+      "floor": 0.9904862579281184,
       "floor_policy": "single_hpi",
-      "headroom": 0.007462686567164201,
+      "headroom": 0.009513742071881603,
       "policies": {
        "empty": 0.0,
-       "random": 0.7253731343283581,
-       "section_type_prior": 0.9597014925373134,
-       "single_hpi": 0.9925373134328358
+       "random": 0.6834249471458773,
+       "section_type_prior": 0.9725158562367865,
+       "single_hpi": 0.9904862579281184
       }
      }
     },
-    "n": 268
+    "n": 946
    },
    "imaging_indication": {
     "metrics": {
@@ -66,7 +66,7 @@
    "patient_diagnosis": {
     "metrics": {
      "weighted_problem_list_f1_neutral": {
-      "agentic_floor": 0.9984874099119139,
+      "agentic_floor": 0.0,
       "agentic_floor_policy": "echo_problem_list_tool",
       "ceiling": 1.0,
       "floor": 0.8409421458546241,
@@ -75,7 +75,7 @@
       "policies": {
        "copy_problem_list": 0.8380015809238273,
        "copy_problem_list_plus_chronic": 0.8409421458546241,
-       "echo_problem_list_tool": 0.9984874099119139,
+       "echo_problem_list_tool": 0.0,
        "empty": 0.0,
        "profile_chronic": 0.18452479124204213
       }
@@ -120,6 +120,125 @@
     "n": 789
    }
   },
+  "private": {
+   "context_summarization": {
+    "metrics": {
+     "clinical_f1": {
+      "ceiling": 1.0,
+      "floor": 0.6935308395379991,
+      "floor_policy": "chart_dump",
+      "headroom": 0.3064691604620009,
+      "policies": {
+       "chart_dump": 0.6935308395379991,
+       "echo_structured_hints": 0.39523899883226504,
+       "empty": 0.0
+      }
+     }
+    },
+    "n": 200
+   },
+   "evidence_retrieval": {
+    "metrics": {
+     "ndcg_10": {
+      "ceiling": 1.0,
+      "floor": 0.7894929733362335,
+      "floor_policy": "section_type_prior",
+      "headroom": 0.21050702666376653,
+      "policies": {
+       "empty": 0.0,
+       "random": 0.587349579289771,
+       "section_type_prior": 0.7894929733362335,
+       "single_hpi": 0.18043706274431348
+      }
+     },
+     "precision_5": {
+      "ceiling": 1.0,
+      "floor": 0.9713896457765667,
+      "floor_policy": "single_hpi",
+      "headroom": 0.028610354223433276,
+      "policies": {
+       "empty": 0.0,
+       "random": 0.6884468664850136,
+       "section_type_prior": 0.9664850136239783,
+       "single_hpi": 0.9713896457765667
+      }
+     }
+    },
+    "n": 734
+   },
+   "imaging_indication": {
+    "metrics": {
+     "clinical_question_concept_f1": {
+      "ceiling": 1.0,
+      "floor": 0.18777104666784383,
+      "floor_policy": "chief_complaint",
+      "headroom": 0.8122289533321562,
+      "policies": {
+       "chief_complaint": 0.18777104666784383,
+       "empty": 0.0,
+       "restate_order": 0.18266417252182376
+      }
+     }
+    },
+    "n": 281
+   },
+   "patient_diagnosis": {
+    "metrics": {
+     "weighted_problem_list_f1_neutral": {
+      "agentic_floor": 0.0,
+      "agentic_floor_policy": "echo_problem_list_tool",
+      "ceiling": 1.0,
+      "floor": 0.8556149811923058,
+      "floor_policy": "copy_problem_list_plus_chronic",
+      "headroom": 0.14438501880769417,
+      "policies": {
+       "copy_problem_list": 0.847742348702842,
+       "copy_problem_list_plus_chronic": 0.8556149811923058,
+       "echo_problem_list_tool": 0.0,
+       "empty": 0.0,
+       "profile_chronic": 0.21423442352721944
+      }
+     }
+    },
+    "n": 200
+   },
+   "specialty_absent": {
+    "metrics": {
+     "abstention_accuracy": {
+      "ceiling": 1.0,
+      "floor": 1.0,
+      "floor_policy": "empty",
+      "headroom": 0.0,
+      "policies": {
+       "abstain_by_name": 0.88,
+       "chart_dump": 0.105,
+       "chart_dump_plus_phrase": 1.0,
+       "empty": 1.0,
+       "phrase_only": 1.0
+      }
+     }
+    },
+    "n": 400
+   },
+   "specialty_involved": {
+    "metrics": {
+     "conditioned_f1": {
+      "ceiling": 0.9914903347692374,
+      "floor": 0.45657681579037557,
+      "floor_policy": "abstain_by_name",
+      "headroom": 0.5349135189788619,
+      "policies": {
+       "abstain_by_name": 0.45657681579037557,
+       "chart_dump": 0.40992886122287586,
+       "chart_dump_plus_phrase": 0.40992886122287586,
+       "empty": 0.0,
+       "phrase_only": 0.0
+      }
+     }
+    },
+    "n": 613
+   }
+  },
   "public": {
    "context_summarization": {
     "metrics": {
@@ -141,30 +260,30 @@
     "metrics": {
      "ndcg_10": {
       "ceiling": 1.0,
-      "floor": 0.8076963168978597,
+      "floor": 0.7809064707558325,
       "floor_policy": "section_type_prior",
-      "headroom": 0.1923036831021403,
+      "headroom": 0.21909352924416747,
       "policies": {
        "empty": 0.0,
-       "random": 0.525691082277725,
-       "section_type_prior": 0.8076963168978597,
-       "single_hpi": 0.19881348896193252
+       "random": 0.5548640072764163,
+       "section_type_prior": 0.7809064707558325,
+       "single_hpi": 0.18208233383080882
       }
      },
      "precision_5": {
-      "ceiling": 0.9990000000000001,
-      "floor": 0.995,
+      "ceiling": 0.9997206703910614,
+      "floor": 0.9930167597765364,
       "floor_policy": "single_hpi",
-      "headroom": 0.004000000000000115,
+      "headroom": 0.006703910614525022,
       "policies": {
        "empty": 0.0,
-       "random": 0.6984,
-       "section_type_prior": 0.9670000000000001,
-       "single_hpi": 0.995
+       "random": 0.6583798882681564,
+       "section_type_prior": 0.9782122905027935,
+       "single_hpi": 0.9930167597765364
       }
      }
     },
-    "n": 200
+    "n": 716
    },
    "imaging_indication": {
     "metrics": {
@@ -185,7 +304,7 @@
    "patient_diagnosis": {
     "metrics": {
      "weighted_problem_list_f1_neutral": {
-      "agentic_floor": 0.9996874023132228,
+      "agentic_floor": 0.0,
       "agentic_floor_policy": "echo_problem_list_tool",
       "ceiling": 1.0,
       "floor": 0.836310732162604,
@@ -194,7 +313,7 @@
       "policies": {
        "copy_problem_list": 0.8278350608394333,
        "copy_problem_list_plus_chronic": 0.836310732162604,
-       "echo_problem_list_tool": 0.9996874023132228,
+       "echo_problem_list_tool": 0.0,
        "empty": 0.0,
        "profile_chronic": 0.19935280344344206
       }
@@ -244,82 +363,82 @@
     "metrics": {
      "clinical_f1": {
       "ceiling": 1.0,
-      "floor": 0.6877297008332224,
+      "floor": 0.6857959879316304,
       "floor_policy": "chart_dump",
-      "headroom": 0.3122702991667776,
+      "headroom": 0.31420401206836956,
       "policies": {
-       "chart_dump": 0.6877297008332224,
-       "echo_structured_hints": 0.3906825354244569,
+       "chart_dump": 0.6857959879316304,
+       "echo_structured_hints": 0.38916371428852076,
        "empty": 0.0
       }
      }
     },
-    "n": 800
+    "n": 600
    },
    "evidence_retrieval": {
     "metrics": {
      "ndcg_10": {
       "ceiling": 1.0,
-      "floor": 0.8073628055868483,
+      "floor": 0.7879270072504401,
       "floor_policy": "section_type_prior",
-      "headroom": 0.19263719441315175,
+      "headroom": 0.21207299274955993,
       "policies": {
        "empty": 0.0,
-       "random": 0.5358078920262468,
-       "section_type_prior": 0.8073628055868483,
-       "single_hpi": 0.1961884503637619
+       "random": 0.5809139965652221,
+       "section_type_prior": 0.7879270072504401,
+       "single_hpi": 0.18284882559758514
       }
      },
      "precision_5": {
       "ceiling": 1.0,
-      "floor": 0.9975,
+      "floor": 0.9926773455377574,
       "floor_policy": "single_hpi",
-      "headroom": 0.0024999999999999467,
+      "headroom": 0.0073226544622425616,
       "policies": {
        "empty": 0.0,
-       "random": 0.71195,
-       "section_type_prior": 0.97,
-       "single_hpi": 0.9975
+       "random": 0.6889153318077803,
+       "section_type_prior": 0.9785812356979404,
+       "single_hpi": 0.9926773455377574
       }
      }
     },
-    "n": 800
+    "n": 2185
    },
    "imaging_indication": {
     "metrics": {
      "clinical_question_concept_f1": {
       "ceiling": 1.0,
-      "floor": 0.1817677223134076,
+      "floor": 0.18148814128281388,
       "floor_policy": "restate_order",
-      "headroom": 0.8182322776865925,
+      "headroom": 0.8185118587171861,
       "policies": {
-       "chief_complaint": 0.17992809756631636,
+       "chief_complaint": 0.17748207237483,
        "empty": 0.0,
-       "restate_order": 0.1817677223134076
+       "restate_order": 0.18148814128281388
       }
      }
     },
-    "n": 1182
+    "n": 901
    },
    "patient_diagnosis": {
     "metrics": {
      "weighted_problem_list_f1_neutral": {
-      "agentic_floor": 0.9995049633933457,
+      "agentic_floor": 0.0,
       "agentic_floor_policy": "echo_problem_list_tool",
       "ceiling": 1.0,
-      "floor": 0.8514720043503853,
+      "floor": 0.8500828660567888,
       "floor_policy": "copy_problem_list_plus_chronic",
-      "headroom": 0.14852799564961472,
+      "headroom": 0.14991713394321116,
       "policies": {
-       "copy_problem_list": 0.8446567017948763,
-       "copy_problem_list_plus_chronic": 0.8514720043503853,
-       "echo_problem_list_tool": 0.9995049633933457,
+       "copy_problem_list": 0.8436193071969689,
+       "copy_problem_list_plus_chronic": 0.8500828660567888,
+       "echo_problem_list_tool": 0.0,
        "empty": 0.0,
-       "profile_chronic": 0.18893295351049888
+       "profile_chronic": 0.18022235650377114
       }
      }
     },
-    "n": 800
+    "n": 600
    },
    "specialty_absent": {
     "metrics": {
@@ -329,33 +448,33 @@
       "floor_policy": "empty",
       "headroom": 0.0,
       "policies": {
-       "abstain_by_name": 0.869375,
-       "chart_dump": 0.10625,
+       "abstain_by_name": 0.8658333333333333,
+       "chart_dump": 0.10666666666666667,
        "chart_dump_plus_phrase": 1.0,
        "empty": 1.0,
        "phrase_only": 1.0
       }
      }
     },
-    "n": 1600
+    "n": 1200
    },
    "specialty_involved": {
     "metrics": {
      "conditioned_f1": {
-      "ceiling": 0.9901930932872706,
-      "floor": 0.4637890131935223,
+      "ceiling": 0.9897476031751815,
+      "floor": 0.4662225105664681,
       "floor_policy": "abstain_by_name",
-      "headroom": 0.5264040800937483,
+      "headroom": 0.5235250926087134,
       "policies": {
-       "abstain_by_name": 0.4637890131935223,
-       "chart_dump": 0.4197326703446031,
-       "chart_dump_plus_phrase": 0.41970206619537026,
+       "abstain_by_name": 0.4662225105664681,
+       "chart_dump": 0.4230602110343982,
+       "chart_dump_plus_phrase": 0.42301927124018124,
        "empty": 0.0,
        "phrase_only": 0.0
       }
      }
     },
-    "n": 2437
+    "n": 1824
    }
   }
  },

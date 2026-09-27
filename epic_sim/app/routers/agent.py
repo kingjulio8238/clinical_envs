@@ -23,7 +23,7 @@ from epic_sim.app.schemas.epic import (
     ToolCallResponse,
     ToolDefinition,
 )
-from epic_sim.app.services import epic_service, session_service
+from epic_sim.app.services import epic_service, session_service, visibility
 from epic_sim.app.services.session_service import get_redis
 
 router = APIRouter()
@@ -211,6 +211,16 @@ async def get_tools():
     return [t.model_dump() for t in TOOL_DEFINITIONS]
 
 
+async def _session_cutoff(redis, session_id: str | None, db: AsyncSession) -> set[int] | None:
+    """Encounters visible to this session, or None when the session's instance has no cutoff."""
+    if not (redis and session_id):
+        return None
+    session = await session_service.get_session(redis, session_id)
+    if session is None or getattr(session, "gt_id", None) is None:
+        return None
+    return await visibility.allowed_encounter_ids(db, session.gt_id)
+
+
 @router.post("/tools", response_model=ToolCallResponse)
 async def execute_tool(
     request: ToolCallRequest,
@@ -235,6 +245,9 @@ async def execute_tool(
         user.role,
         request.session_id,
     )
+    # Visibility (Stage 2.2/2.3): hide outcome sections, and for a session bound to an
+    # imaging instance drop every encounter after the ordering one.
+    result = visibility.apply(result, await _session_cutoff(redis, request.session_id, db))
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
 

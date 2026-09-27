@@ -64,7 +64,9 @@ def _frozen_examples() -> dict:
 
 
 def select_examples(task: str, n: int = 3, conn=None) -> list[dict]:
-    """Select top-N few-shot examples by model agreement from zero_shot val runs.
+    """Select top-N few-shot examples by model agreement from zero_shot TRAIN runs.
+
+    Never from an evaluation split: the example carries the reference answer (Stage 2.6).
 
     Returns list of dicts: {gt_id, task, input_text, expected_output}.
     """
@@ -111,7 +113,7 @@ def _select_examples_impl(task: str, n: int, conn) -> list[dict]:
         # 1. Find all completed zero_shot val runs for this task
         cur.execute("""
             SELECT DISTINCT run_id FROM evaluation_runs
-            WHERE task = %s AND split = 'public' AND prompt_strategy = 'zero_shot'
+            WHERE task = %s AND split = 'train' AND prompt_strategy = 'zero_shot'
               AND completed_at IS NOT NULL
         """, (task,))
         run_ids = [r[0] for r in cur.fetchall()]

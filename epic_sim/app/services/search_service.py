@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from epic_sim.app.auth.rbac import get_allowed_sections
+from epic_sim.app.services import visibility
 from epic_sim.app.schemas.epic import SectionEntry
 
 log = logging.getLogger(__name__)
@@ -79,6 +80,9 @@ class HybridSearchService:
         if allowed_types is not None:
             type_filter = "AND ees.section_type = ANY(:types)"
             params["types"] = list(allowed_types)
+        if visibility.hidden_sections():   # assessment/plan never surface in search (Stage 2.3)
+            type_filter += " AND NOT (ees.section_type = ANY(:hidden))"
+            params["hidden"] = list(visibility.hidden_sections())
 
         sql = text(f"""
             SELECT ees.id, ts_rank(ees.search_vector, plainto_tsquery('english', :query)) AS rank
@@ -157,6 +161,9 @@ class HybridSearchService:
             if allowed_types is not None:
                 type_filter = "AND ees.section_type = ANY(:types)"
                 params["types"] = list(allowed_types)
+            if visibility.hidden_sections():
+                type_filter += " AND NOT (ees.section_type = ANY(:hidden))"
+                params["hidden"] = list(visibility.hidden_sections())
 
             sql = text(f"""
                 SELECT ees.id FROM encounter_ehr_sections ees

@@ -35,6 +35,7 @@ import psycopg
 from starlette.concurrency import run_in_threadpool
 
 from epic_sim.app.config import settings
+from epic_sim.app.services import visibility
 from eval.agents.prompts import SUBMIT_TOOL_SCHEMAS, build_patient_intro, build_system_prompt
 from eval.score_one import InstanceNotFound, list_instances, load_instance, score_submission
 
@@ -148,27 +149,9 @@ def _tool_schemas(task: str, tool_definitions: list[dict]) -> list[dict]:
 # Observation post-processing
 # ---------------------------------------------------------------------------
 
-def strip_outcome_sections(obj):
-    """Recursively drop assessment/plan section entries from a tool result."""
-    if isinstance(obj, list):
-        return [strip_outcome_sections(i) for i in obj
-                if not (isinstance(i, dict) and str(i.get("section_type", "")).lower() in OUTCOME_SECTIONS)]
-    if isinstance(obj, dict):
-        return {k: strip_outcome_sections(v) for k, v in obj.items()
-                if not (k.lower() in OUTCOME_SECTIONS and isinstance(v, str))}
-    return obj
-
-
-def filter_future_encounters(obj, allowed: set[int]):
-    """Remove anything tied to an encounter outside `allowed` (imaging episodes)."""
-    if isinstance(obj, list):
-        return [filter_future_encounters(i, allowed) for i in obj
-                if not (isinstance(i, dict) and "encounter_id" in i and i["encounter_id"] not in allowed)]
-    if isinstance(obj, dict):
-        if "encounter_id" in obj and isinstance(obj["encounter_id"], int) and obj["encounter_id"] not in allowed:
-            return {"error": "This encounter is after the imaging order and is not accessible in this task."}
-        return {k: filter_future_encounters(v, allowed) for k, v in obj.items()}
-    return obj
+# The visibility rules are shared with the Epic tool API and FHIR (epic_sim/app/services/visibility.py).
+strip_outcome_sections = visibility.strip_outcome_sections
+filter_future_encounters = visibility.filter_future_encounters
 
 
 def replace_problem_list(tool: str, obs, chart_problems: list[dict]):
@@ -377,7 +360,9 @@ async def step(redis, db, dispatch, episode_id: str, name: str, arguments: dict,
         obs = {"status": "submitted", "malformed": prediction is None}
         info = {"forced": remaining <= 0, "malformed": prediction is None, "steps": ep["steps"]}
         if privileged:
-            info.update({"reward_metric": result["reward_metric"], "metrics": result["metrics"]})
+            verbose = {x.strip() for x in settings.verbose_score_splits.split(",") if x.strip()}
+            info.update({"reward_metric": result["reward_metric"],
+                         "metrics": result["metrics"] if ep.get("split") in verbose else {}})   # Stage 2.8
         return {**base, "step": ep["steps"], "observation": obs, "observation_text": render(obs),
                 "remaining": max(remaining - 1, 0), "reward": result["reward"] if privileged else None,
                 "done": True, "info": info}

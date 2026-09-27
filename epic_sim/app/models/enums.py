@@ -104,6 +104,7 @@ class EvalTask(str, enum.Enum):
     context_summarization = "context_summarization"
     evidence_retrieval = "evidence_retrieval"
     imaging_indication = "imaging_indication"
+    patient_diagnosis = "patient_diagnosis"   # longitudinal problem list (v1.3 task); diagnosis_accuracy is retired
 
 
 class GtGranularity(str, enum.Enum):
@@ -120,6 +121,10 @@ class Difficulty(str, enum.Enum):
 
 class SplitType(str, enum.Enum):
     train = "train"
+    public = "public"
+    heldout = "heldout"
+    private = "private"   # labels held outside the release (eval/private_labels.py)
+    # legacy labels of the pre-v1.3 databases
     val = "val"
     test = "test"
 

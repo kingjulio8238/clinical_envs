@@ -88,7 +88,7 @@ def load_inputs(conn, split: str = "public", granularity: str | None = None,
             log.warning("Empty EHR text for gt_id=%d patient_id=%d", gt_id, pid)
             continue
 
-        organ_systems, key_findings = _load_ontology_hints(cur, pid)
+        organ_systems, key_findings = [], []   # Stage 2.5: no graph-derived hints reach the prompt
 
         inputs.append(PatientDiagnosisInput(
             gt_id=gt_id,
@@ -129,48 +129,6 @@ def _assemble_patient_ehr(cur, patient_id: int) -> str:
     return "\n\n".join(parts)
 
 
-def _load_ontology_hints(cur, patient_id: int) -> tuple[list[str], list[dict]]:
-    """Preload organ systems and key findings for structured hints."""
-    # Collect question_ids for this patient
-    cur.execute("""
-        SELECT source_question_ids FROM longitudinal_encounters
-        WHERE patient_id = %s AND source_question_ids IS NOT NULL
-    """, (patient_id,))
-    all_qids: set[int] = set()
-    for (sq_ids_str,) in cur.fetchall():
-        qids = json.loads(sq_ids_str)
-        if isinstance(qids, list):
-            all_qids.update(int(q) for q in qids)
-
-    if not all_qids:
-        return [], []
-
-    qid_list = list(all_qids)
-
-    cur.execute("SELECT to_regclass('board_questions')")
-    if cur.fetchone()[0] is not None:
-        cur.execute("""
-            SELECT DISTINCT organ_system FROM board_questions
-            WHERE question_id = ANY(%s) AND organ_system IS NOT NULL
-        """, (qid_list,))
-        organ_systems = [r[0] for r in cur.fetchall()]
-    else:
-        organ_systems = []
-
-    cur.execute("""
-        SELECT DISTINCT cf.display_name, cf.snomed_id, cf.finding_type
-        FROM question_findings qf
-        JOIN clinical_findings cf ON qf.finding_id = cf.finding_id
-        WHERE qf.question_id = ANY(%s) AND qf.relevance = 'key'
-          AND cf.snomed_id IS NOT NULL
-        LIMIT 5
-    """, (qid_list,))
-    key_findings = [{"name": r[0], "snomed_id": r[1], "type": r[2]}
-                    for r in cur.fetchall()]
-
-    return organ_systems, key_findings
-
-
 # ---------------------------------------------------------------------------
 # Format prompt
 # ---------------------------------------------------------------------------
@@ -205,9 +163,7 @@ def format_prompt(inp: PatientDiagnosisInput, strategy: str) -> tuple[str, str]:
     structured_hints = ""
     if strategy == "structured":
         from eval.hints import format_diagnosis_hints
-        structured_hints = format_diagnosis_hints(
-            inp.organ_systems, inp.key_findings,
-        )
+        structured_hints = format_diagnosis_hints()
 
     user = template.user.format(
         ehr_text=inp.ehr_text,

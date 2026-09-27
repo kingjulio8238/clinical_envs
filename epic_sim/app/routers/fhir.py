@@ -10,8 +10,9 @@ Implements Epic-style FHIR R4 patterns:
 from __future__ import annotations
 
 import json
+import re
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -34,6 +35,8 @@ from epic_sim.app.fhir.resources.patient import Patient
 from epic_sim.app.fhir.resources.service_request import ServiceRequest
 from epic_sim.app.fhir.types import Bundle, BundleEntry, BundleEntrySearch, BundleLink
 from epic_sim.app.models.base import get_db
+from epic_sim.app.services import session_service, visibility
+from epic_sim.app.services.session_service import get_redis
 from epic_sim.app.models.benchmark import ImagingOrder
 from epic_sim.app.models.longitudinal import (
     EncounterEhrSection,
@@ -150,18 +153,56 @@ async def search_patient(
 
 # ── Encounter ────────────────────────────────────────────────
 
+async def _cutoff(redis, x_session_id: str | None, db: AsyncSession) -> set[int] | None:
+    """Point-in-time cutoff for a FHIR caller that identifies its benchmark instance through an
+    agent session (`X-Session-Id`, created with a gt_id at POST /sessions). None = no cutoff."""
+    if not (redis and x_session_id):
+        return None
+    session = await session_service.get_session(redis, x_session_id)
+    if session is None or getattr(session, "gt_id", None) is None:
+        return None
+    return await visibility.allowed_encounter_ids(db, session.gt_id)
+
+
+def _apply_cutoff(bundle: dict, allowed: set[int] | None) -> dict:
+    if allowed is None:
+        return bundle
+    out = visibility.filter_future_encounters(bundle, allowed)
+    out["total"] = len(out.get("entry") or [])
+    return out
+
+
+def _condition_resource(patient: int, problem) -> dict:
+    """A Condition for one entry of the chart's documented problem list. The chart lists names, so
+    no ICD-10/SNOMED code is attached; codes for the patient's *reference* diagnoses are the label."""
+    return {
+        "resourceType": "Condition",
+        "id": f"{patient}-{problem.problem_id}",
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active"}]},
+        "verificationStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-ver-status", "code": "confirmed"}]},
+        "category": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-category",
+                                  "code": "problem-list-item", "display": "Problem List Item"}]}],
+        "code": {"text": problem.display_name},
+        "subject": {"reference": f"Patient/{patient}"},
+        "note": [{"text": "Documented history from the chart's problem list."}],
+    }
+
+
 @router.get("/Encounter/{encounter_id}")
 async def read_encounter(
     encounter_id: int,
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    x_session_id: str | None = Header(default=None),
 ):
     _require_scope(user, "Encounter")
     result = await db.execute(
         select(LongitudinalEncounter).where(LongitudinalEncounter.encounter_id == encounter_id)
     )
     enc = result.scalar_one_or_none()
-    if enc is None:
+    allowed = await _cutoff(redis, x_session_id, db)
+    if enc is None or (allowed is not None and encounter_id not in allowed):
         raise HTTPException(status_code=404, detail="Encounter not found")
     return Encounter.from_db(enc).model_dump(by_alias=True, exclude_none=True)
 
@@ -175,9 +216,14 @@ async def search_encounter(
     _sort: str | None = Query(None, alias="_sort"),
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    x_session_id: str | None = Header(default=None),
 ):
     _require_scope(user, "Encounter")
+    allowed = await _cutoff(redis, x_session_id, db)
     q = select(LongitudinalEncounter)
+    if allowed is not None:
+        q = q.where(LongitudinalEncounter.encounter_id.in_(sorted(allowed)))
 
     if patient:
         q = q.where(LongitudinalEncounter.patient_id == patient)
@@ -213,18 +259,19 @@ async def search_encounter(
 
 @router.get("/Condition/{condition_id}")
 async def read_condition(
-    condition_id: int,
+    condition_id: str,
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """One entry of a patient's documented problem list; ids are `<patient>-chart-<n>`."""
     _require_scope(user, "Condition")
-    result = await db.execute(
-        select(Diagnosis).where(Diagnosis.diagnosis_id == condition_id)
-    )
-    dx = result.scalar_one_or_none()
-    if dx is None:
-        raise HTTPException(status_code=404, detail="Condition not found")
-    return Condition.from_db(dx).model_dump(by_alias=True, exclude_none=True)
+    m = re.fullmatch(r"(\d+)-(chart-\d+)", condition_id)
+    if m:
+        patient = int(m.group(1))
+        for p in await visibility.documented_problems(db, patient):
+            if p.problem_id == m.group(2):
+                return _condition_resource(patient, p)
+    raise HTTPException(status_code=404, detail="Condition not found")
 
 
 @router.get("/Condition")
@@ -237,97 +284,22 @@ async def search_condition(
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Search conditions for a patient.
+    """A patient's conditions: the chart's documented problem list (Stage 2.1).
 
-    Conditions are derived from question_diagnoses for encounters belonging to the patient.
+    Until Stage 2.1 this returned the graph-derived diagnoses of the patient's source questions
+    (correct role for problem-list-item, every role for encounter-diagnosis) with ICD-10 and SNOMED
+    codes, i.e. the patient-diagnosis reference (audit/FINDINGS.md #10). Coded reference diagnoses
+    are labels and are not served through any API.
     """
     _require_scope(user, "Condition")
-
     if patient is None:
         raise HTTPException(status_code=400, detail="'patient' parameter is required")
-
-    # Get encounters for this patient
-    enc_q = select(LongitudinalEncounter.source_question_ids).where(
-        LongitudinalEncounter.patient_id == patient
-    )
-    enc_result = await db.execute(enc_q)
-    rows = enc_result.scalars().all()
-
-    # Collect all question IDs (stored as JSON arrays like "[6235]" or "[6235, 1280]")
-    question_ids = set()
-    for sq_ids in rows:
-        if sq_ids:
-            try:
-                parsed = json.loads(sq_ids)
-                if isinstance(parsed, list):
-                    question_ids.update(int(x) for x in parsed)
-                else:
-                    question_ids.add(int(parsed))
-            except (json.JSONDecodeError, ValueError):
-                # Fallback: try comma-separated
-                for qid_str in sq_ids.split(","):
-                    qid_str = qid_str.strip().strip("[]")
-                    if qid_str.isdigit():
-                        question_ids.add(int(qid_str))
-
-    if not question_ids:
-        return _make_bundle([], 0, offset=_offset, count=_count)
-
-    # Get diagnoses via question_diagnoses (correct role only for problem list)
-    q = (
-        select(Diagnosis, QuestionDiagnosis.role)
-        .join(QuestionDiagnosis, Diagnosis.diagnosis_id == QuestionDiagnosis.diagnosis_id)
-        .where(QuestionDiagnosis.question_id.in_(question_ids))
-    )
-
-    # Category filter
-    cat_code = category or "encounter-diagnosis"
-    if cat_code == "problem-list-item":
-        q = q.where(QuestionDiagnosis.role == "correct")
-    # encounter-diagnosis = all roles
-
-    # Code filter (ICD-10 or SNOMED)
+    problems = await visibility.documented_problems(db, patient)
     if code:
-        # Support token search: system|code
-        if "|" in code:
-            system, code_val = code.split("|", 1)
-            if "icd" in system.lower():
-                q = q.where(Diagnosis.icd10_code == code_val)
-            elif "snomed" in system.lower():
-                q = q.where(Diagnosis.snomed_id == code_val)
-        else:
-            q = q.where((Diagnosis.icd10_code == code) | (Diagnosis.snomed_id == code))
-
-    # Count distinct diagnoses
-    count_q = (
-        select(func.count(func.distinct(Diagnosis.diagnosis_id)))
-        .select_from(Diagnosis)
-        .join(QuestionDiagnosis, Diagnosis.diagnosis_id == QuestionDiagnosis.diagnosis_id)
-        .where(QuestionDiagnosis.question_id.in_(question_ids))
-    )
-    if cat_code == "problem-list-item":
-        count_q = count_q.where(QuestionDiagnosis.role == "correct")
-    if code:
-        if "|" in code:
-            system_str, code_val = code.split("|", 1)
-            if "icd" in system_str.lower():
-                count_q = count_q.where(Diagnosis.icd10_code == code_val)
-            elif "snomed" in system_str.lower():
-                count_q = count_q.where(Diagnosis.snomed_id == code_val)
-        else:
-            count_q = count_q.where((Diagnosis.icd10_code == code) | (Diagnosis.snomed_id == code))
-    total = (await db.execute(count_q)).scalar() or 0
-
-    # Deduplicate by diagnosis_id, paginate
-    q = q.distinct(Diagnosis.diagnosis_id).offset(_offset).limit(_count)
-    result = await db.execute(q)
-
-    entries = []
-    for dx, role in result.all():
-        cond = Condition.from_db(dx, patient_id=patient, category_code=cat_code)
-        entries.append(cond.model_dump(by_alias=True, exclude_none=True))
-
-    return _make_bundle(entries, total, offset=_offset, count=_count)
+        needle = code.split("|", 1)[-1].lower()
+        problems = [p for p in problems if needle in p.display_name.lower()]
+    entries = [_condition_resource(patient, p) for p in problems[_offset:_offset + _count]]
+    return _make_bundle(entries, len(problems), offset=_offset, count=_count)
 
 
 # ── Observation ──────────────────────────────────────────────
@@ -563,10 +535,13 @@ async def search_document_reference(
     _offset: int = Query(0, alias="_offset"),
     user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+    x_session_id: str | None = Header(default=None),
 ):
     """Search DocumentReferences (EHR sections) for a patient.
 
-    Applies role-based section filtering (partial observability).
+    Applies role-based section filtering (partial observability), hides the outcome sections
+    (assessment/plan) for every role, and honors the session's point-in-time cutoff.
     """
     _require_scope(user, "DocumentReference")
 
@@ -584,6 +559,11 @@ async def search_document_reference(
 
     if allowed is not None:
         q = q.where(EncounterEhrSection.section_type.in_(allowed))
+    if visibility.hidden_sections():
+        q = q.where(EncounterEhrSection.section_type.not_in(sorted(visibility.hidden_sections())))
+    cutoff = await _cutoff(redis, x_session_id, db)
+    if cutoff is not None:
+        q = q.where(EncounterEhrSection.encounter_id.in_(sorted(cutoff)))
 
     if type_param:
         q = q.where(EncounterEhrSection.section_type == type_param)

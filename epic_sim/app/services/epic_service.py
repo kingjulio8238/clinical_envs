@@ -22,8 +22,7 @@ from epic_sim.app.models.longitudinal import (
     LongitudinalEncounter,
     LongitudinalPatient,
 )
-from epic_sim.app.models.ontology import Diagnosis
-from epic_sim.app.models.relationships import QuestionDiagnosis
+from epic_sim.app.services import visibility
 from epic_sim.app.schemas.epic import (
     AddProblemRequest,
     EncounterDetail,
@@ -200,6 +199,8 @@ async def get_encounter_detail(
     for s in sec_result.scalars().all():
         if allowed is not None and s.section_type not in allowed:
             continue
+        if visibility.is_hidden(s.section_type):   # assessment/plan state the answer (Stage 2.3)
+            continue
         sections.append(_section_to_entry(s))
 
     return EncounterDetail(
@@ -223,6 +224,8 @@ async def get_encounter_section(
         return None
     allowed = get_allowed_sections(role)
     if allowed is not None and sec.section_type not in allowed:
+        return None
+    if visibility.is_hidden(sec.section_type):
         return None
     return _section_to_entry(sec)
 
@@ -297,39 +300,15 @@ async def get_pathology_results(
 async def get_problem_list(
     db: AsyncSession, patient_id: int
 ) -> list[ProblemEntry]:
-    """Active problem list: correct diagnoses from encounter questions."""
-    # Get all question IDs for this patient
-    enc_q = select(LongitudinalEncounter.source_question_ids).where(
-        LongitudinalEncounter.patient_id == patient_id
-    )
-    enc_result = await db.execute(enc_q)
-    sq_ids_list = enc_result.scalars().all()
-    question_ids = _parse_question_ids(sq_ids_list)
+    """The chart's problem list: the documented history (profile chronic conditions), exactly what
+    every note lists under "Active Problem List".
 
-    if not question_ids:
-        return []
-
-    # Get correct diagnoses (deduplicated)
-    q = (
-        select(Diagnosis)
-        .join(QuestionDiagnosis, Diagnosis.diagnosis_id == QuestionDiagnosis.diagnosis_id)
-        .where(QuestionDiagnosis.question_id.in_(question_ids))
-        .where(QuestionDiagnosis.role == "correct")
-        .distinct(Diagnosis.diagnosis_id)
-    )
-    result = await db.execute(q)
-    seen: set[int] = set()
-    problems = []
-    for dx in result.scalars().all():
-        if dx.diagnosis_id not in seen:
-            seen.add(dx.diagnosis_id)
-            problems.append(ProblemEntry(
-                diagnosis_id=dx.diagnosis_id,
-                display_name=dx.display_name or dx.icd10_desc or "Unknown",
-                icd10_code=dx.icd10_code,
-                snomed_id=dx.snomed_id,
-            ))
-    return problems
+    Until Stage 2.1 this returned the graph-derived correct diagnoses of the patient's source
+    questions with ICD-10 codes, i.e. the patient-diagnosis reference itself, to every consumer
+    (open_chart.active_problems, view_problem_list, FHIR Condition, the paper's agent harness); only
+    /env substituted the chart history. audit/FINDINGS.md #10.
+    """
+    return await visibility.documented_problems(db, patient_id)
 
 
 async def add_problem(

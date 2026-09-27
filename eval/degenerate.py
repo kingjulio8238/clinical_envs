@@ -25,6 +25,7 @@ import sqlite3
 from pathlib import Path
 from typing import Callable
 
+from eval import private_labels
 from eval.scoring import compute_all_metrics
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -112,8 +113,15 @@ class ReleaseDB:
                 "from benchmark_ground_truth b left join longitudinal_encounters l using(encounter_id) "
                 "where b.task=? and b.split=? and b.is_diagnostic order by b.gt_id", base_task, split)
             out = []
+            overlay = private_labels.get()
             for gt_id, pid, eid, sp, gt in rows:
                 gt = json.loads(gt)
+                if gt.get(private_labels.REMOVED_FLAG):
+                    # private split: labels live in the operator's overlay; skip the unit if absent
+                    full = overlay.ground_truth(gt_id) if overlay else None
+                    if full is None:
+                        continue
+                    gt = full
                 variant = gt.get("variant")
                 if task == "context_summarization" and variant is not None:
                     continue
@@ -216,6 +224,10 @@ class ReleaseDB:
         d = collections.defaultdict(dict)
         for g, p, r in self.q("select gt_id, passage_id, relevance_grade from relevance_judgments"):
             d[g][p] = r
+        overlay = private_labels.get()
+        if overlay is not None:
+            for g, p, r in overlay.conn.execute("select gt_id, passage_id, relevance_grade from relevance_judgments"):
+                d[g][p] = r
         return d
 
     def section_type_prior(self, fit_split: str = "train") -> dict[str, float]:

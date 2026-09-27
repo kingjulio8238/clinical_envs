@@ -196,9 +196,7 @@ def format_prompt(inp: DiagnosisInput, strategy: str) -> tuple[str, str]:
     structured_hints = ""
     if strategy == "structured":
         from eval.hints import format_diagnosis_hints
-        structured_hints = format_diagnosis_hints(
-            inp.organ_systems, inp.key_findings,
-        )
+        structured_hints = format_diagnosis_hints()
 
     user = template.user.format(
         ehr_text=inp.ehr_text,

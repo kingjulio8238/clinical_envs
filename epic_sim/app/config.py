@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     # Scoring (reward) endpoint: shared secret sent as X-Scorer-Token. Held by the
     # trainer, never by the policy under evaluation. Empty string disables /score.
     scorer_token: str = "dev-scorer-token-change-in-production"
+    # Visibility (epic_sim/app/services/visibility.py): hide assessment/plan sections from every
+    # consumer. Set to 0 only to inspect the raw corpus; never for evaluation.
+    hide_outcome_sections: bool = True
+    # Splits whose /score and /env responses carry the full metric breakdown; the private split gets
+    # the reward only (a per-metric breakdown lets a caller probe the labels).
+    verbose_score_splits: str = "public,heldout,train"
     # Reset-and-step environment: default action budget per episode (the paper used 40).
     env_default_budget: int = 40
     # Start one episode at boot (Harbor tasks): the agent reads it from GET /env/current.

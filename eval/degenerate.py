@@ -633,6 +633,52 @@ def diff_frequency_prior(db: ReleaseDB, inst: Instance) -> dict:
     return {"differential": db.dx_frequency_prior("train", 5)}
 
 
+def _name_sink(db: ReleaseDB) -> str:
+    """RL-readiness probe: one "diagnosis name" made of the 3,000 most frequent content words of the train labels,
+    without the qualifier words the name scorer treats as contradictions — a kitchen-sink name that a policy
+    optimizing name credit could learn."""
+    def build():
+        from eval.scoring import _DX_POLAR, _dx_tokens
+        polar = set().union(*_DX_POLAR) | {"non", "no", "not"}
+        c = collections.Counter()
+        for i in db.instances("patient_diagnosis", "train"):
+            for d in i["gt"].get("active_diagnoses", []) + i["gt"].get("chronic_conditions", []):
+                c.update(_dx_tokens(d.get("display_name", "")))
+        return " ".join(w for w, _ in c.most_common(3000) if not w.isdigit() and w not in polar)
+    return db._memo("name_sink", build)
+
+
+def _hedge_name(db: ReleaseDB, inst: Instance) -> str:
+    """One entry naming several candidates at once: the chart's documented problems and the five most frequent
+    train diagnoses, joined ("A / B / C ...")."""
+    names = sorted(set(_PROBLEM_LINE.findall(db.chart_text(inst["patient_id"], inst.get("encounter_id")))))
+    return " / ".join(names + [d["name"] for d in db.dx_frequency_prior("train", 5)])
+
+
+def dx_name_sink(db: ReleaseDB, inst: Instance) -> dict:
+    return {"active_diagnoses": [{"icd10": "", "name": _name_sink(db), "acuity": "acute"}] * 5, "chronic_conditions": []}
+
+
+def dx_hedge_one_name(db: ReleaseDB, inst: Instance) -> dict:
+    return {"active_diagnoses": [{"icd10": "", "name": _hedge_name(db, inst), "acuity": "acute"}], "chronic_conditions": []}
+
+
+def diff_name_sink(db: ReleaseDB, inst: Instance) -> dict:
+    return {"differential": [{"icd10": "", "name": _name_sink(db)}] * 5}
+
+
+def diff_hedge_one_name(db: ReleaseDB, inst: Instance) -> dict:
+    return {"differential": [{"icd10": "", "name": _hedge_name(db, inst)}] * 5}
+
+
+def workup_name_sink(db: ReleaseDB, inst: Instance) -> dict:
+    return {"icd10": "", "name": _name_sink(db), "tests_ordered": []}
+
+
+def workup_hedge_one_name(db: ReleaseDB, inst: Instance) -> dict:
+    return {"icd10": "", "name": _hedge_name(db, inst), "tests_ordered": []}
+
+
 def workup_prior_no_orders(db: ReleaseDB, inst: Instance) -> dict:
     top = db.dx_frequency_prior("train", 1)[0]
     return {"icd10": top["icd10"], "name": top["name"], "tests_ordered": []}
@@ -668,12 +714,16 @@ POLICIES: dict[str, dict[str, Policy]] = {
         "empty": empty,
         "copy_problem_list": diff_copy_problem_list,
         "frequency_prior": diff_frequency_prior,
+        "name_sink": diff_name_sink,
+        "hedge_one_name": diff_hedge_one_name,
     },
     "test_selection": {
         "empty": empty,
         "prior_dx_no_orders": workup_prior_no_orders,
         "order_everything": workup_order_everything,
         "order_everything_copy_problem_list": workup_order_everything_copy_problem_list,
+        "name_sink": workup_name_sink,
+        "hedge_one_name": workup_hedge_one_name,
     },
     "error_detection": {
         "empty": empty,
@@ -689,6 +739,8 @@ POLICIES: dict[str, dict[str, Policy]] = {
         "profile_chronic": dx_profile_chronic,
         "copy_problem_list": dx_copy_problem_list,
         "copy_problem_list_plus_chronic": dx_copy_plus_chronic,
+        "name_sink": dx_name_sink,
+        "hedge_one_name": dx_hedge_one_name,
     },
     "patient_diagnosis": {
         "empty": empty,
@@ -696,6 +748,8 @@ POLICIES: dict[str, dict[str, Policy]] = {
         "copy_problem_list": dx_copy_problem_list,
         "copy_problem_list_plus_chronic": dx_copy_plus_chronic,
         "echo_problem_list_tool": dx_echo_problem_list_tool,
+        "name_sink": dx_name_sink,
+        "hedge_one_name": dx_hedge_one_name,
     },
     "evidence_retrieval": {
         "empty": empty,

@@ -121,6 +121,13 @@ def test_single_turn_workup_is_matched_like_order_test(db):
     ("Gastroesophageal reflux in infant (physiologic reflux without esophagitis)",
      "Physiologic gastroesophageal reflux (Infant regurgitation)", "K21.9", "P92.1", 0.5),
     ("Pulmonary hypertension", "Hypertension", "I27.0", "I10", 0.0),                                    # one-word reference
+    # RL-readiness probe: a more specific name may add qualifiers, not a catalogue of diseases
+    ("Injury of radial nerve at upper arm level, left arm, initial encounter (radial nerve palsy with wrist and finger "
+     "drop following humeral shaft fracture)", "Radial nerve injury", "S44.22XA", "S54.21XA", 0.5),
+    ("septic shock pneumonia heart failure kidney injury stroke sepsis asthma cirrhosis lupus gout", "Septic shock",
+     "Z99.9", "R65.21", 0.0),
+    ("Shock (septic shock pneumonia heart failure kidney injury stroke sepsis asthma cirrhosis lupus gout)", "Septic shock",
+     "Z99.9", "R65.21", 0.0),
     ("Mucolipidosis type II (I-cell disease)", "Mucolipidosis II (I-cell disease)", "Q77.1", "E77.0", 0.5),   # "I-cell" is no digit
     ("Chronic kidney disease stage 3", "Acute kidney injury", "N18.3", "N17.9", 0.0),
     ("Traumatic compartment syndrome of left lower extremity", "Compartment syndrome of hand", "T79.A22A", "T79.A12A", 0.0),
@@ -347,3 +354,14 @@ def test_single_arm_tool_call_gets_one_format_retry_and_is_not_executed(tmp_path
     preds = [json.loads(l) for l in (out / "predictions.jsonl").read_text().splitlines()]
     assert all(p["reward"] >= 1 - 1e-9 and p["format_retry"] == ["order_test"] and p["turns"] == 2 and p["steps"] <= 1
                and p["orders"] == 0 for p in preds), preds
+
+
+def test_kitchen_sink_and_hedged_names_score_the_floor(db):
+    """RL-readiness probe (2026-09-27): before the specificity cap, one 'name' made of the 3,000 most frequent label
+    words scored differential_diagnosis 0.27 (floor 0.03) and patient_diagnosis 0.06 — an exploit a policy optimizing
+    name credit would find. Both probes are floor policies now (eval/degenerate.py) and must stay at the floor."""
+    for task in ("patient_diagnosis", "atypical_diagnosis", "differential_diagnosis", "test_selection"):
+        insts = db.instances(task, "public")
+        for pol in ("name_sink", "hedge_one_name"):
+            preds = [D.POLICIES[task][pol](db, i) for i in insts]
+            assert D.score(db, task, preds, insts)[D.PRIMARY_METRIC[task]] <= 0.01, (task, pol)

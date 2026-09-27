@@ -13,6 +13,8 @@
        "copy_problem_list": 0.02377675840978593,
        "copy_problem_list_plus_chronic": 0.032033639143730884,
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "profile_chronic": 0.00871559633027523
       }
      }
@@ -45,7 +47,9 @@
       "policies": {
        "copy_problem_list": 0.02440563191488302,
        "empty": 0.0,
-       "frequency_prior": 0.020205789198669662
+       "frequency_prior": 0.020205789198669662,
+       "hedge_one_name": 0.00016080881378358788,
+       "name_sink": 0.0
       }
      }
     },
@@ -141,6 +145,8 @@
        "copy_problem_list_plus_chronic": 0.03103130755064457,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "profile_chronic": 0.011602209944751382
       }
      }
@@ -213,6 +219,8 @@
       "headroom": 0.9995547493403694,
       "policies": {
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "order_everything": 0.0,
        "order_everything_copy_problem_list": 0.00044525065963060687,
        "prior_dx_no_orders": 0.0
@@ -234,6 +242,8 @@
        "copy_problem_list": 0.017857142857142856,
        "copy_problem_list_plus_chronic": 0.03078817733990148,
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "profile_chronic": 0.014778325123152709
       }
      }
@@ -266,7 +276,9 @@
       "policies": {
        "copy_problem_list": 0.024097197228059322,
        "empty": 0.0,
-       "frequency_prior": 0.01639466019395313
+       "frequency_prior": 0.01639466019395313,
+       "hedge_one_name": 0.00018459428141877045,
+       "name_sink": 0.0
       }
      }
     },
@@ -362,6 +374,8 @@
        "copy_problem_list_plus_chronic": 0.03568917018284107,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "profile_chronic": 0.02109704641350211
       }
      }
@@ -434,6 +448,8 @@
       "headroom": 0.9995033112582782,
       "policies": {
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "order_everything": 0.0,
        "order_everything_copy_problem_list": 0.0004966887417218544,
        "prior_dx_no_orders": 0.0
@@ -455,6 +471,8 @@
        "copy_problem_list": 0.024882903981264637,
        "copy_problem_list_plus_chronic": 0.035421545667447304,
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "profile_chronic": 0.01053864168618267
       }
      }
@@ -487,7 +505,9 @@
       "policies": {
        "copy_problem_list": 0.026838219452373562,
        "empty": 0.0,
-       "frequency_prior": 0.020547886939776883
+       "frequency_prior": 0.020547886939776883,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0
       }
      }
     },
@@ -583,6 +603,8 @@
        "copy_problem_list_plus_chronic": 0.03571428571428571,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "profile_chronic": 0.012265512265512266
       }
      }
@@ -655,6 +677,8 @@
       "headroom": 0.9991441082802548,
       "policies": {
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "order_everything": 0.0,
        "order_everything_copy_problem_list": 0.0008558917197452228,
        "prior_dx_no_orders": 0.0
@@ -676,6 +700,8 @@
        "copy_problem_list": 0.023116438356164382,
        "copy_problem_list_plus_chronic": 0.03789320142059868,
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "profile_chronic": 0.016362252663622526
       }
      }
@@ -708,7 +734,9 @@
       "policies": {
        "copy_problem_list": 0.025668130154144184,
        "empty": 0.0,
-       "frequency_prior": 0.023877115390289114
+       "frequency_prior": 0.023877115390289114,
+       "hedge_one_name": 0.00017801184765756583,
+       "name_sink": 0.0
       }
      }
     },
@@ -804,6 +832,8 @@
        "copy_problem_list_plus_chronic": 0.03500788022064617,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "profile_chronic": 0.01702127659574468
       }
      }
@@ -876,6 +906,8 @@
       "headroom": 0.9995077720207254,
       "policies": {
        "empty": 0.0,
+       "hedge_one_name": 0.0,
+       "name_sink": 0.0,
        "order_everything": 0.0,
        "order_everything_copy_problem_list": 0.0004922279792746114,
        "prior_dx_no_orders": 0.0

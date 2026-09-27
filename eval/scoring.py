@@ -496,15 +496,23 @@ def name_credit(pred_name: str, gt_name: str, pred_code: str = "", gt_code: str 
     # shock" for "Septic shock", "Acute GVHD following allogeneic HSCT" for "Acute graft-versus-host disease"):
     # related in any ICD block, when the reference has at least two content words (a one-word reference such as
     # "hypertension" is contained in too many other diseases)
+    # A "more specific" name may add qualifiers, not other diseases: containment only counts while the prediction
+    # stays within max(3x, +6) of the reference's length (RL readiness probe: a 3,000-token "kitchen-sink" name
+    # scored differential 0.27 against a floor of 0.03; capped, it scores the floor).
     pf = _dx_tokens(pred_name, keep_parentheticals=True)
-    if len(ga) >= 2 and ga <= pf and not _dx_conflict(pf, ga):
-        return NAME_CREDIT["related"]
+    cap = _specific_cap(len(ga))
+    if len(ga) >= 2 and not _dx_conflict(pf, ga) and ((ga <= pa and len(pa) <= cap) or (ga <= pf and len(pf) <= cap)):
+        return NAME_CREDIT["related"]                     # (the name outside its parenthetical gloss may carry it)
     pc, gc = _normalize_icd10(pred_code), _normalize_icd10(gt_code)
     if not pc or not gc or pc[:2] != gc[:2]:
         return 0.0
-    if pa <= ga or ga <= pa or len(pa & ga) / len(pa | ga) >= 0.5:
+    if pa <= ga or (ga <= pa and len(pa) <= _specific_cap(len(ga))) or len(pa & ga) / len(pa | ga) >= 0.5:
         return NAME_CREDIT["related"]
     return 0.0
+
+
+def _specific_cap(n_ref: int) -> int:
+    return max(3 * n_ref, n_ref + 6)
 
 
 def dx_credit(pred_code: str, gt_code: str, pred_name: str = "", gt_name: str = "") -> float:

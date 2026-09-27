@@ -114,7 +114,34 @@ def generate_comparison_table(conn, task: str, split: str,
     if primary and primary in metric_keys:
         rows.sort(key=lambda r: r.get(primary, 0.0), reverse=True)
 
+    col_names = _add_normalized_column(task, split, rows, metric_keys, col_names)
     return rows, col_names
+
+
+def _add_normalized_column(task: str, split: str, rows: list[dict], metric_keys: list[str],
+                           col_names: list[str]) -> list[str]:
+    """Append `<primary>_normalized` = (score - floor) / (ceiling - floor) from eval/floors.json.
+
+    floor = best degenerate (zero-model) policy, ceiling = label oracle (eval.floors). A raw score
+    on this benchmark is not interpretable without it: a content-blind ranking scores P@5 0.97 and a
+    regex copy of the chart's problem list scores weighted F1 0.84. Left out when no floors exist
+    for the split or the unit has no headroom.
+    """
+    from eval import floors as F
+
+    unit, metric = task, PRIMARY_METRICS.get(task)
+    if task == "context_summarization" and "conditioned_f1" in metric_keys:
+        unit, metric = "specialty_involved", "conditioned_f1"   # a specialty-conditioned run
+    if not metric or metric not in metric_keys:
+        return col_names
+    doc = F.load()
+    if F.normalize(0.0, unit, metric, split, doc) is None:
+        return col_names
+    key = f"{metric}_normalized"
+    for row in rows:
+        row[key] = F.normalize(row[metric], unit, metric, split, doc)
+    idx = col_names.index(metric) + 1
+    return col_names[:idx] + [key] + col_names[idx:]
 
 
 # ============================================================================

@@ -1,0 +1,3 @@
+-r requirements-core.txt
+# reward-hacking suite: runs the simulator's problem-list service over the released SQLite file
+aiosqlite==0.22.1

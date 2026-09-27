@@ -166,6 +166,26 @@ python -m eval.cli run --task context_summarization --granularity specialty --mo
 
 Agentic (tool-use) evaluation against the live EHR simulator uses `eval/agents/` with the read-only bash sandbox defined in `docker-compose.override.yml`. The `bash_readonly` role that the sandbox uses is created automatically by the container entrypoint (or by `scripts/setup_bash_readonly.sql` in a manual install).
 
+## Floors, ceilings and the reward-hacking suite
+
+Raw scores on this benchmark are not interpretable on their own: on the public split a content-blind ranking of
+sections by type scores P@5 0.97, a regex that copies the chart's own problem list scores severity-weighted F1 0.84,
+and pasting the whole chart scores summarization "F1" 0.67 (see `audit/FINDINGS.md`). `eval/floors.json` records,
+per split and task, the **floor** (best zero-model policy in `eval/degenerate.py`) and the **ceiling** (label
+oracle); `eval.report` appends `<metric>_normalized = (score − floor) / (ceiling − floor)` next to every primary metric.
+
+```bash
+python -m eval.floors --split public            # print floors / ceilings / headroom
+python -m eval.floors --split public --check    # CI: fail if eval/floors.json is stale
+pytest eval/tests/test_reward_hacking.py -q     # ~40 s, SQLite only, no Postgres
+```
+
+`eval/tests/test_reward_hacking.py` runs every known exploit through the scorer and gates it. Gates the current
+scorer or data fail are `xfail(strict=True)`, each naming the `audit/ROADMAP.md` stage that fixes it: the suite is
+green today, and a fix that lands without updating the suite (and `eval/floors.json`) fails CI
+(`.github/workflows/tests.yml`). Install `requirements-dev.txt` to run it; it drives the simulator's real
+problem-list service over the SQLite file through `aiosqlite`.
+
 ## Scoring Endpoint (rewards)
 
 The simulator exposes the paper's scorer over HTTP so that an external trainer can obtain a reward

@@ -1202,11 +1202,10 @@ def _format_encounters_block(
     return encounters_block, diagnoses_list, social_history_block
 
 
-def _compute_input_hash_8b(cluster_qids: list[int]) -> str:
-    """SHA-256 hash for caching an 8b LLM call."""
-    qids_str = ",".join(str(q) for q in sorted(cluster_qids))
-    content = f"{STAGE_8B}:{qids_str}"
-    return hashlib.sha256(content.encode()).hexdigest()
+def _compute_input_hash_8b(cluster_qids: list[int], prompt: str | None = None) -> str:
+    """Cache key of an 8b call: the full prompt plus sampling settings (Stage 6; before: qids only)."""
+    from etl import llm as _llm
+    return _llm.get_client().input_hash(STAGE_8B, prompt if prompt is not None else ",".join(str(q) for q in sorted(cluster_qids)))
 
 
 def _check_cache_8b(conn: sqlite3.Connection, input_hash: str) -> dict | None:
@@ -1232,11 +1231,13 @@ def _generate_profile_single(
     """Thread-safe LLM worker: generate a patient profile. No DB access."""
     call_t0 = time.time()
     try:
-        parsed, in_tok, out_tok, raw_text = _call_with_retry(prompt)
+        def _ok(p):
+            if not isinstance(p, dict):
+                return f"expected a JSON object, got {type(p).__name__}"
+            missing = REQUIRED_PROFILE_KEYS - set(p)
+            return True if not missing else f"profile is missing keys {sorted(missing)}"
+        parsed, in_tok, out_tok, raw_text = _call_with_retry(prompt, validate=_ok)   # validation inside the retry (Stage 6)
         latency_ms = int((time.time() - call_t0) * 1000)
-
-        if not isinstance(parsed, dict):
-            raise ValueError(f"Expected JSON object, got {type(parsed).__name__}")
 
         return {
             "patient_id": patient_id,
@@ -1363,13 +1364,7 @@ def run_8b(
     cached_profiles: dict[int, dict] = {}  # patient_id → profile
 
     for patient_id, age, sex, cluster_qids in patient_data:
-        input_hash = _compute_input_hash_8b(cluster_qids)
-        cached = _check_cache_8b(conn, input_hash)
-        if cached is not None:
-            cached_profiles[patient_id] = cached
-            continue
-
-        # Build prompt
+        # Build prompt first: the cache key is the full input (Stage 6; before: the cluster's qids only)
         encounters_block, diagnoses_list, social_history_block = (
             _format_encounters_block(conn, cluster_qids)
         )
@@ -1380,6 +1375,12 @@ def run_8b(
             diagnoses_list=diagnoses_list,
             social_history_block=social_history_block,
         )
+        input_hash = _compute_input_hash_8b(cluster_qids, prompt)
+        cached = _check_cache_8b(conn, input_hash)
+        if cached is not None:
+            cached_profiles[patient_id] = cached
+            continue
+
         work_queue.append((patient_id, age, sex, cluster_qids, input_hash, prompt))
 
     log.info(

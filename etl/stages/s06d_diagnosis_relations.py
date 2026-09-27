@@ -67,6 +67,7 @@ FINDING_SITE_GRADES = Path(__file__).resolve().parent.parent.parent / "finding_s
 # Clinician-curated edges closing comorbidity-coverage gaps (open item 3). Rows with
 # blank FILL_* (the C3/sparse "DECIDE" group) are intentionally skipped.
 CURATED_EDGES = Path(__file__).resolve().parent.parent.parent / "curated_diagnosis_edges.csv"
+_ALLOW_MISSING = False
 
 # Class-3 residual (shared-finding overlap) — stored with overlap_score; Phase C
 # applies tau_residual. Edge-strength weights and the non-specific-finding guard.
@@ -145,11 +146,19 @@ def _load_ancestors(concepts, tc_file=TC_FILE):
     return ancestors
 
 
-def _load_finding_site_allowlist(path=FINDING_SITE_GRADES):
-    """Clinician-graded organ-granularity finding-sites (open item 2). Returns the
-    set of site IDs graded 'organ', or None if the graded file is absent (the
-    builder then falls back to the FINDING_SITE_MAX_DX count guard)."""
+class CuratedInputMissing(FileNotFoundError):
+    """A clinician-curated input the graph depends on is absent (Stage 6: fail loudly, never silently change labels)."""
+
+
+def _load_finding_site_allowlist(path=FINDING_SITE_GRADES, allow_missing: bool = False):
+    """Clinician-graded organ-granularity finding-sites (open item 2). Returns the set of site IDs
+    graded 'organ'. When the file is absent: raise, unless `allow_missing`, in which case None is
+    returned and the builder falls back to the FINDING_SITE_MAX_DX count guard (different labels)."""
     if not path.exists():
+        if not allow_missing:
+            raise CuratedInputMissing(f"{path} is missing: stage 11 needs the clinician-graded finding sites "
+                                      f"(pass --allow-missing-curated to fall back to the count guard, which changes the specialty labels)")
+        log.warning("finding_site_review.csv absent: falling back to the FINDING_SITE_MAX_DX count guard (labels differ)")
         return None
     allow = set()
     with open(path, "r", encoding="utf-8") as fh:
@@ -245,7 +254,7 @@ def _add_snomed_typed(edges, dx_rows, snomed_to_dx, out_typed, isa_parents, find
     log.info("SNOMED typed edges: %d direct, %d mediated", direct, mediated)
 
     # Class 2: shared Finding site at organ granularity or finer (clinician-graded)
-    allow = _load_finding_site_allowlist()
+    allow = _load_finding_site_allowlist(allow_missing=_ALLOW_MISSING)
     site_dx = defaultdict(set)
     for dx_id, _icd, snomed in dx_rows:
         if not snomed:
@@ -304,8 +313,12 @@ def _add_icd_notes(edges, dx_rows):
 # Class 1/2: clinician-curated edges (comorbidity-coverage gaps, open item 3)
 # ---------------------------------------------------------------------------
 
-def _add_curated_edges(edges, dx_rows, path=CURATED_EDGES):
+def _add_curated_edges(edges, dx_rows, path=CURATED_EDGES, allow_missing: bool = False):
     if not path.exists():
+        if not allow_missing:
+            raise CuratedInputMissing(f"{path} is missing: stage 11 adds the clinician-curated comorbidity edges "
+                                      f"(pass --allow-missing-curated to build without them, which changes the specialty labels)")
+        log.warning("curated_diagnosis_edges.csv absent: building without the curated comorbidity edges (labels differ)")
         return
     norm = lambda c: c.replace(".", "").replace("-", "").strip().upper()
     codes = [(norm(icd), dx) for dx, icd, _sn in dx_rows if icd]
@@ -382,9 +395,11 @@ def _add_residual(edges, conn):
 # Orchestrator
 # ---------------------------------------------------------------------------
 
-def build_diagnosis_relations(read_conn, write_conn=None, include_residual=True):
+def build_diagnosis_relations(read_conn, write_conn=None, include_residual=True, allow_missing_curated=False):
     t0 = time.monotonic()
     write_conn = write_conn or read_conn
+    global _ALLOW_MISSING
+    _ALLOW_MISSING = allow_missing_curated
     write_conn.executescript(_DDL)
 
     dx_rows, snomed_to_dx = _load_diagnoses(read_conn)
@@ -392,7 +407,7 @@ def build_diagnosis_relations(read_conn, write_conn=None, include_residual=True)
     edges = _Edges()
     _add_snomed_typed(edges, dx_rows, snomed_to_dx, out_typed, isa_parents, finding_sites)
     _add_icd_notes(edges, dx_rows)
-    _add_curated_edges(edges, dx_rows)
+    _add_curated_edges(edges, dx_rows, allow_missing=_ALLOW_MISSING)
     if include_residual:
         _add_residual(edges, read_conn)
 
@@ -418,11 +433,14 @@ def main():
     ap.add_argument("--read", required=True)
     ap.add_argument("--write", default=None)
     ap.add_argument("--no-residual", action="store_true")
+    ap.add_argument("--allow-missing-curated", action="store_true",
+                    help="build without finding_site_review.csv / curated_diagnosis_edges.csv (changes the labels)")
     args = ap.parse_args()
     read_conn = sqlite3.connect(f"file:{args.read}?mode=ro", uri=True)
     write_conn = sqlite3.connect(args.write) if args.write else read_conn
     try:
-        print(build_diagnosis_relations(read_conn, write_conn, include_residual=not args.no_residual))
+        print(build_diagnosis_relations(read_conn, write_conn, include_residual=not args.no_residual,
+                                        allow_missing_curated=args.allow_missing_curated))
     finally:
         read_conn.close()
         if write_conn is not read_conn:

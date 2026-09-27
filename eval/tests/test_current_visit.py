@@ -22,6 +22,7 @@ if "etl.stages.s05_ontology" not in sys.modules:
         raise RuntimeError("LLM disabled in tests")
 
     _stub._call_with_retry = _no_llm
+    _stub._call_with_result = _no_llm
     sys.modules["etl.stages.s05_ontology"] = _stub
 
 from etl.stages import s10_ground_truth as s10  # noqa: E402

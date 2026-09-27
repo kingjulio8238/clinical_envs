@@ -533,10 +533,10 @@ def _aggregate_cooccurrences(conn: sqlite3.Connection,
     return dx_findings
 
 
-def _compute_input_hash_6b(diagnosis_id: int, finding_ids: list[int]) -> str:
-    """SHA-256 hash for caching a single diagnosis classification."""
-    content = f"{STAGE_6B}:{diagnosis_id}:{','.join(str(f) for f in sorted(finding_ids))}"
-    return hashlib.sha256(content.encode()).hexdigest()
+def _compute_input_hash_6b(diagnosis_id: int, finding_ids: list[int], prompt: str | None = None) -> str:
+    """Cache key of a 6b call: the full prompt plus sampling settings (Stage 6; before: ids only)."""
+    from etl import llm as _llm
+    return _llm.get_client().input_hash(STAGE_6B, prompt if prompt is not None else f"{diagnosis_id}:{sorted(finding_ids)}")
 
 
 def _format_6b_prompt(dx_name: str, icd10_code: str | None,
@@ -560,11 +560,9 @@ def _classify_single(dx_id: int, dx_name: str, prompt: str) -> dict:
     """Worker: classify findings for one diagnosis (thread-safe, no DB)."""
     call_t0 = time.time()
     try:
-        parsed, in_tok, out_tok, raw_text = _call_with_retry(prompt)
+        parsed, in_tok, out_tok, raw_text = _call_with_retry(
+            prompt, validate=lambda p: isinstance(p, list) or f"expected a JSON array, got {type(p).__name__}")
         latency_ms = int((time.time() - call_t0) * 1000)
-
-        if not isinstance(parsed, list):
-            raise ValueError(f"Expected JSON array, got {type(parsed).__name__}")
 
         return {"dx_id": dx_id, "dx_name": dx_name, "parsed": parsed,
                 "in_tok": in_tok, "out_tok": out_tok, "raw_text": raw_text,
@@ -644,15 +642,15 @@ def run_6b(conn: sqlite3.Connection, pilot: int | None = None,
         # Cap findings per call
         top_findings = findings[:MAX_FINDINGS_PER_CALL]
         finding_ids = [f["finding_id"] for f in top_findings]
-        input_hash = _compute_input_hash_6b(dx_id, finding_ids)
+        info = dx_info.get(dx_id, {"name": f"dx_{dx_id}", "icd10": None})
+        prompt = _format_6b_prompt(info["name"], info["icd10"], top_findings)
+        input_hash = _compute_input_hash_6b(dx_id, finding_ids, prompt)   # full input (Stage 6)
 
         cached = _check_cache_6b(conn, input_hash)
         if cached is not None:
             cached_results[dx_id] = cached
             continue
 
-        info = dx_info.get(dx_id, {"name": f"dx_{dx_id}", "icd10": None})
-        prompt = _format_6b_prompt(info["name"], info["icd10"], top_findings)
         work_queue.append((dx_id, info["name"], prompt, input_hash))
 
     log.info(f"Step 6b: {len(dx_findings)} diagnoses, "
@@ -838,10 +836,10 @@ def _format_facts_block(facts: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def _compute_input_hash_6c(fact_ids: list[int]) -> str:
-    """SHA-256 hash for caching a 6c batch."""
-    content = f"{STAGE_6C}:{','.join(str(fid) for fid in sorted(fact_ids))}"
-    return hashlib.sha256(content.encode()).hexdigest()
+def _compute_input_hash_6c(fact_ids: list[int], prompt: str | None = None) -> str:
+    """Cache key of a 6c call: the full prompt plus sampling settings (Stage 6; before: fact ids only)."""
+    from etl import llm as _llm
+    return _llm.get_client().input_hash(STAGE_6C, prompt if prompt is not None else f"{sorted(fact_ids)}")
 
 
 def _check_cache_6c(conn: sqlite3.Connection, input_hash: str) -> dict | None:
@@ -863,13 +861,14 @@ def _extract_links_single(fact_ids: list[int], prompt: str) -> dict:
     """Worker: extract dx/finding links for a batch of facts (thread-safe, no DB)."""
     call_t0 = time.time()
     try:
-        parsed, in_tok, out_tok, raw_text = _call_with_retry(prompt)
+        def _ok(p):
+            r = p.get("results", p) if isinstance(p, dict) else p
+            return isinstance(r, dict) or f"expected a JSON object with results, got {type(r).__name__}"
+        parsed, in_tok, out_tok, raw_text = _call_with_retry(prompt, validate=_ok)
         latency_ms = int((time.time() - call_t0) * 1000)
 
         # Accept both {"results": {...}} and bare dict
         results = parsed.get("results", parsed) if isinstance(parsed, dict) else parsed
-        if not isinstance(results, dict):
-            raise ValueError(f"Expected JSON object with results, got {type(results).__name__}")
 
         return {"fact_ids": fact_ids, "results": results,
                 "in_tok": in_tok, "out_tok": out_tok, "raw_text": raw_text,
@@ -1119,16 +1118,15 @@ def run_6c(conn: sqlite3.Connection, pilot: int | None = None,
 
     for batch in batches:
         fact_ids = [f["fact_id"] for f in batch]
-        input_hash = _compute_input_hash_6c(fact_ids)
+        prompt = FACT_LINKING_PROMPT.format(
+            facts_block=_format_facts_block(batch)
+        )
+        input_hash = _compute_input_hash_6c(fact_ids, prompt)   # full input (Stage 6)
 
         cached = _check_cache_6c(conn, input_hash)
         if cached is not None:
             cached_results[input_hash] = {"fact_ids": fact_ids, "results": cached}
             continue
-
-        prompt = FACT_LINKING_PROMPT.format(
-            facts_block=_format_facts_block(batch)
-        )
         work_queue.append((fact_ids, prompt, input_hash))
 
     log.info(f"  {len(cached_results)} cached, {len(work_queue)} to extract "

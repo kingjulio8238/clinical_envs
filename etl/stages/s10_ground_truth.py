@@ -30,8 +30,10 @@ from etl.config import DB_PATH, DATA_DIR
 from etl.db import get_connection
 from etl.stages.s05_ontology import (
     MODEL,
+    _call_with_result,
     _call_with_retry,
 )
+from etl import llm as _llm
 from etl.utils.logging import get_logger
 
 log = get_logger("etl.stages.s10_ground_truth")
@@ -286,8 +288,9 @@ def _compute_difficulty_imaging(
 # Cache helpers (same pattern as s09)
 # ---------------------------------------------------------------------------
 
-def _compute_input_hash(prefix: str, key: int) -> str:
-    return hashlib.sha256(f"{prefix}:{key}".encode()).hexdigest()
+def _compute_input_hash(prefix: str, key, prompt: str | None = None) -> str:
+    """Cache key: the full prompt plus sampling settings (Stage 6; before: the record id only)."""
+    return _llm.get_client().input_hash(prefix, prompt if prompt is not None else str(key))
 
 
 def _check_cache(conn: sqlite3.Connection, stage: str, input_hash: str) -> dict | None:
@@ -597,7 +600,8 @@ def _generate_summary_single(
 ) -> tuple[int, dict | None, str | None]:
     """Thread-safe LLM worker for patient summary. No DB access."""
     try:
-        parsed, in_tok, out_tok, req_id = _call_with_retry(prompt)
+        _r = _call_with_result(prompt, validate=lambda p: isinstance(p, dict) or f"expected a JSON object, got {type(p).__name__}")
+        parsed, in_tok, out_tok, req_id = _r.parsed, _r.input_tokens, _r.output_tokens, _r.request_id   # the real request id (Stage 6)
         return patient_id, {
             "output_json": parsed,
             "input_tokens": in_tok,
@@ -677,12 +681,29 @@ def run_10c(
     if pilot:
         patient_ids = patient_ids[:pilot]
 
-    # Phase 2: Check cache
+    # Phase 2: Build every prompt (no LLM), then check the cache on the full input (Stage 6)
+    prompts: dict[int, str] = {}
+    ih_by_pid: dict[int, str] = {}
+    for pid in patient_ids:
+        encounters = enc_by_patient.get(pid, [])
+        all_dx: list[dict] = []
+        seen_dx_ids: set[int] = set()
+        for enc in encounters:
+            try:
+                src_qids = json.loads(enc["source_question_ids"]) if enc["source_question_ids"] else []
+            except (json.JSONDecodeError, TypeError):
+                src_qids = []
+            for qid in src_qids:
+                for dx in dx_by_qid.get(int(qid), []):
+                    if dx["diagnosis_id"] not in seen_dx_ids:
+                        seen_dx_ids.add(dx["diagnosis_id"])
+                        all_dx.append({**dx, "first_encounter_date": enc["encounter_date"]})
+        prompts[pid] = _format_patient_summary_prompt(profiles.get(pid, "{}"), encounters, all_dx)
+        ih_by_pid[pid] = _compute_input_hash(STAGE_10C, pid, prompts[pid])
     to_generate = []
     cached_results: dict[int, dict] = {}
     for pid in patient_ids:
-        ih = _compute_input_hash(STAGE_10C, pid)
-        cached = _check_cache(conn, STAGE_10C, ih)
+        cached = _check_cache(conn, STAGE_10C, ih_by_pid[pid])
         if cached:
             cached_results[pid] = cached
         else:
@@ -697,28 +718,6 @@ def run_10c(
     ok_count = 0
     err_count = 0
     if to_generate:
-        # Build prompts
-        prompts: dict[int, str] = {}
-        for pid in to_generate:
-            encounters = enc_by_patient.get(pid, [])
-            # Collect diagnoses across encounters
-            all_dx: list[dict] = []
-            seen_dx_ids: set[int] = set()
-            for enc in encounters:
-                try:
-                    src_qids = json.loads(enc["source_question_ids"]) if enc["source_question_ids"] else []
-                except (json.JSONDecodeError, TypeError):
-                    src_qids = []
-                for qid in src_qids:
-                    for dx in dx_by_qid.get(int(qid), []):
-                        if dx["diagnosis_id"] not in seen_dx_ids:
-                            seen_dx_ids.add(dx["diagnosis_id"])
-                            all_dx.append({**dx, "first_encounter_date": enc["encounter_date"]})
-
-            prompts[pid] = _format_patient_summary_prompt(
-                profiles.get(pid, "{}"), encounters, all_dx
-            )
-
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {
                 pool.submit(_generate_summary_single, pid, prompts[pid]): pid
@@ -727,9 +726,10 @@ def run_10c(
             done_count = 0
             for future in as_completed(futures):
                 pid, result, error = future.result()
-                ih = _compute_input_hash(STAGE_10C, pid)
+                ih = ih_by_pid[pid]
                 if error:
                     err_count += 1
+                    _llm.ensure_log_columns(conn)
                     conn.execute(
                         "INSERT INTO llm_call_log (stage, model, input_hash, error) "
                         "VALUES (?, ?, ?, ?)",
@@ -1020,9 +1020,7 @@ def _format_current_visit_prompt(profile_json: str, core: dict) -> str:
 def _compute_visit_input_hash(enc_id: int, prompt: str) -> str:
     """Content-sensitive cache key: changing the prompt (e.g. context cap)
     invalidates the cached reference so it regenerates."""
-    return hashlib.sha256(
-        f"{STAGE_10C_VISIT}:{enc_id}:{prompt}".encode()
-    ).hexdigest()
+    return _llm.get_client().input_hash(STAGE_10C_VISIT, prompt)
 
 
 def _generate_visit_summary_single(
@@ -1030,7 +1028,8 @@ def _generate_visit_summary_single(
 ) -> tuple[int, dict | None, str | None]:
     """Thread-safe LLM worker for current-visit reference summary. No DB access."""
     try:
-        parsed, in_tok, out_tok, req_id = _call_with_retry(prompt)
+        _r = _call_with_result(prompt, validate=lambda p: isinstance(p, dict) or f"expected a JSON object, got {type(p).__name__}")
+        parsed, in_tok, out_tok, req_id = _r.parsed, _r.input_tokens, _r.output_tokens, _r.request_id   # the real request id (Stage 6)
         return enc_id, {
             "output_json": parsed,
             "input_tokens": in_tok,
@@ -1139,6 +1138,7 @@ def run_10c_visit(
                 ih = ih_by_enc[enc_id]
                 if error:
                     err_count += 1
+                    _llm.ensure_log_columns(conn)
                     conn.execute(
                         "INSERT INTO llm_call_log (stage, model, input_hash, error) "
                         "VALUES (?, ?, ?, ?)",
@@ -1581,7 +1581,8 @@ def _generate_imaging_single(
 ) -> tuple[int, int, dict | None, str | None]:
     """Thread-safe LLM worker for imaging indication. No DB access."""
     try:
-        parsed, in_tok, out_tok, req_id = _call_with_retry(prompt)
+        _r = _call_with_result(prompt, validate=lambda p: isinstance(p, dict) or f"expected a JSON object, got {type(p).__name__}")
+        parsed, in_tok, out_tok, req_id = _r.parsed, _r.input_tokens, _r.output_tokens, _r.request_id   # the real request id (Stage 6)
         return encounter_id, patient_id, {
             "output_json": parsed,
             "input_tokens": in_tok,
@@ -1696,13 +1697,35 @@ def run_10e(
             "chief_complaint": cc,
         })
 
-    # Phase 2: Check cache
+    # Phase 2: Build every prompt (no LLM), then check the cache on the full input (Stage 6)
+    prompts_all: dict[int, tuple[int, str]] = {}   # enc_id -> (patient_id, prompt)
+    ih_by_enc: dict[int, str] = {}
+    for r in imaging_encounters:
+        enc_id, pid = r[0], r[1]
+        enc_dict = {
+            "encounter_date": r[2], "encounter_type": r[3],
+            "department": r[4], "chief_complaint": r[5],
+            "attending_name": r[6],
+        }
+        try:
+            src_qids = json.loads(r[8]) if r[8] else []
+        except (json.JSONDecodeError, TypeError):
+            src_qids = []
+        dx_name = "Unknown"
+        for qid in src_qids:
+            if int(qid) in dx_name_by_qid:
+                dx_name = dx_name_by_qid[int(qid)]
+                break
+        prior = [e for e in enc_by_patient.get(pid, []) if e["encounter_order"] < r[7]]
+        prompt = _format_imaging_prompt(profiles.get(pid, "{}"), enc_dict, ees_by_enc.get(enc_id, []),
+                                        imaging_text_by_enc.get(enc_id, ""), dx_name, prior)
+        prompts_all[enc_id] = (pid, prompt)
+        ih_by_enc[enc_id] = _compute_input_hash(STAGE_10E, enc_id, prompt)
     to_generate: list[tuple] = []
     cached_results: dict[int, dict] = {}  # encounter_id -> result
     for r in imaging_encounters:
         enc_id = r[0]
-        ih = _compute_input_hash(STAGE_10E, enc_id)
-        cached = _check_cache(conn, STAGE_10E, ih)
+        cached = _check_cache(conn, STAGE_10E, ih_by_enc[enc_id])
         if cached:
             cached_results[enc_id] = cached
         else:
@@ -1718,40 +1741,7 @@ def run_10e(
     err_count = 0
     warn_count = 0
     if to_generate:
-        prompts: dict[int, tuple[int, str]] = {}  # enc_id -> (patient_id, prompt)
-        for r in to_generate:
-            enc_id, pid = r[0], r[1]
-            enc_dict = {
-                "encounter_date": r[2], "encounter_type": r[3],
-                "department": r[4], "chief_complaint": r[5],
-                "attending_name": r[6],
-            }
-            # Get correct dx name
-            try:
-                src_qids = json.loads(r[8]) if r[8] else []
-            except (json.JSONDecodeError, TypeError):
-                src_qids = []
-            dx_name = "Unknown"
-            for qid in src_qids:
-                if int(qid) in dx_name_by_qid:
-                    dx_name = dx_name_by_qid[int(qid)]
-                    break
-
-            # Prior encounters
-            prior = [
-                e for e in enc_by_patient.get(pid, [])
-                if e["encounter_order"] < r[7]
-            ]
-
-            prompt = _format_imaging_prompt(
-                profiles.get(pid, "{}"),
-                enc_dict,
-                ees_by_enc.get(enc_id, []),
-                imaging_text_by_enc.get(enc_id, ""),
-                dx_name,
-                prior,
-            )
-            prompts[enc_id] = (pid, prompt)
+        prompts = {r[0]: prompts_all[r[0]] for r in to_generate}
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {
@@ -1763,9 +1753,10 @@ def run_10e(
             done_count = 0
             for future in as_completed(futures):
                 enc_id, pid, result, error = future.result()
-                ih = _compute_input_hash(STAGE_10E, enc_id)
+                ih = ih_by_enc[enc_id]
                 if error:
                     err_count += 1
+                    _llm.ensure_log_columns(conn)
                     conn.execute(
                         "INSERT INTO llm_call_log (stage, model, input_hash, error) "
                         "VALUES (?, ?, ?, ?)",

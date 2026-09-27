@@ -49,12 +49,14 @@ def _source_filter_sql(source_filter: str) -> tuple[str, list]:
 # Constants
 # ---------------------------------------------------------------------------
 
-# Anthropic-compatible LLM gateway used to build the benchmark (not released); see README.
-GATEWAY_URL = os.environ.get("SH_LLM_GATEWAY_URL", "http://localhost:8080")
-MODEL = "kimi-k2.5"
+# LLM access goes through etl.llm (Stage 6): SH_LLM_* selects any OpenAI-compatible endpoint.
+from etl import llm as _llm  # noqa: E402
+
+GATEWAY_URL = _llm.LLMSettings.from_env().base_url
+MODEL = _llm.LLMSettings.from_env().model
 BATCH_SIZE = 20
-MAX_RETRIES = 3
-RETRY_BASE_DELAY = 2.0
+MAX_RETRIES = _llm.LLMSettings.from_env().max_attempts
+RETRY_BASE_DELAY = _llm.LLMSettings.from_env().retry_base_delay
 TIMEOUT_SECS = 180.0
 MAX_FACT_TEXT_CHARS = 300
 STAGE_NAME = "s04c_topic_enrich"
@@ -166,11 +168,8 @@ def _format_cards_block(cards: list[dict]) -> str:
 
 
 def _compute_input_hash(cards: list[dict]) -> str:
-    """SHA-256 hash of prompt template + card IDs + truncated text for caching."""
-    parts = [STAGE_NAME]
-    for c in sorted(cards, key=lambda x: x["fact_id"]):
-        parts.append(f"{c['fact_id']}:{(c['fact_text'] or '')[:100]}")
-    return hashlib.sha256("\n".join(parts).encode()).hexdigest()
+    """Cache key of a batch: the full prompt plus sampling settings (Stage 6; before: ids + 100 characters)."""
+    return _llm.get_client().input_hash(STAGE_NAME, PROMPT_TEMPLATE + _format_cards_block(cards))
 
 
 def _check_cache(conn, input_hash: str) -> dict | None:
@@ -188,88 +187,20 @@ def _check_cache(conn, input_hash: str) -> dict | None:
 
 
 def _call_kimi(cards: list[dict], timeout: float = TIMEOUT_SECS) -> tuple[dict, int, int, str]:
-    """Send a batch to Kimi k2.5 and return (results_dict, input_tokens, output_tokens, raw_text).
-
-    Raises on HTTP or parse errors (caller handles retry).
-    """
-    prompt = PROMPT_TEMPLATE + _format_cards_block(cards)
-
-    with httpx.Client(timeout=timeout) as client:
-        resp = client.post(
-            f"{GATEWAY_URL}/v1/messages",
-            json={
-                "model": MODEL,
-                "max_tokens": 4096,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            headers={"Content-Type": "application/json"},
-        )
-        resp.raise_for_status()
-
-    resp_json = json.loads(resp.text, strict=False)
-
-    # Extract text block (skip thinking blocks)
-    raw_text = ""
-    for item in resp_json.get("content", []):
-        if item.get("type") == "text":
-            raw_text = item["text"]
-            break
-
-    if not raw_text:
-        raise ValueError("No text block found in Kimi response")
-
-    # Extract token usage
-    usage = resp_json.get("usage", {})
-    input_tokens = usage.get("input_tokens", 0)
-    output_tokens = usage.get("output_tokens", 0)
-
-    # Parse JSON from response text (may be wrapped in markdown code block)
-    json_text = raw_text.strip()
-    if json_text.startswith("```"):
-        # Strip markdown code fences
-        lines = json_text.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        json_text = "\n".join(lines)
-
-    parsed = json.loads(json_text, strict=False)
-    results = parsed.get("results", parsed)
-
-    return results, input_tokens, output_tokens, raw_text
+    """One request through the shared client: (results_dict, input_tokens, output_tokens, raw_text)."""
+    res = _llm.get_client().complete(PROMPT_TEMPLATE + _format_cards_block(cards), timeout=timeout)
+    parsed = _llm.parse_json(res.text)
+    return (parsed.get("results", parsed) if isinstance(parsed, dict) else parsed), res.input_tokens, res.output_tokens, res.text
 
 
 def _call_with_retry(cards: list[dict]) -> tuple[dict, int, int, str]:
-    """Call Kimi with exponential backoff retry."""
-    last_error = None
-    for attempt in range(MAX_RETRIES):
-        try:
-            return _call_kimi(cards, timeout=TIMEOUT_SECS + (attempt * 60))
-        except httpx.HTTPStatusError as e:
-            last_error = e
-            if e.response.status_code == 429:
-                delay = RETRY_BASE_DELAY * (2 ** attempt)
-                log.warning(f"Rate limited (429), retrying in {delay:.0f}s (attempt {attempt + 1})")
-                time.sleep(delay)
-            elif e.response.status_code >= 500:
-                delay = RETRY_BASE_DELAY * (2 ** attempt)
-                log.warning(f"Server error ({e.response.status_code}), retrying in {delay:.0f}s")
-                time.sleep(delay)
-            else:
-                raise
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
-            last_error = e
-            if attempt < MAX_RETRIES - 1:
-                log.warning(f"Parse error: {e}, retrying (attempt {attempt + 1})")
-                time.sleep(RETRY_BASE_DELAY)
-            else:
-                raise
-        except httpx.TimeoutException as e:
-            last_error = e
-            if attempt < MAX_RETRIES - 1:
-                log.warning(f"Timeout, retrying with longer timeout (attempt {attempt + 1})")
-                time.sleep(RETRY_BASE_DELAY)
-            else:
-                raise
-    raise last_error
+    """Retrying call; a reply without a results object is rejected inside the retry loop (Stage 6)."""
+    def _ok(p):
+        r = p.get("results", p) if isinstance(p, dict) else p
+        return isinstance(r, dict) or f"expected a JSON object of results, got {type(r).__name__}"
+    res = _llm.get_client().call_json(PROMPT_TEMPLATE + _format_cards_block(cards), validate=_ok)
+    parsed = res.parsed
+    return (parsed.get("results", parsed) if isinstance(parsed, dict) else parsed), res.input_tokens, res.output_tokens, res.text
 
 
 # ---------------------------------------------------------------------------
@@ -336,13 +267,15 @@ def _log_llm_call(conn, input_hash: str, input_tokens: int, output_tokens: int,
                    latency_ms: int, output_json: str, raw_response: str,
                    error: str | None = None):
     """Log an LLM call to llm_call_log."""
+    _llm.ensure_log_columns(conn)
+    st = _llm.get_client().settings
     conn.execute(
         """INSERT INTO llm_call_log
            (stage, model, prompt_template, input_tokens, output_tokens,
-            latency_ms, input_hash, output_json, raw_response, error)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            latency_ms, input_hash, output_json, raw_response, error, temperature, seed, endpoint)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (STAGE_NAME, MODEL, "topic_organ_classify", input_tokens, output_tokens,
-         latency_ms, input_hash, output_json, raw_response, error),
+         latency_ms, input_hash, output_json, raw_response, error, st.temperature, st.seed, st.endpoint),
     )
 
 

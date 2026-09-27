@@ -223,6 +223,21 @@ reported but not trusted: see `audit/STAGE5_TODO.md` and `audit/bench/*.json`.
 - **Split scripts:** remove the dependency on the retired `diagnosis_accuracy` task; ship the split JSON; fix `split="val"` defaults and the non-random `select_patients` in `eval/agents/runner.py`.
 - **Source content:** needs our own. The ETL is source-agnostic via YAML deck/PDF profiles. The upstream tags (`GPT4Anki::…`) suggest a public LLM-generated deck, which is a **contamination risk** for frontier-model evaluation. A private source corpus is the only route to a truly unseen test set.
 
+**Status: DONE (2026-09-27).** `etl/main.py` runs stages 1–12 (`--all`, `--from/--to`, `--pilot`, `--dry-run`,
+`--sources`) and appends a manifest per stage (LLM fingerprint, seed, input SHA-256s, git commit).
+`etl/preflight.py` checks every input before a stage runs and exits 2 with the fix for each missing one; stage 11
+raises without the curated CSVs (`--allow-missing-curated` restores the old silent fallback explicitly).
+`etl/llm.py` replaces the seven per-stage copies of the gateway code: OpenAI-compatible endpoint by default (the
+anthropic format is kept for the legacy gateway), temperature 0 and a seed on every request, retries that cover
+structural validation (5a extraction, 6b/6c/7 shapes, 8b profile keys, 9a timeline, 9b HPI, 10c/10c_visit/10e
+objects), cache keys over the complete prompt plus sampling settings (5a keyed on 200 characters, 7 on 16 hex
+characters, 6b/6c/8b/9a/9b/10c/10e on record ids before), and `llm_call_log` rows with temperature, seed, attempts,
+endpoint and the real request id (10c/10e stored the raw reply text). `scripts/mock_llm_server.py` +
+`etl/tests/test_pipeline_smoke.py` run stages 5 and 7 end to end on three synthetic questions with a forced
+validation failure; `scripts/source_fingerprints.py` fingerprints a source corpus for contamination checks without
+shipping text. The split scripts and `select_patients` remain as documented above (they operate on the released DB,
+not the pipeline) — see `audit/STAGE6_TODO.md`.
+
 ## Stage 7: New capability (only after Stages 1–4, so rewards stay honest)
 
 These address the paper's own limitations and are all verifiable by construction:

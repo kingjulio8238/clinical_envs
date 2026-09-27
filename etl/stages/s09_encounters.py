@@ -238,11 +238,10 @@ def _format_patient_encounters_block(
     return "\n\n".join(parts)
 
 
-def _compute_input_hash_9a(patient_id: int, encounter_qids: list[int]) -> str:
-    """SHA-256 hash for caching a 9a LLM call."""
-    qids_str = ",".join(str(q) for q in sorted(encounter_qids))
-    content = f"{STAGE_9A}:{patient_id}:{qids_str}"
-    return hashlib.sha256(content.encode()).hexdigest()
+def _compute_input_hash_9a(patient_id: int, encounter_qids: list[int], prompt: str | None = None) -> str:
+    """Cache key of a 9a call: the full prompt plus sampling settings (Stage 6; before: patient + qids only)."""
+    from etl import llm as _llm
+    return _llm.get_client().input_hash(STAGE_9A, prompt if prompt is not None else f"{patient_id}:{sorted(encounter_qids)}")
 
 
 def _check_cache_9a(conn: sqlite3.Connection, input_hash: str) -> dict | None:
@@ -284,14 +283,10 @@ def _plan_timeline_single(
     """Thread-safe LLM worker: plan encounter timeline. No DB access."""
     call_t0 = time.time()
     try:
-        parsed, in_tok, out_tok, raw_text = _call_with_retry(prompt)
+        parsed, in_tok, out_tok, raw_text = _call_with_retry(
+            prompt, validate=lambda p: (isinstance(p, dict) and isinstance(p.get("encounters"), list))
+            or "expected a JSON object with an 'encounters' list")   # validation inside the retry (Stage 6)
         latency_ms = int((time.time() - call_t0) * 1000)
-
-        if not isinstance(parsed, dict):
-            raise ValueError(f"Expected JSON object, got {type(parsed).__name__}")
-
-        if "encounters" not in parsed:
-            raise ValueError("Missing 'encounters' key in response")
 
         return {
             "patient_id": patient_id,
@@ -510,7 +505,7 @@ def run_9a(
             timeline_hint=timeline_hint,
         )
 
-        input_hash = _compute_input_hash_9a(patient_id, encounter_qids)
+        input_hash = _compute_input_hash_9a(patient_id, encounter_qids, prompt)   # full input (Stage 6)
         patient_work.append((patient_id, encounter_qids, prompt, input_hash))
 
     log.info(f"Phase 1 complete: {len(patient_work)} patients prepared")
@@ -1054,10 +1049,10 @@ def _assemble_note_text(
     return "\n".join(parts).rstrip()
 
 
-def _compute_input_hash_9b(encounter_id: int) -> str:
-    """SHA-256 hash for caching a 9b LLM call."""
-    content = f"{STAGE_9B}:{encounter_id}"
-    return hashlib.sha256(content.encode()).hexdigest()
+def _compute_input_hash_9b(encounter_id: int, prompt: str | None = None) -> str:
+    """Cache key of a 9b call: the full prompt plus sampling settings (Stage 6; before: encounter id only)."""
+    from etl import llm as _llm
+    return _llm.get_client().input_hash(STAGE_9B, prompt if prompt is not None else str(encounter_id))
 
 
 def _check_cache_9b(conn: sqlite3.Connection, input_hash: str) -> dict | None:
@@ -1083,17 +1078,12 @@ def _polish_hpi_single(
     """Thread-safe LLM worker: polish HPI for longitudinal context. No DB access."""
     call_t0 = time.time()
     try:
-        parsed, in_tok, out_tok, raw_text = _call_with_retry(prompt)
+        def _polished(p):
+            return (p.get("polished_hpi", "") if isinstance(p, dict) else p if isinstance(p, str) else "") or ""
+        parsed, in_tok, out_tok, raw_text = _call_with_retry(
+            prompt, validate=lambda p: bool(_polished(p)) or "empty polished_hpi in the reply")   # in the retry (Stage 6)
         latency_ms = int((time.time() - call_t0) * 1000)
-
-        polished = ""
-        if isinstance(parsed, dict):
-            polished = parsed.get("polished_hpi", "")
-        if not polished and isinstance(parsed, str):
-            polished = parsed
-
-        if not polished:
-            raise ValueError("Empty polished_hpi in response")
+        polished = _polished(parsed)
 
         return {
             "encounter_id": encounter_id,
@@ -1386,15 +1376,7 @@ def run_9b(
         if not meta["original_hpi"]:
             continue
 
-        input_hash = _compute_input_hash_9b(enc_id)
-        cached = _check_cache_9b(conn, input_hash)
-        if cached is not None:
-            polished = cached.get("polished_hpi", "")
-            if polished:
-                hpi_cached[enc_id] = polished
-                continue
-
-        # Build prompt
+        # Build prompt (the cache key is the full input, Stage 6)
         pid = meta["patient_id"]
         profile = profile_lookup.get(pid, {})
         patient_age = age_lookup.get(pid)
@@ -1446,6 +1428,14 @@ def run_9b(
             prior_encounters_summary="\n\n".join(prior_lines) or "None",
             original_hpi=meta["original_hpi"],
         )
+
+        input_hash = _compute_input_hash_9b(enc_id, prompt)
+        cached = _check_cache_9b(conn, input_hash)
+        if cached is not None:
+            polished = cached.get("polished_hpi", "")
+            if polished:
+                hpi_cached[enc_id] = polished
+                continue
 
         hpi_work_queue.append((enc_id, prompt, input_hash))
 

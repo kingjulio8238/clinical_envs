@@ -419,12 +419,14 @@ def run(conn, files: list[str] | None = None, dry_run: bool = False) -> dict:
 
 # ── PDF LLM Topic Enrichment (for docs with no reliable section titles) ──
 
-# Anthropic-compatible LLM gateway used to build the benchmark (not released); see README.
-GATEWAY_URL = os.environ.get("SH_LLM_GATEWAY_URL", "http://localhost:8080")
-MODEL = "kimi-k2.5"
+# LLM access goes through etl.llm (Stage 6): SH_LLM_* selects any OpenAI-compatible endpoint.
+from etl import llm as _llm  # noqa: E402
+
+GATEWAY_URL = _llm.LLMSettings.from_env().base_url
+MODEL = _llm.LLMSettings.from_env().model
 ENRICH_BATCH_SIZE = 20
-MAX_RETRIES = 3
-RETRY_BASE_DELAY = 2.0
+MAX_RETRIES = _llm.LLMSettings.from_env().max_attempts
+RETRY_BASE_DELAY = _llm.LLMSettings.from_env().retry_base_delay
 TIMEOUT_SECS = 180.0
 MAX_FACT_TEXT_CHARS = 400
 ENRICH_STAGE = "s01d_pdf_topic"
@@ -500,11 +502,14 @@ def _enrich_pdf_topics(conn, dry_run: bool = False) -> dict:
     cached = 0
 
     for i, batch in enumerate(batches):
-        # Compute cache key
-        hash_parts = [ENRICH_STAGE]
-        for c in sorted(batch, key=lambda x: x["fact_id"]):
-            hash_parts.append(f"{c['fact_id']}:{(c['fact_text'] or '')[:100]}")
-        input_hash = hashlib.sha256("\n".join(hash_parts).encode()).hexdigest()
+        # Prompt first; the cache key is the full input (Stage 6; before: ids + 100 characters)
+        lines = []
+        for c in batch:
+            text = (c["fact_text"] or "")[:MAX_FACT_TEXT_CHARS]
+            subject = c.get("subject") or "Unknown"
+            lines.append(f"[id: {c['fact_id']}] Subject: {subject}\n{text}\n")
+        prompt = _TOPIC_PROMPT + "\n".join(lines)
+        input_hash = _llm.get_client().input_hash(ENRICH_STAGE, prompt)
 
         # Check cache
         cached_row = conn.execute(
@@ -535,106 +540,30 @@ def _enrich_pdf_topics(conn, dry_run: bool = False) -> dict:
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        # Format prompt
-        lines = []
-        for c in batch:
-            text = (c["fact_text"] or "")[:MAX_FACT_TEXT_CHARS]
-            subject = c.get("subject") or "Unknown"
-            lines.append(f"[id: {c['fact_id']}] Subject: {subject}\n{text}\n")
-        prompt = _TOPIC_PROMPT + "\n".join(lines)
-
-        # Call Kimi with retry
+        # Call the LLM through the shared client (retries, validation, seeded sampling: Stage 6)
         batch_t0 = time.time()
         last_error = None
         results = None
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                timeout = TIMEOUT_SECS + (attempt * 60)
-                with httpx.Client(timeout=timeout) as client:
-                    resp = client.post(
-                        f"{GATEWAY_URL}/v1/messages",
-                        json={
-                            "model": MODEL,
-                            "max_tokens": 4096,
-                            "messages": [{"role": "user", "content": prompt}],
-                        },
-                        headers={"Content-Type": "application/json"},
-                    )
-                    resp.raise_for_status()
-
-                resp_json = json.loads(resp.text, strict=False)
-
-                # Extract text block (skip thinking blocks)
-                raw_text = ""
-                for item in resp_json.get("content", []):
-                    if item.get("type") == "text":
-                        raw_text = item["text"]
-                        break
-
-                if not raw_text:
-                    raise ValueError("No text block in response")
-
-                usage = resp_json.get("usage", {})
-                in_tok = usage.get("input_tokens", 0)
-                out_tok = usage.get("output_tokens", 0)
-
-                # Parse JSON
-                json_text = raw_text.strip()
-                if json_text.startswith("```"):
-                    json_lines = json_text.split("\n")
-                    json_lines = [l for l in json_lines if not l.strip().startswith("```")]
-                    json_text = "\n".join(json_lines)
-
-                parsed = json.loads(json_text, strict=False)
-                results = parsed.get("results", parsed)
-
-                latency_ms = int((time.time() - batch_t0) * 1000)
-
-                # Log call
-                conn.execute(
-                    """INSERT INTO llm_call_log
-                       (stage, model, prompt_template, input_tokens, output_tokens,
-                        latency_ms, input_hash, output_json, raw_response)
-                       VALUES (?, ?, 'pdf_topic_classify', ?, ?, ?, ?, ?, ?)""",
-                    (ENRICH_STAGE, MODEL, in_tok, out_tok, latency_ms,
-                     input_hash, json.dumps({"results": results}), raw_text),
-                )
-                break  # success
-
-            except httpx.HTTPStatusError as e:
-                last_error = e
-                if e.response.status_code in (429, 500, 502, 503):
-                    delay = RETRY_BASE_DELAY * (2 ** attempt)
-                    log.warning(f"HTTP {e.response.status_code}, retry in {delay:.0f}s")
-                    time.sleep(delay)
-                else:
-                    raise
-            except (json.JSONDecodeError, ValueError, KeyError) as e:
-                last_error = e
-                if attempt < MAX_RETRIES - 1:
-                    log.warning(f"Parse error: {e}, retrying")
-                    time.sleep(RETRY_BASE_DELAY)
-                else:
-                    raise
-            except httpx.TimeoutException as e:
-                last_error = e
-                if attempt < MAX_RETRIES - 1:
-                    log.warning(f"Timeout, retrying")
-                    time.sleep(RETRY_BASE_DELAY)
-                else:
-                    raise
+        try:
+            def _ok(p):
+                r = p.get("results", p) if isinstance(p, dict) else p
+                return isinstance(r, dict) or f"expected a JSON object of results, got {type(r).__name__}"
+            res = _llm.get_client().call_json(prompt, validate=_ok)
+            parsed = res.parsed
+            results = parsed.get("results", parsed) if isinstance(parsed, dict) else parsed
+            raw_text = res.text
+            in_tok, out_tok = res.input_tokens, res.output_tokens
+            latency_ms = int((time.time() - batch_t0) * 1000)
+            _llm.log_call(conn, ENRICH_STAGE, input_hash, res, prompt_template="pdf_topic_classify",
+                          latency_ms=latency_ms, output_json=json.dumps({"results": results}))
+        except _llm.LLMError as e:
+            last_error = e
 
         if results is None:
             latency_ms = int((time.time() - batch_t0) * 1000)
             log.error(f"Batch {i+1} failed after retries: {last_error}")
-            conn.execute(
-                """INSERT INTO llm_call_log
-                   (stage, model, prompt_template, input_tokens, output_tokens,
-                    latency_ms, input_hash, error)
-                   VALUES (?, ?, 'pdf_topic_classify', 0, 0, ?, ?, ?)""",
-                (ENRICH_STAGE, MODEL, latency_ms, input_hash, str(last_error)),
-            )
+            _llm.log_call(conn, ENRICH_STAGE, input_hash, None, error=str(last_error),
+                          prompt_template="pdf_topic_classify", latency_ms=latency_ms)
             conn.commit()
             errors += len(batch)
             continue

@@ -93,6 +93,8 @@ blood-pressure components and reference ranges; every FHIR search honours the se
 for Observation, ServiceRequest, MedicationRequest and Condition in a session-scoped store. **Stage 5** (throughput)
 is done: the HTTP env was measured (13.6 steps/s sequential, 105 peak, bottleneck = the single-process app server),
 and `eval/local_env.py` now runs the same environment in-process over SQLite at 470 steps/s per process with
-byte-identical observations and rewards (`eval/tests/test_local_env.py`). Next is **Stage 6** (pipeline
-reproducibility) or **Stage 7** (new, verifiable action tasks on top of the FHIR write path) — Stage 7 if the goal is
-RL training signal, Stage 6 if the goal is regenerating data.
+byte-identical observations and rewards (`eval/tests/test_local_env.py`). **Stage 6** (pipeline reproducibility)
+is done: all 12 stages run from `etl.main` behind a preflight and a manifest, one seeded LLM client with
+validation-aware retries and full-input cache keys, a mock endpoint + synthetic smoke, and a source-fingerprint
+contamination check. Next is **Stage 7** (new, verifiable action tasks on top of the FHIR write path), then
+**Stage 8** (evaluation protocol).

@@ -40,12 +40,15 @@ log = get_logger("etl.stages.s05_ontology")
 # Constants
 # ---------------------------------------------------------------------------
 
-# Anthropic-compatible LLM gateway used to build the benchmark (not released); see README.
-GATEWAY_URL = os.environ.get("SH_LLM_GATEWAY_URL", "http://localhost:8080")
-MODEL = "kimi-k2.5"
-MAX_RETRIES = 3
-RETRY_BASE_DELAY = 2.0
-TIMEOUT_SECS = 360.0
+# LLM access goes through etl.llm (Stage 6): one client, configured by SH_LLM_* (any OpenAI-compatible
+# endpoint, or the legacy anthropic-format gateway). The names below are kept for the stages that import them.
+from etl import llm as _llm  # noqa: E402
+
+GATEWAY_URL = _llm.LLMSettings.from_env().base_url
+MODEL = _llm.LLMSettings.from_env().model
+MAX_RETRIES = _llm.LLMSettings.from_env().max_attempts
+RETRY_BASE_DELAY = _llm.LLMSettings.from_env().retry_base_delay
+TIMEOUT_SECS = _llm.LLMSettings.from_env().timeout
 
 STAGE_5A = "s05a_extract"
 STAGE_5B = "s05b_map"
@@ -250,9 +253,9 @@ def _format_question_input(q: dict) -> str:
 
 
 def _compute_input_hash_5a(question_id: int, question_text: str) -> str:
-    """SHA-256 hash for caching a single question extraction."""
-    content = f"{STAGE_5A}:{question_id}:{question_text[:200]}"
-    return hashlib.sha256(content.encode()).hexdigest()
+    """Cache key of one extraction: the full prompt plus the sampling settings (Stage 6). Before, the key
+    was the first 200 characters of the question, so an edit beyond them hit a stale cache."""
+    return _llm.get_client().input_hash(STAGE_5A, EXTRACTION_PROMPT + question_text)
 
 
 def _check_cache(conn, input_hash: str, stage: str) -> dict | None:
@@ -270,75 +273,21 @@ def _check_cache(conn, input_hash: str, stage: str) -> dict | None:
 
 
 def _call_kimi(prompt: str, timeout: float = TIMEOUT_SECS) -> tuple[dict, int, int, str]:
-    """Send a prompt to Kimi k2.5 and return (parsed_json, input_tokens, output_tokens, raw_text)."""
-    with httpx.Client(timeout=timeout) as client:
-        resp = client.post(
-            f"{GATEWAY_URL}/v1/messages",
-            json={
-                "model": MODEL,
-                "max_tokens": 4096,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            headers={"Content-Type": "application/json"},
-        )
-        resp.raise_for_status()
-
-    resp_json = json.loads(resp.text, strict=False)
-
-    # Extract text block (skip thinking blocks)
-    raw_text = ""
-    for item in resp_json.get("content", []):
-        if item.get("type") == "text":
-            raw_text = item["text"]
-            break
-
-    if not raw_text:
-        raise ValueError("No text block found in Kimi response")
-
-    usage = resp_json.get("usage", {})
-    input_tokens = usage.get("input_tokens", 0)
-    output_tokens = usage.get("output_tokens", 0)
-
-    # Parse JSON (strip markdown code fences if present)
-    json_text = raw_text.strip()
-    if json_text.startswith("```"):
-        lines = json_text.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        json_text = "\n".join(lines)
-
-    parsed = json.loads(json_text, strict=False)
-    return parsed, input_tokens, output_tokens, raw_text
+    """One request through the shared client: (parsed_json, input_tokens, output_tokens, raw_text)."""
+    res = _llm.get_client().complete(prompt, timeout=timeout)
+    return _llm.parse_json(res.text), res.input_tokens, res.output_tokens, res.text
 
 
-def _call_with_retry(prompt: str) -> tuple[dict, int, int, str]:
-    """Call Kimi with exponential backoff retry."""
-    last_error = None
-    for attempt in range(MAX_RETRIES):
-        try:
-            return _call_kimi(prompt, timeout=TIMEOUT_SECS + (attempt * 60))
-        except httpx.HTTPStatusError as e:
-            last_error = e
-            if e.response.status_code in (429, 529) or e.response.status_code >= 500:
-                delay = RETRY_BASE_DELAY * (2 ** attempt)
-                log.warning(f"HTTP {e.response.status_code}, retrying in {delay:.0f}s (attempt {attempt + 1})")
-                time.sleep(delay)
-            else:
-                raise
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
-            last_error = e
-            if attempt < MAX_RETRIES - 1:
-                log.warning(f"Parse error: {e}, retrying (attempt {attempt + 1})")
-                time.sleep(RETRY_BASE_DELAY)
-            else:
-                raise
-        except httpx.TimeoutException as e:
-            last_error = e
-            if attempt < MAX_RETRIES - 1:
-                log.warning(f"Timeout, retrying with longer timeout (attempt {attempt + 1})")
-                time.sleep(RETRY_BASE_DELAY)
-            else:
-                raise
-    raise last_error
+def _call_with_retry(prompt: str, validate=None) -> tuple[dict, int, int, str]:
+    """Retrying call: HTTP/timeout/transport/parse errors AND structural validation (`validate(parsed)`),
+    which before ran after the retry loop so an invalid extraction was logged and dropped (Stage 6)."""
+    res = _llm.get_client().call_json(prompt, validate=validate)
+    return res.parsed, res.input_tokens, res.output_tokens, res.text
+
+
+def _call_with_result(prompt: str, validate=None) -> "_llm.LLMResult":
+    """Same, returning the full LLMResult (request id, attempts, latency)."""
+    return _llm.get_client().call_json(prompt, validate=validate)
 
 
 # ---------------------------------------------------------------------------
@@ -348,16 +297,18 @@ def _call_with_retry(prompt: str) -> tuple[dict, int, int, str]:
 def _log_llm_call(conn, stage: str, input_hash: str, input_tokens: int,
                    output_tokens: int, latency_ms: int,
                    output_json: str | None, raw_response: str | None,
-                   error: str | None = None):
-    """Log an LLM call to llm_call_log."""
+                   error: str | None = None, attempts: int | None = None, request_id: str | None = None):
+    """Log an LLM call to llm_call_log, with the sampling settings that produced it (Stage 6)."""
+    _llm.ensure_log_columns(conn)
+    st = _llm.get_client().settings
     conn.execute(
         """INSERT INTO llm_call_log
            (stage, model, prompt_template, input_tokens, output_tokens,
-            latency_ms, input_hash, output_json, raw_response, error)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            latency_ms, input_hash, output_json, raw_response, error, temperature, seed, attempts, endpoint, request_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (stage, MODEL, "ontology_extract" if stage == STAGE_5A else "icd10_disambiguate",
          input_tokens, output_tokens, latency_ms, input_hash,
-         output_json, raw_response, error),
+         output_json, raw_response, error, st.temperature, st.seed, attempts, st.endpoint, request_id),
     )
 
 
@@ -426,11 +377,11 @@ def _extract_single(qid: int, prompt: str) -> dict:
     """
     call_t0 = time.time()
     try:
-        parsed, in_tok, out_tok, raw_text = _call_with_retry(prompt)
+        # structural validation inside the retry loop (Stage 6)
+        res = _call_with_result(prompt, validate=lambda p: isinstance(p, dict) and _validate_extraction(p)
+                                or "missing primary_diagnosis or clinical_findings")
+        parsed, in_tok, out_tok, raw_text = res.parsed, res.input_tokens, res.output_tokens, res.text
         latency_ms = int((time.time() - call_t0) * 1000)
-
-        if not _validate_extraction(parsed):
-            raise ValueError("Invalid extraction: missing primary_diagnosis or clinical_findings")
 
         parsed["_question_id"] = qid
         parsed.setdefault("differential_diagnoses", [])
@@ -438,7 +389,8 @@ def _extract_single(qid: int, prompt: str) -> dict:
         parsed.setdefault("clinical_findings", [])
 
         return {"qid": qid, "parsed": parsed, "in_tok": in_tok, "out_tok": out_tok,
-                "raw_text": raw_text, "latency_ms": latency_ms, "error": None}
+                "raw_text": raw_text, "latency_ms": latency_ms, "error": None,
+                "attempts": res.attempts, "request_id": res.request_id}
     except Exception as e:
         latency_ms = int((time.time() - call_t0) * 1000)
         return {"qid": qid, "parsed": None, "in_tok": 0, "out_tok": 0,
@@ -510,7 +462,7 @@ def extract_all(conn, questions: list[dict], dry_run: bool = False,
                               result["in_tok"], result["out_tok"],
                               result["latency_ms"],
                               json.dumps(result["parsed"]),
-                              result["raw_text"])
+                              result["raw_text"], attempts=result.get("attempts"), request_id=result.get("request_id"))
                 extracted += 1
             else:
                 log.error(f"qid={qid} failed: {result['error']}")
@@ -1474,36 +1426,38 @@ def export_csv(conn, output_dir: Path):
 # ICD-10 download helper
 # ---------------------------------------------------------------------------
 
-def download_icd10():
-    """Download and parse CMS ICD-10-CM 2025 code descriptions."""
+def download_icd10(order_file: Path | None = None, output_path: Path | None = None):
+    """Build data/ontology/icd10cm_2025.csv from the CMS ICD-10-CM 2025 order file: a local copy
+    (`order_file`, e.g. the icd10cm_order_2025.txt the Stage-4 repair downloaded) or the CMS zip."""
     import zipfile
     import tempfile
 
     url = "https://www.cms.gov/files/zip/2025-code-descriptions-tabular-order.zip"
-    output_path = Path(__file__).resolve().parent.parent.parent / "data" / "ontology" / "icd10cm_2025.csv"
+    output_path = output_path or Path(__file__).resolve().parent.parent.parent / "data" / "ontology" / "icd10cm_2025.csv"
 
     if output_path.exists():
         log.info(f"ICD-10-CM file already exists: {output_path}")
-        return
-
-    log.info(f"Downloading ICD-10-CM 2025 from {url}")
+        return output_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = None
+    if order_file is not None:
+        lines = Path(order_file).read_text(encoding="latin-1").splitlines()
+    else:
+        log.info(f"Downloading ICD-10-CM 2025 from {url}")
+        with httpx.Client(timeout=60) as client:
+            resp = client.get(url, follow_redirects=True)
+            resp.raise_for_status()
 
-    with httpx.Client(timeout=60) as client:
-        resp = client.get(url, follow_redirects=True)
-        resp.raise_for_status()
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp.write(resp.content)
+            tmp_path = tmp.name
 
-    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
-        tmp.write(resp.content)
-        tmp_path = tmp.name
-
-    with zipfile.ZipFile(tmp_path) as zf:
-        order_file = [n for n in zf.namelist() if "order" in n.lower() and n.endswith(".txt")]
-        if not order_file:
-            raise FileNotFoundError("No order file found in ZIP")
-
-        with zf.open(order_file[0]) as fin:
-            lines = fin.read().decode("utf-8").splitlines()
+        with zipfile.ZipFile(tmp_path) as zf:
+            order_files = [n for n in zf.namelist() if "order" in n.lower() and n.endswith(".txt")]
+            if not order_files:
+                raise FileNotFoundError("No order file found in ZIP")
+            with zf.open(order_files[0]) as fin:
+                lines = fin.read().decode("utf-8").splitlines()
 
     total = 0
     with open(output_path, "w", newline="", encoding="utf-8") as fout:
@@ -1519,8 +1473,10 @@ def download_icd10():
             writer.writerow([code, long_desc, is_header])
             total += 1
 
-    Path(tmp_path).unlink(missing_ok=True)
+    if tmp_path:
+        Path(tmp_path).unlink(missing_ok=True)
     log.info(f"Parsed {total} ICD-10-CM codes to {output_path}")
+    return output_path
 
 
 # ---------------------------------------------------------------------------

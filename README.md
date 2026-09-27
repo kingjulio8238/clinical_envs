@@ -131,8 +131,42 @@ The benchmark database `benchmark_v1.3.db` **is distributed** (see Released Data
 Then run the ETL:
 
 ```bash
-python -m etl.main --stage 1    # repeat for stages 1..12, in order
+python -m etl.main --all                         # stages 1..12, in order (or --stage N, --from 5 --to 10)
+python -m etl.main --stage 5 --pilot 20          # a 20-record pilot of one stage
+python -m etl.preflight --all                    # what is missing, without running anything
 ```
+
+### Bring your own source corpus
+
+The pipeline ships no source content and no LLM. What it needs from you, and how it behaves:
+
+- **Sources.** Anki `.apkg` decks (and PDFs) described by a YAML profile (`etl/deck_profiles/`,
+  `etl/pdf_profiles/`, `etl/stages/EXTENDING.md`), placed under `apkg/` or given with `--sources DIR`
+  (`SH_APKG_DIR`). A private corpus is the only route to a test set that frontier models have not seen: the
+  source families the original benchmark used are public study decks, so anything built from them is a
+  contamination risk for evaluation (fine for training).
+- **An LLM endpoint.** Any OpenAI-compatible server (vLLM, llama.cpp, Ollama, OpenRouter, ...):
+  `SH_LLM_BASE_URL`, `SH_LLM_MODEL`, optional `SH_LLM_API_KEY`; `SH_LLM_API=anthropic` selects the messages
+  format the original gateway spoke. Every request is sent with `temperature 0` and `SH_LLM_SEED` (default 0),
+  retried on HTTP/timeout/parse **and** structural-validation failures, cached on a SHA-256 of the full
+  prompt plus the sampling settings, and logged to `llm_call_log` with model, temperature, seed, attempts,
+  endpoint and request id. `scripts/mock_llm_server.py` is a deterministic stand-in for dry runs.
+- **Preflight.** `etl.main` checks a stage's inputs before running it and exits 2 with the list of what is
+  missing and how to fix it (source decks, the ICD-10-CM table — `python -m etl.stages.s05_ontology
+  --download-icd10` — SNOMED RF2, LOINC, the clinician-curated CSVs stage 11 needs, a reachable endpoint).
+  Stage 11 refuses to build the typed diagnosis graph without `finding_site_review.csv` and
+  `curated_diagnosis_edges.csv` unless you pass `--allow-missing-curated`, because their absence changes the
+  specialty labels silently.
+- **Manifest.** Every stage appends to `data/pipeline_manifest.json`: LLM fingerprint, pipeline seed, SHA-256
+  of each input file, git commit, summary. Two runs with the same manifest inputs and a deterministic model
+  reproduce the same database; with a sampling model they reproduce the same *procedure*.
+- **Contamination check.** `python scripts/source_fingerprints.py --write --db data/benchmark.db` stores the
+  SHA-256 and hashed 8-word shingles of every source vignette (no text); `--check corpus.jsonl` reports which
+  items a public dump or a training corpus contains, exactly or by shingle overlap.
+
+What remains irreproducible by construction: the original source decks and the LLM outputs that built
+`benchmark_v1.3.db` (kimi-k2.5 through a private gateway, unseeded). The released database is the artifact;
+the pipeline is how to build your own.
 
 And load into the simulator:
 

@@ -167,10 +167,10 @@ RE_LABS = re.compile(
 
 
 def _compute_input_hash(qid: int, vignette_text: str) -> str:
-    """SHA-256 hash for caching a Stage 7 LLM call."""
-    vignette_hash = hashlib.sha256(vignette_text.encode()).hexdigest()[:16]
-    content = f"{STAGE_7}:{qid}:{vignette_hash}"
-    return hashlib.sha256(content.encode()).hexdigest()
+    """Cache key of a Stage 7 call: the full prompt plus sampling settings (Stage 6; before: 16 hex
+    characters of the vignette hash, and the prompt template was not part of the key)."""
+    from etl import llm as _llm
+    return _llm.get_client().input_hash(STAGE_7, EHR_PARSING_PROMPT.format(vignette_text=vignette_text))
 
 
 def _check_cache(conn: sqlite3.Connection, input_hash: str) -> dict | None:
@@ -262,11 +262,9 @@ def _parse_single(qid: int, vignette_text: str) -> dict:
     prompt = EHR_PARSING_PROMPT.format(vignette_text=vignette_text)
     call_t0 = time.time()
     try:
-        parsed, in_tok, out_tok, raw_text = _call_with_retry(prompt)
+        parsed, in_tok, out_tok, raw_text = _call_with_retry(
+            prompt, validate=lambda p: isinstance(p, list) or f"expected a JSON array of sections, got {type(p).__name__}")
         latency_ms = int((time.time() - call_t0) * 1000)
-
-        if not isinstance(parsed, list):
-            raise ValueError(f"Expected JSON array, got {type(parsed).__name__}")
 
         return {
             "qid": qid,

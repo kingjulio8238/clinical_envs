@@ -139,6 +139,8 @@ class LocalEnv:
                                                    "source": "chart_history"} for c in (profile.get("chronic_conditions") or []) if c]}
         if task == "context_summarization":
             ctx["task_kwargs"]["clinical_question"] = gt.get("clinical_question", "Summarize this patient's clinical course.")
+            if gt.get("variant") == "specialty_conditioned":
+                ctx["task_kwargs"]["specialty_conditioned"] = True
         elif task == "evidence_retrieval":
             ids = [d["diagnosis_id"] for d in gt.get("query_diagnoses", [])]
             names = dict(self._q(f"select diagnosis_id, display_name from diagnoses where diagnosis_id in ({','.join('?' * len(ids))})", *ids)) if ids else {}

@@ -106,6 +106,8 @@ def _load_context(gt_id: int) -> dict[str, Any]:
             if task == "context_summarization":
                 ctx["task_kwargs"]["clinical_question"] = gt.get(
                     "clinical_question", "Summarize this patient's clinical course.")
+                if gt.get("variant") == "specialty_conditioned":
+                    ctx["task_kwargs"]["specialty_conditioned"] = True   # the brief must explain the abstain field
             elif task == "evidence_retrieval":
                 dx_ids = [d["diagnosis_id"] for d in gt.get("query_diagnoses", [])]
                 names: dict[int, str] = {}

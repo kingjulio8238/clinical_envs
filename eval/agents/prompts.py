@@ -211,15 +211,16 @@ TASK_GOALS = {
     "evidence_retrieval": {
         "description": "retrieving and ranking evidence passages for given diagnoses",
         "goal": (
-            "For the given diagnoses ({diagnosis_names}), review all available clinical passages "
-            "(EHR sections and fact cards) and assign relevance grades (0–3) to each passage.\n"
+            "For the given diagnoses ({diagnosis_names}), review the patient's chart sections and assign "
+            "relevance grades (0–3), ranking the most relevant first. A passage is one EHR section; its "
+            "passage_id is \"ees_<section_id>\" (the section_id the chart tools return).\n"
             "Grade 0: Not relevant. Grade 1: Marginally relevant. "
             "Grade 2: Clearly relevant. Grade 3: Highly specific / defining."
         ),
         "schema": """{
   "rankings": [
-    {"passage_id": "ehr_section_1234", "grade": 3},
-    {"passage_id": "fact_card_5678", "grade": 2},
+    {"passage_id": "ees_1234", "grade": 3},
+    {"passage_id": "ees_5678", "grade": 2},
     ...
   ]
 }""",
@@ -638,6 +639,13 @@ def build_patient_intro(
         parts.append(f"Index encounter_id = {encounter_id}. Triage its laboratory and vital-sign results.")
     elif task == "evidence_retrieval" and diagnosis_names:
         parts.append(f"Target diagnoses: {diagnosis_names}")
+    elif task == "context_summarization" and _extra.get("specialty_conditioned"):
+        # Stage 8 smoke: without this the only mention of `abstain` was a field description, and agents that
+        # correctly found no problem in the specialty wrote it in prose and scored 0 (abstention is read from the
+        # field, never the text, by design: Stage 3)
+        parts.append("This is a specialty-conditioned summary. If the patient has no active problem in the requested "
+                     "specialty, call submit_summary with abstain=true and an empty summary; otherwise set abstain=false "
+                     "and write the summary.")
     elif task == "imaging_indication" and encounter_id:
         parts.append(f"Imaging order encounter_id = {encounter_id}")
         if modality:

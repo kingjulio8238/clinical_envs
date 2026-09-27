@@ -37,6 +37,8 @@ RESULTS = ROOT / "results"
 SUBMIT_KEYS = {"active_diagnoses", "chronic_conditions", "summary", "rankings", "clinical_question", "differential",
                "icd10", "section_type", "relevant"}
 UNIT_TASK = {"specialty_involved": "context_summarization", "specialty_absent": "context_summarization"}
+EPISODE_DEADLINE_S = int(os.environ.get("SH_EPISODE_DEADLINE_S", "900"))
+"""Wall-clock cap per episode: after it, the episode is force-submitted with the best answer seen (scored as usual)."""
 
 _local = threading.local()
 
@@ -128,6 +130,8 @@ def _submission_from_text(text: str) -> dict | None:
 def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[float, float], max_turns: int) -> dict:
     env = _env()
     t0 = time.time()
+    from eval.adapters import _CALL_DEADLINE
+    _CALL_DEADLINE.t = t0 + EPISODE_DEADLINE_S                     # no single call may outlive the episode deadline
     rec: dict = {"gt_id": inst["gt_id"], "patient_id": inst["patient_id"], "encounter_id": inst.get("encounter_id"),
                  "parent_gt_id": inst["gt"].get("parent_gt_id"), "reward": 0.0, "metric": None, "steps": 0, "turns": 0,
                  "orders": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "error": None, "forced": False,
@@ -147,8 +151,15 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
         done = False
         last_parsed = None
         for turn in range(1, max_turns + 1):
+            if time.time() - t0 > EPISODE_DEADLINE_S - 5:       # a stalled provider cannot hold a worker forever
+                rec["error"] = f"episode deadline {EPISODE_DEADLINE_S}s reached at turn {turn}"
+                break
             resp = adapter.call_multi_turn_with_retry(system, messages, tools=tools)
             rec["turns"] = turn
+            prov = getattr(adapter, "last_provider", None)
+            if prov:
+                rec.setdefault("providers", {})
+                rec["providers"][prov] = rec["providers"].get(prov, 0) + 1
             rec["input_tokens"] += resp.input_tokens
             rec["output_tokens"] += resp.output_tokens
             rec["latency_ms"] += resp.latency_ms
@@ -210,8 +221,12 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
 
 def run(model: str, task: str, n: int, arm: str = "agent", split: str = "public", seed: int = 0, budget: int = 40,
         workers: int = 4, max_usd: float | None = None, out_root: Path = RESULTS, max_turns: int | None = None,
-        adapter=None, prices: tuple[float, float] | None = None, quiet: bool = False) -> Path:
+        adapter=None, prices: tuple[float, float] | None = None, quiet: bool = False,
+        max_output_tokens: int | None = None) -> Path:
+    import dataclasses
     cfg = MODEL_REGISTRY[model]
+    if max_output_tokens:
+        cfg = dataclasses.replace(cfg, max_tokens=max_output_tokens)      # per-turn cap, like an RL rollout limit
     adapter = adapter or create_adapter(cfg)
     prices = prices or live_prices(model)
     db = D.ReleaseDB()
@@ -261,7 +276,7 @@ def run(model: str, task: str, n: int, arm: str = "agent", split: str = "public"
         "arm": arm, "split": split, "seed": seed, "n_requested": n, "n_sampled": len(insts), "budget": budget,
         "prices_per_million": {"input": prices[0], "output": prices[1]},
         "temperature": None if "api.openai.com" in cfg.base_url and cfg.extra.get("no_temperature", True) else cfg.temperature,   # None = provider default
-        "extra": dict(cfg.extra),
+        "extra": dict(cfg.extra), "max_output_tokens_per_turn": cfg.max_tokens,
         "prompt_hash": hashlib.sha256((_env().reset(gt_id=insts[0]["gt_id"]).instructions if insts else "").encode()).hexdigest()[:16],
         "git_commit": _git(), "floors_file": "eval/floors.json", "started": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(t0)),
         "duration_s": round(time.time() - t0, 1), "cost_usd": round(spent, 4), "max_usd": max_usd,
@@ -302,17 +317,20 @@ def main(argv=None) -> int:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--max-usd", type=float, default=None, help="hard cap per (model, task) run")
     ap.add_argument("--out", default=str(RESULTS))
+    ap.add_argument("--max-output-tokens", type=int, default=None, help="per-turn output cap (default: the registry's 16384)")
+    ap.add_argument("--tasks", default=None, help="comma-separated scoring units (overrides --task / --panel)")
     a = ap.parse_args(argv)
-    tasks = list(D.TASKS) if a.panel else [a.task]
+    tasks = a.tasks.split(",") if a.tasks else (list(D.TASKS) if a.panel else [a.task])
     n = 3 if a.smoke else a.n
     out_root = Path(a.out) / ("smoke" if a.smoke else "")
     for task in tasks:
-        out = run(a.model, task, n, a.arm, a.split, a.seed, a.budget, a.workers, a.max_usd, out_root)
+        out = run(a.model, task, n, a.arm, a.split, a.seed, a.budget, a.workers, a.max_usd, out_root,
+                  max_output_tokens=a.max_output_tokens)
         s = summarize(out)
         print(json.dumps({"run": out.name, **s}, indent=None))
         if a.smoke and s["n"]:
             per = s["cost_usd"] / s["n"]
-            print(f"  -> ${per:.4f}/episode; 120 episodes ≈ ${per * 120:.2f}; 9 units x 120 ≈ ${per * 1080:.2f}")
+            print(f"  -> ${per:.4f}/episode; 120 episodes ≈ ${per * 120:.2f}; {len(D.TASKS)} units x 120 ≈ ${per * 120 * len(D.TASKS):.2f}")
     return 0
 
 

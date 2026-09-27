@@ -24,6 +24,15 @@ log = logging.getLogger(__name__)
 # exponential backoff capped at max_backoff, plus jitter, with 502/5xx/timeout/429
 # retryable and 4xx (<429) not. Env-gated so defaults are unchanged; the robustness
 # Gateway-served models raise EVAL_MAX_RETRIES to ride out transient 502s.
+from concurrent.futures import ThreadPoolExecutor as _TPE
+
+_CALL_POOL = _TPE(max_workers=64, thread_name_prefix="llm-call")
+import threading as _threading
+_CALL_DEADLINE = _threading.local()
+"""Per-thread absolute deadline (time.time()) set by the episode runner; calls never outlive it."""
+"""Runs each HTTP call so the caller can enforce a wall-clock cap (abandoned calls finish in the background)."""
+
+
 def _retry_max(explicit: int | None) -> int:
     if explicit is not None:
         return explicit
@@ -236,15 +245,30 @@ class OpenAICompatibleAdapter(ModelAdapter):
             payload["provider"] = self.config.extra["provider"]
 
         t0 = time.monotonic()
-        with httpx.Client(timeout=self.config.timeout_secs) as client:
-            resp = client.post(
-                f"{self.config.base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            resp.raise_for_status()
-            raw_json = resp.text
-            data = resp.json()
+
+        def _post():
+            with httpx.Client(timeout=self.config.timeout_secs) as client:
+                r = client.post(f"{self.config.base_url}/chat/completions", headers=headers, json=payload)
+                r.raise_for_status()
+                return r
+
+        # Hard wall-clock cap per call: httpx timeouts are per phase, and a provider that keeps the connection
+        # alive (OpenRouter sends keep-alive bytes while a slow provider generates) can hold a request for many
+        # minutes (Stage-8 smoke: a Qwen call stalled > 10 min). A timed-out call is retried like any timeout.
+        total = float(self.config.extra.get("total_timeout_s") or os.environ.get("SH_CALL_TOTAL_TIMEOUT_S", "120"))
+        deadline = getattr(_CALL_DEADLINE, "t", None)                 # the episode's remaining time bounds every call
+        if deadline is not None:
+            total = max(5.0, min(total, deadline - time.time()))
+        pool = _CALL_POOL
+        fut = pool.submit(_post)
+        try:
+            resp = fut.result(timeout=total)
+        except TimeoutError as exc:
+            raise httpx.ReadTimeout(f"call exceeded {total:.0f}s wall clock") from exc
+        raw_json = resp.text
+        data = resp.json()
+        if data.get("provider"):
+            self.last_provider = data["provider"]                    # OpenRouter's upstream (for stall diagnosis)
 
         latency_ms = int((time.monotonic() - t0) * 1000)
         message = data["choices"][0]["message"]

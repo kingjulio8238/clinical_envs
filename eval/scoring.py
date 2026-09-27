@@ -1204,6 +1204,13 @@ def _normalize_passage_id(pid: str, judg_keys: set[str]) -> str:
         stripped = pid_str.split("_", 1)[1]
         if stripped in judg_keys:
             return stripped
+    # Any other spelling of a section id ("ehr_section_1234", "section 1234", "S1234"): the trailing number is
+    # the encounter_ehr_sections id. The paper's agent prompt showed "ehr_section_1234" as the format, so
+    # agents following it scored 0 on every ranking (found by the Stage-8 atomic smoke).
+    import re as _re
+    m = _re.search(r"(\d+)\s*$", pid_str)
+    if m and f"ees_{m.group(1)}" in judg_keys:
+        return f"ees_{m.group(1)}"
     return pid_str
 
 

@@ -151,6 +151,14 @@ def test_chart_dump_is_not_a_good_summary(floors):
     assert _pol(floors, "context_summarization", "chart_dump") <= GATES["chart_dump_summary"] * _unit(floors, "context_summarization")["ceiling"]
 
 
+def test_echoing_finding_names_is_not_a_good_summary(floors):
+    """Echoing the key-finding names (the list the 'structured' strategy used to inject; the policy reads them from
+    the source questions, so it knows the rubric) must stay below half the ceiling, and a phrase of finding names
+    alone must not earn specialty credit (Stage-1 exploit "echoing finding names")."""
+    assert _pol(floors, "context_summarization", "echo_structured_hints") <= GATES["chart_dump_summary"] * _unit(floors, "context_summarization")["ceiling"]
+    assert _pol(floors, "specialty_involved", "phrase_only") <= GATES["phrase_abstention"]
+
+
 def test_structured_prompts_carry_no_graph_concepts(db):
     """Stage 2.5: the 'structured' strategy may add ontology *guidance*, never patient-specific
     concepts from the label graph. Exercised on the real prompt builders with inputs that carry

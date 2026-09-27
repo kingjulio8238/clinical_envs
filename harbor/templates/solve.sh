@@ -23,6 +23,10 @@ oracle = http("GET", f"/env/oracle/{ep['episode_id']}", headers={"X-Scorer-Token
 # one look at the chart, then submit, exactly as an agent would
 http("POST", "/env/step", {"episode_id": ep["episode_id"], "name": "open_chart",
                             "arguments": {"patient_id": ep["patient_id"]}}, headers={"X-Episode-Token": ep["agent_token"]})
+# test_selection: the oracle orders the discriminating tests before it submits (the reward counts the trace)
+for name in oracle.get("orders", []):
+    http("POST", "/env/step", {"episode_id": ep["episode_id"], "name": "order_test", "arguments": {"name": name}},
+         headers={"X-Episode-Token": ep["agent_token"]})
 out = http("POST", "/env/step", {"episode_id": ep["episode_id"], "name": oracle["submit_tool"],
                                   "arguments": oracle["arguments"]}, headers={"X-Episode-Token": ep["agent_token"]})
 print("submitted:", out["done"], "(reward withheld from the agent path)")

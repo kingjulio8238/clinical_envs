@@ -33,6 +33,13 @@ LABEL_KEYS: dict[str, tuple[str, ...]] = {
                               "tiers", "involvement", "tau_residual"),
     "imaging_indication": ("inferred_clinical_question", "pre_read_summary", "must_include_findings",
                            "differential_context", "relevant_clinical_data", "reference_terms"),
+    # Stage 7 families
+    "differential_diagnosis": ("correct", "distractors"),
+    "test_selection": ("diagnosis", "orderable", "discriminating", "n_needed"),
+    "error_detection": ("section_id", "section_type", "error_type", "original", "injected", "section_overrides"),
+    "lab_triage": ("relevant", "background", "most_urgent"),
+    "atypical_diagnosis": ("active_diagnoses", "chronic_conditions", "encounter_diagnosis_map", "neutral_extra",
+                           "masked_findings", "section_overrides"),
 }
 
 

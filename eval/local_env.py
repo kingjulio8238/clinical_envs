@@ -35,6 +35,7 @@ from typing import Any
 
 from eval import degenerate as D
 from eval import private_labels
+from eval import stage7 as S7
 from eval.agents.prompts import build_patient_intro, build_system_prompt
 from eval.env_client import ResetObservation
 from eval.score_one import _jsonable, _primary_for
@@ -50,7 +51,6 @@ from epic_sim.app.services.env_service import (
 )
 
 TOOL_DEFS = [t.model_dump() for t in TOOL_DEFINITIONS]
-POINT_IN_TIME = ("imaging_indication", "patient_diagnosis")
 
 
 class EpisodeError(Exception):
@@ -147,7 +147,10 @@ class LocalEnv:
             row = (self._q("select modality, body_region, clinical_indication from imaging_orders where encounter_id = ? limit 1", eid) or [(None, None, None)])[0]
             ctx["task_kwargs"].update({"modality": row[0] or "imaging study", "body_region": row[1] or "unspecified",
                                        "clinical_indication": row[2] or "clinical concern"})
-        if eid and task in POINT_IN_TIME:
+        ctx["hidden_section_types"] = list(gt.get("hidden_section_types") or []) if task == "test_selection" else []
+        ctx["section_overrides"] = dict(gt.get("section_overrides") or {}) if task in ("error_detection", "atypical_diagnosis") else {}
+        ctx["orderable"] = S7.orderable_from_gt(gt) if task == "test_selection" else []
+        if eid and task in visibility.POINT_IN_TIME_TASKS:
             ctx["allowed_encounter_ids"] = sorted(r[0] for r in self._q(
                 "select encounter_id from longitudinal_encounters where patient_id = ? and encounter_order <= "
                 "(select encounter_order from longitudinal_encounters where encounter_id = ?)", pid, eid))
@@ -176,6 +179,8 @@ class LocalEnv:
             "gt_id": gt_id, "task": inst["task"], "split": inst["split"], "variant": variant,
             "patient_id": inst["patient_id"], "encounter_id": inst["encounter_id"],
             "allowed_encounter_ids": ctx["allowed_encounter_ids"], "chart_problems": ctx["chart_problems"],
+            "hidden_section_types": ctx["hidden_section_types"], "section_overrides": ctx["section_overrides"],
+            "orderable": ctx["orderable"], "orders": [],
             "task_inputs": kwargs, "budget": budget, "steps": 0, "done": False, "submitted": False, "reward": None,
             "trace": [], "created_at": datetime.now(timezone.utc).isoformat(), "_inst": inst,
             "brief": {
@@ -214,6 +219,8 @@ class LocalEnv:
 
         if name == submit_tool:
             prediction = normalize_submission(task, arguments)
+            if task == "test_selection" and prediction is not None:
+                prediction = {**prediction, "tests_ordered": list(ep["orders"])}      # the trace, never the claim
             result = self._score(ep["_inst"], prediction or {})
             ep.update({"done": True, "submitted": True, "reward": result["reward"], "steps": ep["steps"] + 1})
             ep["trace"].append({"step": ep["steps"], "tool_name": name, "submitted": True, "forced": remaining <= 0, "malformed": prediction is None})
@@ -228,6 +235,14 @@ class LocalEnv:
             obs = {"error": f"This task is scored through {submit_tool}; use that tool to finish the episode."}
         elif remaining <= 0:
             obs = {"error": f"Action budget of {ep['budget']} spent. Only {submit_tool} is accepted now; submit your best answer."}
+        elif name == "order_test":
+            if task != "test_selection":
+                obs = {"error": "order_test is available only in test_selection episodes."}
+            else:
+                obs = S7.order_result(str(arguments.get("name", "")), ep["orderable"])
+                ep["orders"].append({k: obs.get(k) for k in ("test", "matched")})
+            ep["steps"] += 1
+            remaining -= 1
         else:
             try:
                 raw = self._dispatch(name, arguments)
@@ -240,6 +255,7 @@ class LocalEnv:
             obs = visibility.strip_outcome_sections(raw)
             if ep["allowed_encounter_ids"] is not None:
                 obs = visibility.filter_future_encounters(obs, set(ep["allowed_encounter_ids"]))
+            obs = S7.apply_episode_rules(name, arguments, obs, ep["section_overrides"], set(ep["hidden_section_types"]), ep["encounter_id"])
             ep["steps"] += 1
             remaining -= 1
         ep["trace"].append({"step": ep["steps"], "tool_name": name, "arguments": arguments,
@@ -248,8 +264,11 @@ class LocalEnv:
 
     def state(self) -> dict:
         ep = self.ep
-        return {k: ep[k] for k in ("episode_id", "gt_id", "task", "split", "patient_id", "encounter_id", "budget", "steps",
+        view = {k: ep[k] for k in ("episode_id", "gt_id", "task", "split", "patient_id", "encounter_id", "budget", "steps",
                                    "done", "submitted", "reward", "trace", "created_at")}
+        if ep["task"] == "test_selection":
+            view["orders"] = list(ep["orders"])
+        return view
 
     def close(self) -> dict | None:
         if self.ep is None:
@@ -262,6 +281,10 @@ class LocalEnv:
     def oracle(self) -> dict:
         """A label-derived submission for the current episode (what GET /env/oracle returns)."""
         return D.oracle(self.db, self._unit_instance(self.ep["_inst"]))
+
+    def oracle_orders(self) -> list[str]:
+        """test_selection: the tests an oracle agent orders before submitting (empty for other tasks)."""
+        return list(self.ep["_inst"]["gt"].get("discriminating", [])) if self.ep["task"] == "test_selection" else []
 
     # ----------------------------------------------------------------- reward
     @staticmethod

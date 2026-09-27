@@ -105,6 +105,12 @@ class EvalTask(str, enum.Enum):
     evidence_retrieval = "evidence_retrieval"
     imaging_indication = "imaging_indication"
     patient_diagnosis = "patient_diagnosis"   # longitudinal problem list (v1.3 task); diagnosis_accuracy is retired
+    # Stage 7 families (encounter-bound, derived from the index-encounter diagnosis instances)
+    differential_diagnosis = "differential_diagnosis"
+    test_selection = "test_selection"
+    error_detection = "error_detection"
+    lab_triage = "lab_triage"
+    atypical_diagnosis = "atypical_diagnosis"
 
 
 class GtGranularity(str, enum.Enum):

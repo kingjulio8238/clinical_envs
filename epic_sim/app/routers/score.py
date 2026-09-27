@@ -64,6 +64,12 @@ _TASK_NOTES = {
     "evidence_retrieval": "nDCG at 10 over content-graded chart sections; precision_5 also returned",
     "imaging_indication": "concept F1 of the inferred clinical question against the graph-derived "
                           "reference terms (correct diagnosis, differential, key findings)",
+    # Stage 7
+    "differential_diagnosis": "nDCG at 5 over the index visit's correct diagnosis (gain 1) and its distractors (gain 0.5), graded ICD credit",
+    "test_selection": "ICD credit of the diagnosis x evidence (a discriminating test ordered) x parsimony (needed / ordered)",
+    "error_detection": "0.5 x section-type hit + 0.5 x error-type hit for the injected documentation error",
+    "lab_triage": "0.6 x F1 over the results that bear on the diagnosis + 0.4 x most-urgent hit",
+    "atypical_diagnosis": "patient-diagnosis reward on a chart whose classic findings are masked",
 }
 
 

@@ -31,7 +31,9 @@ from epic_sim.app.models.longitudinal import LongitudinalEncounter, Longitudinal
 from epic_sim.app.schemas.epic import ProblemEntry
 
 OUTCOME_SECTIONS: frozenset[str] = frozenset({"assessment", "plan"})
-POINT_IN_TIME_TASKS: frozenset[str] = frozenset({"imaging_indication", "patient_diagnosis"})
+POINT_IN_TIME_TASKS: frozenset[str] = frozenset({"imaging_indication", "patient_diagnosis",
+                                                  "differential_diagnosis", "test_selection", "error_detection",
+                                                  "lab_triage", "atypical_diagnosis"})
 """Tasks whose instance is bound to an encounter (encounter_id set): nothing after it is visible.
 Longitudinal rows (encounter_id NULL) have no cutoff."""
 

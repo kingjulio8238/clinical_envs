@@ -251,6 +251,20 @@ These address the paper's own limitations and are all verifiable by construction
 - **Structured longitudinal data.** Labs with LOINC and numeric values exist in `question_findings`. Serve them as FHIR Observation time series and add trend and threshold tasks with numeric, exactly checkable rewards.
 - **Atypical presentations.** Drop pathognomonic or highly suggestive findings from a vignette to create atypical variants with unchanged labels, then measure robustness.
 
+**Status: DONE (2026-09-27).** Five families, 13,108 instances, every one derived from a scorable index-encounter
+diagnosis row (`scripts/build_stage7_tasks.py`, labels from the graph tables and deterministic text transforms; train
+capped at 1,500 per family to keep the release under GitHub's 100 MB limit after a lossless slimming,
+`scripts/slim_release.py`): `differential_diagnosis` 3,725 (correct + coded distractors, `differential_ndcg_5`),
+`test_selection` 1,960 (hidden result sections, `order_test` tool, `workup_score` = ICD credit × evidence × parsimony
+over the episode's trace), `error_detection` 3,483 (injected implausible value / laterality / age / sex errors served
+as section overrides, half credit each for section and type), `lab_triage` 1,248 (key/supporting vs background
+results, most-urgent from the strongest typed edge), `atypical_diagnosis` 2,692 (sentences stating a strong finding
+masked; patient-diagnosis reward). Scorers in `eval/scoring_tasks7.py`; both environments apply the cutoff, the
+hidden sections and the overrides and run `order_test`; oracles reach 1.0 in the scorer and through the environment;
+degenerate floors (problem-list copy, frequency prior, order-everything, majority error, flag-all-results) in
+`eval/degenerate.py` and `eval/floors.json`. Postgres enum migration `e1f2a3b4c5d6`. The "structured longitudinal
+data" item (FHIR Observation time series) was delivered by Stage 4b; trend/threshold tasks remain open.
+
 ## Stage 8: Evaluation protocol for anything the fork reports
 
 - Report floors (Stage 1), oracle ceilings, and **paired bootstrap CIs**. The metric's patient-level SD at n=200 is ≈0.014 per system.

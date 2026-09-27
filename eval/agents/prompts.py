@@ -243,6 +243,75 @@ TASK_GOALS = {
   ]
 }""",
     },
+    # ---- Stage 7 families (all bound to an index encounter; the chart after it is not observable) ----
+    "differential_diagnosis": {
+        "description": "ranking the differential diagnosis for a patient's index visit",
+        "goal": (
+            "Review the chart up to and including encounter_id = {encounter_id} (the index visit). Rank the "
+            "diagnoses this presentation should make a clinician consider, most likely first: the leading "
+            "diagnosis and the alternatives that must be distinguished from it. At most 5 entries, each with an "
+            "ICD-10-CM code and a name. Conditions already documented before the index visit are not the target."
+        ),
+        "schema": """{
+  "differential": [
+    {"icd10": "K35.80", "name": "Acute appendicitis"},
+    {"icd10": "N10", "name": "Acute pyelonephritis"},
+    ...
+  ]
+}""",
+    },
+    "test_selection": {
+        "description": "choosing the tests that establish the diagnosis at a patient's index visit",
+        "goal": (
+            "The results of the index visit (encounter_id = {encounter_id}) are hidden: its laboratory, imaging, "
+            "pathology and other study sections are not shown. Review the history and examination, then use the "
+            "order_test tool to obtain the results you need, by test or panel name (e.g. 'CBC', 'lipase', "
+            "'CT abdomen'); each order costs one action and returns the result as documented at that visit, or "
+            "'not performed' if it was not. Order what discriminates the diagnosis and no more, then submit the "
+            "diagnosis you established. Reward = diagnosis credit x evidence (a discriminating test ordered) x "
+            "parsimony (orders beyond those needed reduce it)."
+        ),
+        "schema": """{"icd10": "K85.90", "name": "Acute pancreatitis"}""",
+    },
+    "error_detection": {
+        "description": "finding the documentation error in a patient's index visit note",
+        "goal": (
+            "Exactly one section of the index visit (encounter_id = {encounter_id}) contains an injected "
+            "documentation error: an implausible laboratory value, a left/right (laterality) swap, an age that "
+            "contradicts the demographics, or a sex/pronoun contradiction. Read the visit's sections and the "
+            "earlier chart, identify the section and the error type, and describe the error."
+        ),
+        "schema": """{
+  "section_type": "labs",
+  "error_type": "implausible_value",
+  "description": "White blood cell count listed as 90/uL; incompatible with the rest of the CBC and the presentation."
+}""",
+    },
+    "lab_triage": {
+        "description": "triaging the results of a patient's index visit",
+        "goal": (
+            "Review the index visit (encounter_id = {encounter_id}). From its laboratory and vital-sign results, "
+            "list the findings that bear on the diagnosis of this presentation (key or supporting), leaving out "
+            "the incidental ones, and name the single most urgent finding. Use the finding names as documented."
+        ),
+        "schema": """{
+  "relevant": ["Serum lipase", "Serum calcium", "Heart rate"],
+  "most_urgent": "Serum lipase"
+}""",
+    },
+    "atypical_diagnosis": {
+        "description": "identifying the diagnosis established at a patient's index visit from an atypical presentation",
+        "goal": (
+            "Review the chart up to and including encounter_id = {encounter_id}. Report the diagnosis established "
+            "at that visit (ICD-10-CM code, name, acuity) under active_diagnoses or chronic_conditions. Some of the "
+            "classic findings are not documented at this visit; reason from what is present. Conditions documented "
+            "before the index visit are not the target."
+        ),
+        "schema": """{
+  "active_diagnoses": [{"icd10": "I21.01", "name": "STEMI involving LAD", "acuity": "acute"}],
+  "chronic_conditions": []
+}""",
+    },
 }
 
 
@@ -387,7 +456,72 @@ SUBMIT_TOOL_SCHEMAS = {
             },
         },
     },
+    # ---- Stage 7 families ----
+    "differential_diagnosis": {
+        "type": "function",
+        "function": {
+            "name": "submit_differential",
+            "description": "Submit the ranked differential for the index visit: at most 5 diagnoses, most likely first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "differential": {
+                        "type": "array", "maxItems": 5,
+                        "items": {"type": "object",
+                                  "properties": {"icd10": {"type": "string", "description": "ICD-10-CM code"},
+                                                 "name": {"type": "string"}},
+                                  "required": ["icd10", "name"]},
+                    },
+                },
+                "required": ["differential"],
+            },
+        },
+    },
+    "test_selection": {
+        "type": "function",
+        "function": {
+            "name": "submit_workup",
+            "description": "Submit the diagnosis you established from the tests you ordered. Ends the episode.",
+            "parameters": {
+                "type": "object",
+                "properties": {"icd10": {"type": "string", "description": "ICD-10-CM code"}, "name": {"type": "string"}},
+                "required": ["icd10", "name"],
+            },
+        },
+    },
+    "error_detection": {
+        "type": "function",
+        "function": {
+            "name": "submit_error",
+            "description": "Report the injected documentation error: which section, which type, and what is wrong.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "section_type": {"type": "string", "description": "the section that carries the error (e.g. labs, hpi, physical_exam, imaging, vitals)"},
+                    "error_type": {"type": "string", "enum": ["implausible_value", "laterality", "age_contradiction", "sex_contradiction"]},
+                    "description": {"type": "string"},
+                },
+                "required": ["section_type", "error_type", "description"],
+            },
+        },
+    },
+    "lab_triage": {
+        "type": "function",
+        "function": {
+            "name": "submit_triage",
+            "description": "Submit the results that bear on this visit's diagnosis and the single most urgent one.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "relevant": {"type": "array", "items": {"type": "string"}, "description": "finding names as documented"},
+                    "most_urgent": {"type": "string"},
+                },
+                "required": ["relevant", "most_urgent"],
+            },
+        },
+    },
 }
+SUBMIT_TOOL_SCHEMAS["atypical_diagnosis"] = SUBMIT_TOOL_SCHEMAS["patient_diagnosis"]   # same answer, same scorer
 
 
 # Bash submission examples per task
@@ -488,11 +622,20 @@ def build_patient_intro(
     """Build the initial user message introducing the patient assignment."""
     parts = [f"Your assigned patient is patient_id = {patient_id}."]
 
-    if task == "patient_diagnosis" and encounter_id:
+    if task in ("patient_diagnosis", "atypical_diagnosis") and encounter_id:
         parts.append(
             f"Index encounter_id = {encounter_id}. Diagnose THIS visit: report the diagnosis established at the index "
             "encounter (ICD-10-CM code, name, acuity), using only the chart up to and including it. Earlier encounters "
             "are context; conditions documented before the index visit are not the target.")
+    elif task == "differential_diagnosis" and encounter_id:
+        parts.append(f"Index encounter_id = {encounter_id}. Rank the differential for THIS visit (at most 5, most likely first).")
+    elif task == "test_selection" and encounter_id:
+        parts.append(f"Index encounter_id = {encounter_id}. Its results are hidden: use order_test(name) to obtain the ones "
+                     "you need, then submit_workup with the diagnosis you established.")
+    elif task == "error_detection" and encounter_id:
+        parts.append(f"Index encounter_id = {encounter_id}. One of its sections carries an injected documentation error; find it.")
+    elif task == "lab_triage" and encounter_id:
+        parts.append(f"Index encounter_id = {encounter_id}. Triage its laboratory and vital-sign results.")
     elif task == "evidence_retrieval" and diagnosis_names:
         parts.append(f"Target diagnoses: {diagnosis_names}")
     elif task == "imaging_indication" and encounter_id:

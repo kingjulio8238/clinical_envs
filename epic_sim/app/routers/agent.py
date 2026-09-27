@@ -137,6 +137,16 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
         },
     ),
     ToolDefinition(
+        name="order_test",
+        description=("Order a test or panel for the index visit (test_selection episodes only) and receive its result as "
+                     "documented at that visit, or 'not performed'. Costs one action."),
+        parameters={
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "Test or panel name, e.g. 'CBC', 'lipase', 'CT abdomen and pelvis'"}},
+            "required": ["name"],
+        },
+    ),
+    ToolDefinition(
         name="submit_diagnosis",
         description="Submit a diagnosis prediction for a patient.",
         parameters={
@@ -349,6 +359,9 @@ async def _dispatch_tool(
         case "view_medications":
             meds = await epic_service.get_medications(db, args["patient_id"])
             return [m.model_dump() for m in meds]
+
+        case "order_test":
+            return {"error": "order_test is available only inside a test_selection episode (POST /env/reset)."}
 
         case "submit_diagnosis":
             # Write to agent_submissions + return confirmation

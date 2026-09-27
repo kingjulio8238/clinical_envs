@@ -62,6 +62,7 @@ class OracleResponse(BaseModel):
     task: str
     submit_tool: str
     arguments: dict[str, Any]
+    orders: list[str] = Field(default_factory=list, description="test_selection: the discriminating tests an oracle agent should order before submitting")
 
 
 class EpisodeState(BaseModel):

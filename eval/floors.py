@@ -36,6 +36,12 @@ METRICS: dict[str, list[str]] = {
     "specialty_involved": ["conditioned_f1"],
     "specialty_absent": ["abstention_accuracy"],
     "imaging_indication": ["clinical_question_concept_f1"],
+    # Stage 7
+    "differential_diagnosis": ["differential_ndcg_5"],
+    "test_selection": ["workup_score"],
+    "error_detection": ["error_detection_score"],
+    "lab_triage": ["triage_score"],
+    "atypical_diagnosis": ["weighted_problem_list_f1_neutral"],
 }
 RANDOM_SEEDS = 5
 TOL = 1e-9

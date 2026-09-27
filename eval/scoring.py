@@ -911,6 +911,9 @@ def compute_all_metrics(task: str, predictions: list[dict], ground_truths: list[
         return _compute_retrieval_metrics(predictions, ground_truths, **kwargs)
     elif task == "imaging_indication":
         return _compute_imaging_metrics(predictions, ground_truths, **kwargs)
+    elif task in ("differential_diagnosis", "test_selection", "error_detection", "lab_triage", "atypical_diagnosis"):
+        from eval.scoring_tasks7 import compute_metrics          # Stage 7 families
+        return compute_metrics(task, predictions, ground_truths)
     else:
         raise ValueError(f"Unknown task: {task}")
 

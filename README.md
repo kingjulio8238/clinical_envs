@@ -192,7 +192,19 @@ python -m eval.cli report --split public --format csv
 python -m eval.cli matrix --task patient_diagnosis --split public   # all models
 ```
 
-Tasks: `patient_diagnosis`, `context_summarization`, `evidence_retrieval`, `imaging_indication`. Splits: `public`, `heldout`, `train`. See `python -m eval.cli --help`.
+Tasks: `patient_diagnosis`, `context_summarization`, `evidence_retrieval`, `imaging_indication`, and the Stage-7 families `differential_diagnosis`, `test_selection`, `error_detection`, `lab_triage`, `atypical_diagnosis` (see *New task families* below). Splits: `public`, `heldout`, `train`. See `python -m eval.cli --help`.
+
+### New task families (Stage 7)
+
+Five encounter-level tasks derived from the index-encounter diagnosis instances, using the parts of the graph no earlier task used (the 27k distractor rows, the typed diagnosis–finding relations, the structured findings behind the notes). Every label is built from the graph tables or a deterministic transform of the index encounter's own text; every task has degenerate floors and an oracle at 1.0; both environments serve them with the point-in-time cutoff.
+
+| Task | Submit tool | What is scored | Reward |
+|---|---|---|---|
+| `differential_diagnosis` | `submit_differential` | ranked list (≤5) vs. the visit's correct diagnosis (gain 1) and its distractors (gain 0.5), graded ICD credit | `differential_ndcg_5` |
+| `test_selection` | `order_test` … `submit_workup` | the index visit's result sections are hidden; `order_test(name)` returns the result as documented (or "not performed") and costs a step; the reward counts the episode's orders, never the submission's claims | `workup_score` = ICD credit × evidence (a discriminating test ordered, else 0.25) × parsimony (needed / ordered) |
+| `error_detection` | `submit_error` | one injected error (implausible value, laterality swap, age or sex contradiction) served through a section override | 0.5 × section hit + 0.5 × type hit |
+| `lab_triage` | `submit_triage` | which of the visit's lab / vital results bear on the diagnosis (key/supporting vs. background) and the most urgent one | 0.6 × F1 + 0.4 × urgent hit |
+| `atypical_diagnosis` | `submit_diagnosis` | the patient-diagnosis task on a chart whose sentences stating a pathognomonic / highly-suggestive finding are masked | patient-diagnosis reward; robustness = atypical − original |
 
 Locked prompting strategies used in the paper: CoT (patient diagnosis), ontology-grounded structured (whole-patient summarization), zero-shot (retrieval, specialty-conditioned summarization), few-shot (imaging). `eval.cli score` reports the primary metrics as **redefined in this fork** (see [SCORING_CHANGES.md](SCORING_CHANGES.md); names unchanged, semantics hardened): patient diagnosis by graded-ICD, acuity-aware, severity-weighted F1 under the chart-neutral rule (`weighted_problem_list_f1_neutral`), retrieval by `ndcg_10` over content-graded chart sections (`precision_5` also returned), summarization by HM(negation-aware finding recall, chart-grounded concept precision) × length factor (`clinical_f1`), and the imaging clinical question by concept F1 against graph-derived reference terms (`clinical_question_concept_f1`; extractor in `eval/imaging_concepts.py`, built from the loaded database with no external ontology files).
 
@@ -262,7 +274,7 @@ same function is available in-process as `eval.score_one.score_submission`.
 
 The simulator can be driven as a reinforcement-learning environment. An episode is one benchmark
 instance played as the paper's tool-use task: the policy gets the paper's agent system prompt, the
-patient assignment, and the 13 EHR tools as function schemas; it acts by calling tools; the task's
+patient assignment, and the EHR tools as function schemas (13, plus `order_test` in test-selection episodes); it acts by calling tools; the task's
 submit tool ends the episode and returns the reward from the scoring endpoint above. Episode state
 lives in Redis (started by `docker compose`).
 

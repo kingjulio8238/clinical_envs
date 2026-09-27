@@ -158,4 +158,5 @@ async def env_oracle(episode_id: str, redis=Depends(get_redis),
         args = await run_in_threadpool(env_service.oracle_submission, ep["gt_id"])
     except EpisodeError as exc:
         _raise(exc)
-    return OracleResponse(gt_id=ep["gt_id"], task=ep["task"], submit_tool=submit_tool_for(ep["task"]), arguments=args)
+    orders = list(args.pop("tests_ordered", [])) if ep["task"] == "test_selection" else []
+    return OracleResponse(gt_id=ep["gt_id"], task=ep["task"], submit_tool=submit_tool_for(ep["task"]), arguments=args, orders=orders)

@@ -13,12 +13,12 @@ KNOWN_PATIENT_ID = 1672
 # Tool Definitions
 # ---------------------------------------------------------------------------
 
-async def test_get_tools_returns_13(client: AsyncClient):
+async def test_get_tools_returns_14(client: AsyncClient):
     """GET /agent/tools returns 13 tool definitions (12 original + submit_rankings)."""
     resp = await client.get("/agent/tools")
     assert resp.status_code == 200
     tools = resp.json()
-    assert len(tools) == 13
+    assert len(tools) == 14   # 13 EHR tools + order_test (Stage 7)
 
 
 async def test_tool_schema_valid(client: AsyncClient):

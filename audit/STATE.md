@@ -96,5 +96,8 @@ and `eval/local_env.py` now runs the same environment in-process over SQLite at 
 byte-identical observations and rewards (`eval/tests/test_local_env.py`). **Stage 6** (pipeline reproducibility)
 is done: all 12 stages run from `etl.main` behind a preflight and a manifest, one seeded LLM client with
 validation-aware retries and full-input cache keys, a mock endpoint + synthetic smoke, and a source-fingerprint
-contamination check. Next is **Stage 7** (new, verifiable action tasks on top of the FHIR write path), then
-**Stage 8** (evaluation protocol).
+contamination check. **Stage 7** is done: five new task families (13,108 instances) built from the distractor rows,
+the typed relations and the structured findings — a ranked differential, an agentic test-selection task with an
+`order_test` tool and hidden results, labeled injected errors, lab triage, and atypical variants — each with
+floors, an oracle at 1.0 and both environments serving them. Next is **Stage 8** (evaluation protocol: held-out
+reporting, run artifacts, normalized leaderboard, split-script cleanup).

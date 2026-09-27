@@ -40,6 +40,12 @@ PRIMARY_METRIC: dict[str, str] = {
     "context_summarization": "clinical_f1",   # specialty variant handled in _primary_for
     "evidence_retrieval": "ndcg_10",   # Stage 3: graded, over the content-graded pool (precision_5 also returned)
     "imaging_indication": "clinical_question_concept_f1",
+    # Stage 7
+    "differential_diagnosis": "differential_ndcg_5",
+    "test_selection": "workup_score",
+    "error_detection": "error_detection_score",
+    "lab_triage": "triage_score",
+    "atypical_diagnosis": "weighted_problem_list_f1_neutral",
 }
 
 
@@ -108,7 +114,7 @@ def _attach_context(conn, inst: dict) -> dict:
     """Return a copy of the GT dict with the scorer's per-instance context attached."""
     gt = dict(inst["ground_truth"])
     task = inst["task"]
-    if task == "patient_diagnosis":
+    if task in ("patient_diagnosis", "atypical_diagnosis"):
         gt["_neutral_categories"] = sorted(set(neutral_categories_for(conn, inst["patient_id"])) | set(gt.get("neutral_extra") or []))
     elif task == "context_summarization":
         gt["_chart_text"] = chart_text_for(conn, inst["patient_id"])

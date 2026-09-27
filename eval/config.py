@@ -252,6 +252,12 @@ EVAL_TASKS = [
     "context_summarization",
     "evidence_retrieval",
     "imaging_indication",
+    # Stage 7 families (derived from the index-encounter diagnosis instances)
+    "differential_diagnosis",
+    "test_selection",
+    "error_detection",
+    "lab_triage",
+    "atypical_diagnosis",
 ]
 
 # Max output tokens per task (used for token budget calculations)
@@ -260,6 +266,11 @@ TASK_MAX_TOKENS: dict[str, int] = {
     "context_summarization": 1024,
     "evidence_retrieval": 512,
     "imaging_indication": 512,
+    "differential_diagnosis": 512,
+    "test_selection": 512,
+    "error_detection": 512,
+    "lab_triage": 512,
+    "atypical_diagnosis": 2000,
 }
 
 # Context window sizes per model (for input token budget calculations)

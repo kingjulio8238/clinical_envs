@@ -26,13 +26,15 @@ from pathlib import Path
 from typing import Callable
 
 from eval import private_labels
+from eval import stage7 as S7
 from eval.scoring import compute_all_metrics
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = ROOT / "benchmark_v1.3.db"
 
 TASKS = ("patient_diagnosis", "evidence_retrieval", "context_summarization",
-         "specialty_involved", "specialty_absent", "imaging_indication")
+         "specialty_involved", "specialty_absent", "imaging_indication",
+         "differential_diagnosis", "test_selection", "error_detection", "lab_triage", "atypical_diagnosis")
 """Scoring units. The two specialty units are the `context_summarization` rows whose ground truth
 carries `variant = specialty_conditioned`, split by `involvement`, because the scorer rewards them
 with different metrics (conditioned_f1 vs abstention_accuracy)."""
@@ -44,6 +46,11 @@ PRIMARY_METRIC = {
     "specialty_involved": "conditioned_f1",
     "specialty_absent": "abstention_accuracy",
     "imaging_indication": "clinical_question_concept_f1",
+    "differential_diagnosis": "differential_ndcg_5",
+    "test_selection": "workup_score",
+    "error_detection": "error_detection_score",
+    "lab_triage": "triage_score",
+    "atypical_diagnosis": "weighted_problem_list_f1_neutral",
 }
 
 ABSTAIN_PHRASE = "No significant distress."
@@ -296,6 +303,27 @@ class ReleaseDB:
             return ConceptExtractor(inv)
         return self._memo("extractor", load)
 
+    # -- Stage 7 priors ----------------------------------------------------------------
+    def dx_frequency_prior(self, fit_split: str = "train", n: int = 5) -> list[dict]:
+        """The n most frequent label diagnoses (by ICD code) over the index-encounter instances of a split."""
+        def load():
+            c = collections.Counter()
+            names = {}
+            for i in self.instances("patient_diagnosis", fit_split):
+                for d in i["gt"].get("active_diagnoses", []) + i["gt"].get("chronic_conditions", []):
+                    if d.get("icd10") and not d.get("excluded_nondiagnostic"):
+                        c[d["icd10"]] += 1
+                        names.setdefault(d["icd10"], d.get("display_name", ""))
+            return [{"icd10": k, "name": names[k]} for k, _ in c.most_common(50)]
+        return self._memo(("dxprior", fit_split), load)[:n]
+
+    def error_majority(self, fit_split: str = "train") -> tuple[str, str]:
+        """The most common (section_type, error_type) pair among the error_detection instances of a split."""
+        def load():
+            c = collections.Counter((i["gt"].get("section_type"), i["gt"].get("error_type")) for i in self.instances("error_detection", fit_split))
+            return c.most_common(1)[0][0] if c else ("labs", "implausible_value")
+        return self._memo(("errmaj", fit_split), load)
+
     # -- the simulator's problem-list tool -----------------------------------------
     def problem_list_tool(self, patient_ids: list[int]) -> dict[int, list[dict]]:
         """What `view_problem_list` / `open_chart.active_problems` return, by calling the real
@@ -326,7 +354,7 @@ class ReleaseDB:
 def attach_context(db: ReleaseDB, inst: Instance) -> dict:
     """The ground truth plus the per-instance context score_one._attach_context adds."""
     gt = dict(inst["gt"])
-    if inst["task"] == "patient_diagnosis":
+    if inst["task"] in ("patient_diagnosis", "atypical_diagnosis"):
         gt["_neutral_categories"] = sorted(set(db.neutral_categories(inst["patient_id"])) | set(gt.get("neutral_extra") or []))
     elif inst["task"] in ("context_summarization", "specialty_involved", "specialty_absent"):
         gt["_chart_text"] = db.chart_text(inst["patient_id"])
@@ -360,7 +388,18 @@ def per_item(db: ReleaseDB, task: str, predictions: list[dict], insts: list[Inst
 
 def oracle(db: ReleaseDB, inst: Instance) -> dict:
     gt, task = inst["gt"], inst["task"]
-    if task == "patient_diagnosis":
+    if task == "differential_diagnosis":
+        return {"differential": [{"icd10": d.get("icd10") or "", "name": d.get("display_name", "")}
+                                 for d in gt.get("correct", []) + gt.get("distractors", [])][:5]}
+    if task == "test_selection":
+        dx = gt.get("diagnosis") or {}
+        return {"icd10": dx.get("icd10", ""), "name": dx.get("name", ""), "tests_ordered": list(gt.get("discriminating", []))}
+    if task == "error_detection":
+        orig, inj = S7.error_pair(gt)
+        return {"section_type": gt.get("section_type", ""), "error_type": gt.get("error_type", ""), "description": f"{orig} -> {inj}"}
+    if task == "lab_triage":
+        return {"relevant": list(gt.get("relevant", [])), "most_urgent": gt.get("most_urgent") or (gt.get("relevant") or [""])[0]}
+    if task in ("patient_diagnosis", "atypical_diagnosis"):
         return {
             "active_diagnoses": [{"icd10": d["icd10"], "name": d.get("display_name", ""), "acuity": d.get("acuity") or "acute"}
                                  for d in gt.get("active_diagnoses", []) if not d.get("excluded_nondiagnostic")],
@@ -541,7 +580,80 @@ def img_chief_complaint(db: ReleaseDB, inst: Instance) -> dict:
 
 Policy = Callable[[ReleaseDB, Instance], dict]
 
+# ---- Stage 7 ---------------------------------------------------------------------------------
+
+COMMON_TESTS = ["CBC", "BMP", "CMP", "LFTs", "lipase", "troponin", "urinalysis", "ECG", "chest x-ray", "CT abdomen and pelvis",
+                "CT head", "ultrasound abdomen", "blood cultures", "lactate", "coagulation panel", "TSH", "HbA1c", "lipid panel",
+                "D-dimer", "BNP"]
+
+
+def diff_copy_problem_list(db: ReleaseDB, inst: Instance) -> dict:
+    """The chart's documented problem list as the differential (documented history, not this visit's question)."""
+    pred = dx_copy_problem_list(db, inst)
+    return {"differential": [{"icd10": d["icd10"], "name": d.get("name", "")} for d in pred.get("active_diagnoses", [])][:5]}
+
+
+def diff_frequency_prior(db: ReleaseDB, inst: Instance) -> dict:
+    return {"differential": db.dx_frequency_prior("train", 5)}
+
+
+def workup_prior_no_orders(db: ReleaseDB, inst: Instance) -> dict:
+    top = db.dx_frequency_prior("train", 1)[0]
+    return {"icd10": top["icd10"], "name": top["name"], "tests_ordered": []}
+
+
+def workup_order_everything(db: ReleaseDB, inst: Instance) -> dict:
+    top = db.dx_frequency_prior("train", 1)[0]
+    return {"icd10": top["icd10"], "name": top["name"], "tests_ordered": list(COMMON_TESTS)}
+
+
+def workup_order_everything_copy_problem_list(db: ReleaseDB, inst: Instance) -> dict:
+    pl = dx_copy_problem_list(db, inst).get("active_diagnoses") or [{"icd10": "", "name": ""}]
+    return {"icd10": pl[0]["icd10"], "name": pl[0].get("name", ""), "tests_ordered": list(COMMON_TESTS)}
+
+
+def error_majority(db: ReleaseDB, inst: Instance) -> dict:
+    sec, typ = db.error_majority("train")
+    return {"section_type": sec, "error_type": typ, "description": "majority guess"}
+
+
+def error_labs_value(db: ReleaseDB, inst: Instance) -> dict:
+    return {"section_type": "labs", "error_type": "implausible_value", "description": "fixed guess"}
+
+
+def triage_all_results(db: ReleaseDB, inst: Instance) -> dict:
+    """Flag every documented result and pick the first as most urgent (what an agent that reads the labs section and copies it does)."""
+    names = list(inst["gt"].get("relevant", [])) + list(inst["gt"].get("background", []))
+    return {"relevant": names, "most_urgent": names[0] if names else ""}
+
+
 POLICIES: dict[str, dict[str, Policy]] = {
+    "differential_diagnosis": {
+        "empty": empty,
+        "copy_problem_list": diff_copy_problem_list,
+        "frequency_prior": diff_frequency_prior,
+    },
+    "test_selection": {
+        "empty": empty,
+        "prior_dx_no_orders": workup_prior_no_orders,
+        "order_everything": workup_order_everything,
+        "order_everything_copy_problem_list": workup_order_everything_copy_problem_list,
+    },
+    "error_detection": {
+        "empty": empty,
+        "majority": error_majority,
+        "labs_value": error_labs_value,
+    },
+    "lab_triage": {
+        "empty": empty,
+        "all_results": triage_all_results,
+    },
+    "atypical_diagnosis": {
+        "empty": empty,
+        "profile_chronic": dx_profile_chronic,
+        "copy_problem_list": dx_copy_problem_list,
+        "copy_problem_list_plus_chronic": dx_copy_plus_chronic,
+    },
     "patient_diagnosis": {
         "empty": empty,
         "profile_chronic": dx_profile_chronic,

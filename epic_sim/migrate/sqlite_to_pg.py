@@ -14,6 +14,9 @@ import psycopg
 from epic_sim.app.config import settings
 
 # Tables in dependency order (FK-safe insert order)
+# relevance_judgments metadata the slimmed release stores as NULL (scripts/slim_release.py, Stage 7)
+JUDGMENT_DEFAULTS = {"passage_source": "encounter_section", "source": "content_rule"}
+
 TABLES_ORDERED = [
     "source_decks",
     "raw_cards",
@@ -167,6 +170,8 @@ def migrate_table(
                 elif col_name in bool_cols and val is not None:
                     # SQLite stores these as 0/1 integers
                     val = bool(val)
+                elif val is None and table == "relevance_judgments" and col_name in JUDGMENT_DEFAULTS:
+                    val = JUDGMENT_DEFAULTS[col_name]       # the release stores these constants as NULL (scripts/slim_release.py)
                 new_row.append(val)
             converted.append(tuple(new_row))
 

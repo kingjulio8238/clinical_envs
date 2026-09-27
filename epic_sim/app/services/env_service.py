@@ -2,7 +2,7 @@
 
 An episode is one benchmark instance (a `benchmark_ground_truth` row) played as a
 tool-use task: the policy receives the paper's agent system prompt and patient
-intro, calls the same 13 EHR tools the paper's agents used through the same
+intro, calls the same 13 EHR tools the paper's agents used (plus `order_test` in test-selection episodes) through the same
 dispatcher, and ends the episode by calling the task's submit tool, which is
 scored with the paper's scorer (eval.score_one). Episode state lives in Redis
 under its own key so that any process holding the episode id can continue it.
@@ -36,11 +36,13 @@ from starlette.concurrency import run_in_threadpool
 
 from epic_sim.app.config import settings
 from epic_sim.app.services import visibility
+from eval import stage7 as S7
 from eval.agents.prompts import SUBMIT_TOOL_SCHEMAS, build_patient_intro, build_system_prompt
 from eval.score_one import InstanceNotFound, list_instances, load_instance, score_submission
 
 OUTCOME_SECTIONS = {"assessment", "plan"}
-SUBMIT_TOOLS = {"submit_diagnosis", "submit_summary", "submit_pre_read", "submit_rankings"}
+SUBMIT_TOOLS = {"submit_diagnosis", "submit_summary", "submit_pre_read", "submit_rankings",
+                "submit_differential", "submit_workup", "submit_error", "submit_triage"}
 MAX_OBS_CHARS = 8000
 
 TASK_KEYS = {
@@ -48,6 +50,12 @@ TASK_KEYS = {
     "context_summarization": ("summary", "abstain"),
     "evidence_retrieval": ("rankings",),
     "imaging_indication": ("clinical_question", "differential", "findings"),
+    # Stage 7
+    "differential_diagnosis": ("differential",),
+    "test_selection": ("icd10", "diagnosis"),
+    "error_detection": ("section_type", "error_type"),
+    "lab_triage": ("relevant", "most_urgent"),
+    "atypical_diagnosis": ("active_diagnoses", "chronic_conditions"),
 }
 
 
@@ -116,8 +124,12 @@ def _load_context(gt_id: int) -> dict[str, Any]:
                     "body_region": row[1] or "unspecified",
                     "clinical_indication": row[2] or "clinical concern",
                 })
-            if inst["encounter_id"] and task in ("imaging_indication", "patient_diagnosis"):
-                # point-in-time instance: nothing after the index encounter is observable (Stage 2.2 / 4)
+            # Stage 7: per-episode serving rules that live in the ground truth (never returned)
+            ctx["hidden_section_types"] = list(gt.get("hidden_section_types") or []) if task == "test_selection" else []
+            ctx["section_overrides"] = dict(gt.get("section_overrides") or {}) if task in ("error_detection", "atypical_diagnosis") else {}
+            ctx["orderable"] = S7.orderable_from_gt(gt) if task == "test_selection" else []
+            if inst["encounter_id"] and task in visibility.POINT_IN_TIME_TASKS:
+                # point-in-time instance: nothing after the index encounter is observable (Stage 2.2 / 4 / 7)
                 cur.execute(
                     """
                     SELECT e.encounter_id FROM longitudinal_encounters e
@@ -141,9 +153,13 @@ def _tool_schemas(task: str, tool_definitions: list[dict]) -> list[dict]:
             out.append(override)
         elif name in SUBMIT_TOOLS:
             continue
+        elif name == "order_test" and task != "test_selection":
+            continue
         else:
             out.append({"type": "function", "function": {
                 "name": name, "description": t["description"], "parameters": t["parameters"]}})
+    if not any(t["function"]["name"] == override["function"]["name"] for t in out):
+        out.append(override)                     # Stage-7 submit tools have no counterpart in the Epic tool list
     return out
 
 
@@ -182,15 +198,21 @@ def normalize_submission(task: str, obj) -> dict | None:
             return normalize_submission(task, obj["payload"])
         if any(k in obj for k in keys):
             return obj
-        if task == "patient_diagnosis" and "icd10" in obj:
+        if task in ("patient_diagnosis", "atypical_diagnosis") and "icd10" in obj:
             return {"active_diagnoses": [obj], "chronic_conditions": []}
+        if task == "differential_diagnosis" and "icd10" in obj:
+            return {"differential": [obj]}
         if task == "context_summarization":
             for k in ("text", "narrative", "assessment"):
                 if isinstance(obj.get(k), str):
                     return {"summary": obj[k]}
         return None
     if isinstance(obj, list) and obj:
-        if task == "patient_diagnosis":
+        if task == "differential_diagnosis":
+            dx = [d for d in obj if isinstance(d, dict) and ("icd10" in d or "name" in d)]
+            if dx:
+                return {"differential": dx}
+        if task in ("patient_diagnosis", "atypical_diagnosis"):
             dx = [d for d in obj if isinstance(d, dict) and "icd10" in d]
             if dx:
                 return {"active_diagnoses": dx, "chronic_conditions": []}
@@ -245,6 +267,10 @@ async def reset(redis, tool_definitions: list[dict], *, gt_id: int | None, task:
         "patient_id": ctx["patient_id"], "encounter_id": ctx["encounter_id"],
         "allowed_encounter_ids": ctx["allowed_encounter_ids"],
         "chart_problems": ctx["chart_problems"],
+        "hidden_section_types": ctx.get("hidden_section_types") or [],
+        "section_overrides": ctx.get("section_overrides") or {},
+        "orderable": ctx.get("orderable") or [],
+        "orders": [],
         "task_inputs": kwargs,
         "budget": budget, "steps": 0, "done": False, "submitted": False, "reward": None,
         "trace": [], "created_at": datetime.now(timezone.utc).isoformat(),
@@ -300,7 +326,18 @@ def oracle_submission(gt_id: int) -> dict:
         inst = load_instance(conn, gt_id)
         gt = inst["ground_truth"]
         task = inst["task"]
-        if task == "patient_diagnosis":
+        if task == "differential_diagnosis":
+            return {"differential": [{"icd10": d.get("icd10") or "", "name": d.get("display_name", "")}
+                                     for d in gt.get("correct", []) + gt.get("distractors", [])][:5]}
+        if task == "test_selection":
+            dx = gt.get("diagnosis") or {}
+            return {"icd10": dx.get("icd10", ""), "name": dx.get("name", ""), "tests_ordered": list(gt.get("discriminating", []))}
+        if task == "error_detection":
+            orig, inj = S7.error_pair(gt)
+            return {"section_type": gt.get("section_type", ""), "error_type": gt.get("error_type", ""), "description": f"{orig} -> {inj}"}
+        if task == "lab_triage":
+            return {"relevant": list(gt.get("relevant", [])), "most_urgent": gt.get("most_urgent") or (gt.get("relevant") or [""])[0]}
+        if task in ("patient_diagnosis", "atypical_diagnosis"):
             return {
                 "active_diagnoses": [{"icd10": d["icd10"], "name": d.get("display_name", ""), "acuity": d.get("acuity") or "acute"}
                                      for d in gt.get("active_diagnoses", []) if not d.get("excluded_nondiagnostic")],
@@ -354,6 +391,8 @@ async def step(redis, db, dispatch, episode_id: str, name: str, arguments: dict,
     # -- terminal action ---------------------------------------------------
     if name == submit_tool:
         prediction = normalize_submission(task, arguments)
+        if task == "test_selection" and prediction is not None:
+            prediction = {**prediction, "tests_ordered": list(ep.get("orders") or [])}   # the trace, never the claim
         with _pg() as conn:
             result = await run_in_threadpool(score_submission, conn, ep["gt_id"], prediction or {}, task, None)
         ep.update({"done": True, "submitted": True, "reward": result["reward"], "steps": ep["steps"] + 1})
@@ -376,6 +415,14 @@ async def step(redis, db, dispatch, episode_id: str, name: str, arguments: dict,
     elif remaining <= 0:
         obs = {"error": f"Action budget of {ep['budget']} spent. Only {submit_tool} is accepted now; "
                         f"submit your best answer."}
+    elif name == "order_test":
+        if task != "test_selection":
+            obs = {"error": "order_test is available only in test_selection episodes."}
+        else:
+            obs = S7.order_result(str((arguments or {}).get("name", "")), ep.get("orderable") or [])
+            ep["orders"].append({k: obs.get(k) for k in ("test", "matched")})
+        ep["steps"] += 1
+        remaining -= 1
     else:
         try:
             raw = await dispatch(name, arguments or {}, db, "attending", episode_id)
@@ -389,6 +436,8 @@ async def step(redis, db, dispatch, episode_id: str, name: str, arguments: dict,
         obs = replace_problem_list(name, obs, ep.get("chart_problems") or [])
         if ep.get("allowed_encounter_ids") is not None:
             obs = filter_future_encounters(obs, set(ep["allowed_encounter_ids"]))
+        obs = S7.apply_episode_rules(name, arguments or {}, obs, ep.get("section_overrides"),
+                                     set(ep.get("hidden_section_types") or []), ep.get("encounter_id"))   # Stage 7
         ep["steps"] += 1
         remaining -= 1
     ep["trace"].append({"step": ep["steps"], "tool_name": name, "arguments": arguments,
@@ -410,6 +459,8 @@ async def close(redis, episode_id: str) -> dict:
 def state_view(ep: dict, privileged: bool = True) -> dict:
     view = {k: ep[k] for k in ("episode_id", "gt_id", "task", "split", "patient_id", "encounter_id",
                                "budget", "steps", "done", "submitted", "reward", "trace", "created_at")}
+    if ep.get("task") == "test_selection":
+        view["orders"] = list(ep.get("orders") or [])
     if not privileged:
         view["reward"] = None
     return view

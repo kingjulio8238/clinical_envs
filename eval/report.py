@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 PRIMARY_METRICS = {
     "patient_diagnosis": "weighted_problem_list_f1_neutral",   # chart-neutral rule (paper Table 3)
     "context_summarization": "clinical_f1",                   # must-include finding recall
-    "evidence_retrieval": "precision_5",                      # chart sections only
+    "evidence_retrieval": "ndcg_10",                          # graded, content-graded chart sections (Stage 3)
     "imaging_indication": "clinical_question_concept_f1",     # ontology-grounded concept F1
 }
 

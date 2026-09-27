@@ -64,7 +64,7 @@ async def test_tasks_listing(client: AsyncClient):
     assert resp.status_code == 200
     tasks = {t["task"]: t["reward_metric"] for t in resp.json()}
     assert tasks["patient_diagnosis"] == "weighted_problem_list_f1_neutral"
-    assert tasks["evidence_retrieval"] == "precision_5"
+    assert tasks["evidence_retrieval"] == "ndcg_10"
 
 
 async def test_instances_have_no_labels(client: AsyncClient):
@@ -172,8 +172,9 @@ async def test_retrieval_perfect_ranking(client: AsyncClient):
     resp = await client.post("/score", headers=HEADERS, json={"gt_id": gt_id, "prediction": pred})
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["reward_metric"] == "precision_5"
+    assert body["reward_metric"] == "ndcg_10"        # Stage 3: graded reward over content-graded sections
     assert body["reward"] == pytest.approx(1.0)
+    assert body["metrics"]["precision_5"] == pytest.approx(1.0)
     assert body["metrics"]["ndcg_10"] == pytest.approx(1.0)
 
 
@@ -188,15 +189,18 @@ async def test_summarization_must_include_recall(client: AsyncClient):
     assert body["reward"] == pytest.approx(1.0)
 
 
-async def test_imaging_identical_question(client: AsyncClient):
+async def test_imaging_reference_terms_score_one(client: AsyncClient):
+    """Stage 3: the reference is the graph-derived term set (correct diagnosis, differential, key
+    findings); naming exactly those terms scores 1.0. The LLM-authored question is a secondary metric."""
+    from eval.scoring import reference_terms_text
     gt_id, _pid, gt = _gt_row("imaging_indication")
-    pred = {"clinical_question": gt["inferred_clinical_question"], "pre_read_summary": "", "must_include_findings": []}
+    pred = {"clinical_question": reference_terms_text(gt), "pre_read_summary": "", "must_include_findings": []}
     resp = await client.post("/score", headers=HEADERS, json={"gt_id": gt_id, "prediction": pred})
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["reward_metric"] == "clinical_question_concept_f1"
     assert body["reward"] == pytest.approx(1.0)
-    assert body["metrics"]["clinical_question_f1"] == pytest.approx(1.0)
+    assert "clinical_question_concept_f1_llm" in body["metrics"]
 
 
 async def test_batch(client: AsyncClient):

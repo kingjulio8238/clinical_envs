@@ -58,11 +58,12 @@ router = APIRouter()
 
 _TASK_NOTES = {
     "patient_diagnosis": "severity-weighted F1 under the chart-neutral rule",
-    "context_summarization": "must-include finding recall; specialty variant: conditioned_f1 "
-                             "(involved) or abstention_accuracy (absent)",
-    "evidence_retrieval": "precision at 5 over chart sections; ndcg_10 also returned",
-    "imaging_indication": "ontology-grounded concept F1 of the inferred clinical question "
-                          "(clinical_question_f1, token-level, also returned)",
+    "context_summarization": "HM(negation-aware finding recall, chart-grounded concept precision) x length "
+                             "factor; specialty variant: conditioned_f1 (involved) or abstention_accuracy "
+                             "(absent, explicit `abstain` field)",
+    "evidence_retrieval": "nDCG at 10 over content-graded chart sections; precision_5 also returned",
+    "imaging_indication": "concept F1 of the inferred clinical question against the graph-derived "
+                          "reference terms (correct diagnosis, differential, key findings)",
 }
 
 

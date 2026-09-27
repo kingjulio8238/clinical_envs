@@ -60,10 +60,23 @@ def map_condition(s):
 SURG = [(r"appendectomy", {"Z90", "K35", "K36", "K37"}), (r"cholecystectomy", {"Z90", "K80"}), (r"hysterectomy", {"Z90"}), (r"tonsillectomy", {"Z90"}), (r"splenectomy", {"Z90", "D73"}),
         (r"cesarean|c.section", {"Z98", "O34"}), (r"bypass|cabg|stent|angioplasty", {"Z95", "I25"}), (r"valve", {"Z95"}), (r"gastric bypass|sleeve|bariatric", {"Z98", "K91", "E66"}), (r"thyroidectomy", {"E89", "Z90"}),
         (r"colectomy|bowel resection", {"Z90"}), (r"nephrectomy", {"Z90"}), (r"mastectomy", {"Z90"}), (r"transplant", {"Z94"}), (r"arthroplasty|joint replacement", {"Z96"}), (r"pacemaker|defibrillator|icd\b", {"Z95"})]
+def documented_secondary(cur):
+    """3-char categories of the graph's `secondary` diagnoses of each patient's source questions: the
+    comorbidities the vignettes document. Listing them must not cost precision (Stage 3, audit #13)."""
+    cur.execute("select question_id, diagnosis_id from question_diagnoses where role = 'secondary'"); q2d = defaultdict(set)
+    for q, d in cur.fetchall(): q2d[q].add(d)
+    cur.execute("select diagnosis_id, icd10_code from diagnoses where icd10_code is not null"); code = dict(cur.fetchall())
+    cur.execute("select patient_id, source_question_ids from longitudinal_encounters"); out = defaultdict(set)
+    for pid, sq in cur.fetchall():
+        try: qids = json.loads(sq) if isinstance(sq, str) else (sq or [])
+        except ValueError: qids = []
+        for q in qids:
+            out[pid] |= {code[d].replace(".", "").upper()[:3] for d in q2d.get(int(q), ()) if d in code}
+    return out
 def neutral_sets(cur):
-    load_ontology(cur); cur.execute("select patient_id, profile from longitudinal_patients"); out = {}; how = defaultdict(int); unmapped = []
+    load_ontology(cur); sec = documented_secondary(cur); cur.execute("select patient_id, profile from longitudinal_patients"); out = {}; how = defaultdict(int); unmapped = []
     for pid, pr in cur.fetchall():
-        pr = pr if isinstance(pr, dict) else json.loads(pr or "{}"); cats = set()
+        pr = pr if isinstance(pr, dict) else json.loads(pr or "{}"); cats = set(sec.get(pid, ()))
         for s in pr.get("chronic_conditions") or []:
             c, m = map_condition(str(s)); cats |= c; how[m] += 1
             if not c: unmapped.append((pid, s))

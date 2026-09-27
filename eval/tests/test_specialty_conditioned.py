@@ -113,7 +113,7 @@ def test_sc_abstention():
         _sc_gt(excluded=["atrial fibrillation"], involvement="absent"),
     ]
     preds = [
-        {"summary": "No active nephrology problems."},                       # abstains
+        {"summary": "", "abstain": True},                                    # abstains (explicit field, Stage 3)
         {"summary": "The patient has atrial fibrillation and a long cardiac "
                     "history with multiple prior admissions and procedures."},  # populated + leaks
     ]
@@ -121,6 +121,9 @@ def test_sc_abstention():
     assert m["n_involved"] == 0 and m["n_absent"] == 2
     assert m["abstention_accuracy"] == 0.5   # one abstained, one didn't
     assert m["absent_leakage_rate"] == 0.5   # the populated one leaked the excluded finding
+    # text that merely says "no active problems" is not an abstention any more
+    m2 = scoring.compute_all_metrics("context_summarization", [{"summary": "No active nephrology problems."}], gts[:1])
+    assert m2["abstention_accuracy"] == 0.0
 
 
 def test_sc_routing_mixed_batch():

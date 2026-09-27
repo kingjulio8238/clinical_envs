@@ -45,7 +45,7 @@ MAX_OBS_CHARS = 8000
 
 TASK_KEYS = {
     "patient_diagnosis": ("active_diagnoses", "chronic_conditions"),
-    "context_summarization": ("summary",),
+    "context_summarization": ("summary", "abstain"),
     "evidence_retrieval": ("rankings",),
     "imaging_indication": ("clinical_question", "differential", "findings"),
 }
@@ -310,8 +310,8 @@ def oracle_submission(gt_id: int) -> dict:
                 tiers = gt.get("tiers", {})
                 names = [f.get("display_name") for f in tiers.get("primary", []) + tiers.get("relevant", [])]
                 if not names:
-                    return {"summary": "No active problems relevant to this specialty are documented in the chart."}
-                return {"summary": ". ".join(n for n in names if n) + "."}
+                    return {"summary": "", "abstain": True}
+                return {"summary": ". ".join(n for n in names if n) + ".", "abstain": False}
             names = [f.get("display_name") or f.get("name") for f in gt.get("must_include_findings", [])]
             return {"summary": ". ".join(n for n in names if n) + "."}
         if task == "evidence_retrieval":
@@ -320,8 +320,9 @@ def oracle_submission(gt_id: int) -> dict:
                             "ORDER BY relevance_grade DESC, passage_id LIMIT 20", (gt_id,))
                 return {"rankings": [{"passage_id": r[0], "grade": 3} for r in cur.fetchall()]}
         if task == "imaging_indication":
+            from eval.scoring import reference_terms_text
             return {
-                "clinical_question": gt.get("inferred_clinical_question", ""),
+                "clinical_question": reference_terms_text(gt) or gt.get("inferred_clinical_question", ""),
                 "pre_read_summary": gt.get("pre_read_summary", ""),
                 "must_include_findings": list(gt.get("must_include_findings", [])),
                 "differential": [{"diagnosis": d.get("diagnosis", ""), "icd10": d.get("icd10", "")}

@@ -7,8 +7,7 @@ per-instance context the batch scorer uses:
 
   patient_diagnosis      chart-neutral categories (eval/chart_neutral.py)
   evidence_retrieval     graded relevance judgments over chart sections
-  context_summarization  nothing extra (hallucination rate, which needs the chart
-                         text, is a secondary metric and is not computed here)
+  context_summarization  the chart text (grounding for the precision term) and the concept extractor
   imaging_indication     the concept extractor built from the graph (cached per process)
 
 Reward = the task's primary metric, always in [0, 1]:
@@ -17,7 +16,7 @@ Reward = the task's primary metric, always in [0, 1]:
   context_summarization  clinical_f1 (whole-patient / current-visit),
                          conditioned_f1 (specialty, involved) or
                          abstention_accuracy (specialty, absent)
-  evidence_retrieval     precision_5   (ndcg_10 is also returned)
+  evidence_retrieval     ndcg_10       (precision_5 is also returned)
   imaging_indication     clinical_question_concept_f1 (ontology-grounded concept F1,
                          eval/imaging_concepts.py; token-level clinical_question_f1 also returned)
 
@@ -39,7 +38,7 @@ from eval.scoring import compute_all_metrics
 PRIMARY_METRIC: dict[str, str] = {
     "patient_diagnosis": "weighted_problem_list_f1_neutral",
     "context_summarization": "clinical_f1",   # specialty variant handled in _primary_for
-    "evidence_retrieval": "precision_5",
+    "evidence_retrieval": "ndcg_10",   # Stage 3: graded, over the content-graded pool (precision_5 also returned)
     "imaging_indication": "clinical_question_concept_f1",
 }
 
@@ -111,6 +110,9 @@ def _attach_context(conn, inst: dict) -> dict:
     task = inst["task"]
     if task == "patient_diagnosis":
         gt["_neutral_categories"] = sorted(neutral_categories_for(conn, inst["patient_id"]))
+    elif task == "context_summarization":
+        gt["_chart_text"] = chart_text_for(conn, inst["patient_id"])
+        gt["_patient_terms"] = patient_terms_for(conn, inst["patient_id"])
     elif task == "evidence_retrieval":
         overlay = private_labels.get() if inst["split"] == private_labels.PRIVATE_SPLIT else None
         if overlay is not None:
@@ -123,6 +125,41 @@ def _attach_context(conn, inst: dict) -> dict:
                 )
                 gt["_judgments"] = {pid: grade for pid, grade in cur.fetchall()}
     return gt
+
+
+def chart_text_for(conn, patient_id: int) -> str:
+    """The patient's chart as the single-turn baseline sees it (sections in order, no assessment/plan);
+    the grounding text for the summarization precision term."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT ees.section_type::text, ees.section_text
+            FROM encounter_ehr_sections ees JOIN longitudinal_encounters le ON ees.encounter_id = le.encounter_id
+            WHERE le.patient_id = %s AND ees.section_type::text NOT IN ('assessment', 'plan')
+            ORDER BY le.encounter_order, ees.section_order
+            """,
+            (patient_id,),
+        )
+        return "\n".join(f"[{t.upper()}]\n{x or ''}" for t, x in cur.fetchall())
+
+
+def patient_terms_for(conn, patient_id: int) -> str:
+    """The patient's annotated finding and diagnosis names (the record's normalized content); the
+    grounding set of the summarization precision term together with the chart text."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH q AS (SELECT DISTINCT (jsonb_array_elements_text(le.source_question_ids::jsonb))::int AS qid
+                       FROM longitudinal_encounters le WHERE le.patient_id = %s)
+            SELECT DISTINCT cf.display_name FROM question_findings qf JOIN q ON qf.question_id = q.qid
+                JOIN clinical_findings cf ON cf.finding_id = qf.finding_id
+            UNION
+            SELECT DISTINCT d.display_name FROM question_diagnoses qd JOIN q ON qd.question_id = q.qid
+                JOIN diagnoses d ON d.diagnosis_id = qd.diagnosis_id WHERE qd.role::text IN ('correct', 'secondary')
+            """,
+            (patient_id,),
+        )
+        return ". ".join(r[0] for r in cur.fetchall() if r[0])
 
 
 def _primary_for(task: str, gt: dict, metrics: dict) -> str:
@@ -149,7 +186,7 @@ def score_submission(conn, gt_id: int, prediction: dict, task: str | None = None
     if not isinstance(prediction, dict):
         prediction = {}
     kwargs: dict[str, Any] = {}
-    if inst["task"] == "imaging_indication":
+    if inst["task"] in ("imaging_indication", "context_summarization"):
         from eval.imaging_concepts import ConceptExtractor
         kwargs["concept_extractor"] = ConceptExtractor.from_db(conn)
     metrics = compute_all_metrics(inst["task"], [prediction], [gt], **kwargs)

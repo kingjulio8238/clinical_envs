@@ -83,8 +83,11 @@ present but defective for its stated purpose · **Absent** = not in the repo.
 
 ## Recommended next move
 
-ROADMAP **Stages 1 and 2 are done** (reward-hacking suite and floors; label leaks closed at the serving layer:
-shared visibility rules, per-diagnosis retrieval, hint-free prompts, train-only few-shot, private split with an
-operator-held label overlay, reward-only scoring for it). The simulator has now been run end to end in Docker and
-its suite passes. Next is **Stage 3**: harden the reward functions; the twelve Stage-3 strict xfails in
-`eval/tests/test_reward_hacking.py` are its acceptance tests, and `eval/floors.json` records the floors they must move.
+ROADMAP **Stages 1–3 are done**: reward-hacking suite and floors; label leaks closed at the serving layer; rewards
+hardened (`SCORING_CHANGES.md`: graded ICD credit and acuity, documented conditions neutral, fixed-k P@k, content-graded
+retrieval with nDCG@10 as reward, summarization = HM(negation-aware concept recall, grounded precision) × length with
+per-encounter must-include quotas, explicit `abstain` field with involvement-weighted absent specialties and a critical
+fallback, imaging concept F1 against graph reference terms). Every previously known exploit is now a passing gate in
+`eval/tests/test_reward_hacking.py`. Next is **Stage 4**: repair the data in place, starting with the one remaining
+xfail, `test_copying_the_problem_list_does_not_solve_diagnosis` (80% of diagnosis labels are still copyable from later
+notes; the fix is the point-in-time index-encounter redefinition of patient diagnosis plus date-aware history).

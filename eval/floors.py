@@ -31,7 +31,7 @@ FLOORS_PATH = Path(__file__).with_name("floors.json")
 
 METRICS: dict[str, list[str]] = {
     "patient_diagnosis": ["weighted_problem_list_f1_neutral"],
-    "evidence_retrieval": ["precision_5", "ndcg_10"],
+    "evidence_retrieval": ["ndcg_10", "precision_5"],
     "context_summarization": ["clinical_f1"],
     "specialty_involved": ["conditioned_f1"],
     "specialty_absent": ["abstention_accuracy"],

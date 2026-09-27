@@ -309,6 +309,12 @@ SUBMIT_TOOL_SCHEMAS = {
                         "type": "string",
                         "description": "Clinical summary text (5-10 sentences)",
                     },
+                    "abstain": {
+                        "type": "boolean",
+                        "description": "Specialty-conditioned items only: true when the patient has no active "
+                                       "problem in the requested specialty (then leave summary empty). "
+                                       "Abstention is scored from this field, never from the text.",
+                    },
                 },
                 "required": ["summary"],
             },

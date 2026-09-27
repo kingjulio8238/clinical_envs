@@ -39,7 +39,7 @@ with different metrics (conditioned_f1 vs abstention_accuracy)."""
 
 PRIMARY_METRIC = {
     "patient_diagnosis": "weighted_problem_list_f1_neutral",
-    "evidence_retrieval": "precision_5",
+    "evidence_retrieval": "ndcg_10",
     "context_summarization": "clinical_f1",
     "specialty_involved": "conditioned_f1",
     "specialty_absent": "abstention_accuracy",
@@ -207,6 +207,22 @@ class ReleaseDB:
             return {p: sorted(v) for p, v in out.items()}
         return self._memo("keyfindings", load).get(patient_id, [])
 
+    def patient_terms(self, patient_id: int) -> str:
+        """The patient's annotated finding and diagnosis names (grounding set for summarization)."""
+        def load():
+            qf = collections.defaultdict(set)
+            for qid, name in self.q("select qf.question_id, cf.display_name from question_findings qf join clinical_findings cf using(finding_id)"):
+                qf[qid].add(name)
+            for qid, name in self.q("select qd.question_id, d.display_name from question_diagnoses qd join diagnoses d using(diagnosis_id) "
+                                    "where qd.role in ('correct','secondary')"):
+                qf[qid].add(name)
+            out = collections.defaultdict(set)
+            for pid, sq in self.q("select patient_id, source_question_ids from longitudinal_encounters"):
+                for qid in json.loads(sq):
+                    out[pid] |= qf[qid]
+            return {p: ". ".join(sorted(v)) for p, v in out.items()}
+        return self._memo("terms", load).get(patient_id, "")
+
     def neutral_categories(self, patient_id: int) -> list[str]:
         """The chart-neutral set the scorer uses (scripts/chart_neutral_sets.py), as score_one attaches it."""
         def load():
@@ -297,6 +313,9 @@ def attach_context(db: ReleaseDB, inst: Instance) -> dict:
     gt = dict(inst["gt"])
     if inst["task"] == "patient_diagnosis":
         gt["_neutral_categories"] = db.neutral_categories(inst["patient_id"])
+    elif inst["task"] in ("context_summarization", "specialty_involved", "specialty_absent"):
+        gt["_chart_text"] = db.chart_text(inst["patient_id"])
+        gt["_patient_terms"] = db.patient_terms(inst["patient_id"])
     elif inst["task"] == "evidence_retrieval":
         gt["_judgments"] = db.judgments(inst["gt_id"])
     return gt
@@ -306,7 +325,7 @@ def score(db: ReleaseDB, task: str, predictions: list[dict], insts: list[Instanc
     """compute_all_metrics on a batch, with context attached. Returns the full metric dict."""
     base = "context_summarization" if task.startswith("specialty") else task
     kwargs = {}
-    if task == "imaging_indication":
+    if task in ("imaging_indication", "context_summarization", "specialty_involved", "specialty_absent"):
         kwargs["concept_extractor"] = db.concept_extractor()
     return compute_all_metrics(base, predictions, [attach_context(db, i) for i in insts], **kwargs)
 
@@ -337,8 +356,8 @@ def oracle(db: ReleaseDB, inst: Instance) -> dict:
         tiers = gt.get("tiers", {})
         names = [f.get("display_name") for f in tiers.get("primary", []) + tiers.get("relevant", [])]
         if not names:
-            return {"summary": "No active problems relevant to this specialty are documented in the chart."}
-        return {"summary": ". ".join(n for n in names if n) + "."}
+            return {"summary": "", "abstain": True}
+        return {"summary": ". ".join(n for n in names if n) + ".", "abstain": False}
     if task == "context_summarization":
         names = [f.get("display_name") or f.get("name") for f in gt.get("must_include_findings", [])]
         return {"summary": ". ".join(n for n in names if n) + "."}
@@ -347,8 +366,9 @@ def oracle(db: ReleaseDB, inst: Instance) -> dict:
         ranked = sorted(j, key=lambda p: (-j[p], p))[:20]
         return {"rankings": [{"passage_id": p, "grade": 3} for p in ranked]}
     if task == "imaging_indication":
+        from eval.scoring import reference_terms_text
         return {
-            "clinical_question": gt.get("inferred_clinical_question", ""),
+            "clinical_question": reference_terms_text(gt) or gt.get("inferred_clinical_question", ""),
             "pre_read_summary": gt.get("pre_read_summary", ""),
             "must_include_findings": list(gt.get("must_include_findings", [])),
             "differential": [{"diagnosis": d.get("diagnosis", ""), "icd10": d.get("icd10", "")}
@@ -483,8 +503,13 @@ def spec_abstain_by_name(db: ReleaseDB, inst: Instance) -> dict:
     """Abstain iff the specialty is one of the two most often absent on the train split; otherwise
     paste the chart. Reads the specialty name, not the chart's content."""
     if inst["gt"].get("specialty") in db.most_absent_specialties("train"):
-        return {"summary": ABSTAIN_PHRASE}
+        return {"summary": "", "abstain": True}
     return {"summary": db.chart_text(inst["patient_id"])}
+
+
+def spec_abstain_always(db: ReleaseDB, inst: Instance) -> dict:
+    """The explicit abstention, regardless of the item."""
+    return {"summary": "", "abstain": True}
 
 
 # imaging indication ----------------------------------------------------------------------
@@ -522,6 +547,7 @@ POLICIES: dict[str, dict[str, Policy]] = {
     },
     "specialty_involved": {
         "empty": empty,
+        "abstain_always": spec_abstain_always,
         "phrase_only": spec_phrase_only,
         "chart_dump": spec_chart_dump,
         "chart_dump_plus_phrase": spec_chart_dump_plus_phrase,
@@ -529,6 +555,7 @@ POLICIES: dict[str, dict[str, Policy]] = {
     },
     "specialty_absent": {
         "empty": empty,
+        "abstain_always": spec_abstain_always,
         "phrase_only": spec_phrase_only,
         "chart_dump": spec_chart_dump,
         "chart_dump_plus_phrase": spec_chart_dump_plus_phrase,

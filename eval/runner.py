@@ -109,6 +109,7 @@ def run_evaluation(
                     except Exception as e:
                         errors += 1
                         log.error("Failed gt_id=%d: %s", inp.gt_id, e)
+                        results.append((inp, _FailedResponse(str(e)), {}))   # scored 0, never dropped (Stage 3)
 
                     # Batch commit from main thread
                     if len(results) >= BATCH_COMMIT_SIZE:
@@ -122,6 +123,7 @@ def run_evaluation(
                 except Exception as e:
                     errors += 1
                     log.error("Failed gt_id=%d: %s", inp.gt_id, e)
+                    results.append((inp, _FailedResponse(str(e)), {}))   # scored 0, never dropped (Stage 3)
 
                 if len(results) >= BATCH_COMMIT_SIZE:
                     _store_predictions(conn, run_id, results, prompt_strategy)
@@ -340,6 +342,17 @@ def _get_completed_gt_ids(conn, run_id: int) -> set[int]:
             (run_id,),
         )
         return {row[0] for row in cur.fetchall()}
+
+
+class _FailedResponse:
+    """Stand-in for a model response when the call failed: the item is stored with an empty
+    prediction so that it counts as 0 in every metric instead of vanishing from the mean."""
+
+    def __init__(self, error: str):
+        self.text = f"[call failed] {error}"
+        self.latency_ms = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
 
 
 def _store_predictions(conn, run_id: int, results: list[tuple], prompt_strategy: str):

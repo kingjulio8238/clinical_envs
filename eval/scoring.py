@@ -19,7 +19,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from eval import semantic_match, value_match
+from eval import concept_match, semantic_match, value_match
 
 log = logging.getLogger(__name__)
 
@@ -404,145 +404,149 @@ def acuity_confusion_matrix(
     return dict(matrix)
 
 
-def _compute_patient_diagnosis_metrics(predictions: list[dict], ground_truths: list[dict]) -> dict:
-    """Compute all metrics for patient_diagnosis task."""
-    all_recalls = []
-    all_precisions = []
-    all_weighted_recalls = []
-    all_specificity = []
-    all_acuity_pairs: list[tuple[str, str]] = []
-    n_scored = 0
-    n_tier_c = 0
-    # Chart-neutral precision (paper's primary rule): unmatched predictions whose
-    # 3-char category lies in the patient's chart-neutral set (gt["_neutral_categories"],
-    # see eval/chart_neutral.py) are dropped from the precision denominator.
-    all_precisions_neutral: list[float] = []
-    n_neutral_predictions = 0
+ICD_CREDIT = {"exact": 1.0, "subcategory": 0.75, "category": 0.5}
+"""Graded credit for a predicted ICD-10-CM code against a reference code (Stage 3). A reference that
+is itself unspecified (3 characters, or a '9' in the 4th position) is fully credited by any match in
+its category: the record supports nothing more specific."""
+ACUITY_MISMATCH_FACTOR = 0.5
+"""A matched diagnosis whose predicted acuity is missing or differs from a known reference acuity
+keeps half its credit. The task's output schema carries acuity; the old metric never read it."""
 
-    for pred, gt in zip(predictions, ground_truths):
-        # Extract GT codes and acuities
-        # Skip entries marked `excluded_nondiagnostic` (non-clinical concepts such as
-        # "Odds ratio" or "Berkson bias" that leaked in from non-diagnostic board
-        # questions); they are not valid problem-list targets.
-        gt_active = [d for d in gt.get("active_diagnoses", [])
-                     if not (isinstance(d, dict) and d.get("excluded_nondiagnostic"))]
-        gt_chronic = [d for d in gt.get("chronic_conditions", [])
-                      if not (isinstance(d, dict) and d.get("excluded_nondiagnostic"))]
 
-        gt_codes = []
-        gt_acuities = []
-        for dx in gt_active:
-            gt_codes.append(dx.get("icd10", ""))
-            acuity = dx.get("acuity", "unspecified")
-            # unspecified in active list → treat as acute
-            if acuity == "unspecified":
-                acuity = "acute"
-            gt_acuities.append(acuity)
-        for dx in gt_chronic:
-            gt_codes.append(dx.get("icd10", ""))
-            gt_acuities.append("chronic")
+def _icd_levels(code: str) -> tuple[int, int]:
+    """(category length, subcategory length): injury/poisoning codes (S, T) key on 5 characters."""
+    cat = 5 if code[:1] in ("S", "T") else 3
+    return cat, cat + 1
 
-        # Extract predicted codes and acuities
-        pred_active = pred.get("active_diagnoses", [])
-        pred_chronic = pred.get("chronic_conditions", [])
 
-        if not pred_active and not pred_chronic:
-            # Check for flat "diagnoses" list (Tier B fallback)
-            flat = pred.get("diagnoses", [])
-            if flat:
-                pred_active = flat
-            else:
-                n_tier_c += 1
-                continue
+def _icd_credit(pred: str, gt: str) -> float:
+    pred, gt = _normalize_icd10(pred), _normalize_icd10(gt)
+    if not pred or not gt:
+        return 0.0
+    if pred == gt:
+        return ICD_CREDIT["exact"]
+    cat, sub = _icd_levels(gt)
+    if len(pred) < cat or pred[:cat] != gt[:cat]:
+        return 0.0
+    unspecified = len(gt) <= cat or gt[cat:cat + 1] == "9"
+    if unspecified:
+        return ICD_CREDIT["exact"]
+    if len(pred) >= sub and len(gt) >= sub and pred[:sub] == gt[:sub]:
+        return ICD_CREDIT["subcategory"]
+    return ICD_CREDIT["category"]
 
-        pred_codes = []
-        pred_acuities = []
-        for dx in pred_active:
-            pred_codes.append(dx.get("icd10", ""))
-            pred_acuities.append(_normalize_acuity(dx.get("acuity", "")) or "acute")
-        for dx in pred_chronic:
-            pred_codes.append(dx.get("icd10", ""))
-            pred_acuities.append("chronic")
 
-        n_scored += 1
+def _match_graded(pred_codes: list[str], gt_codes: list[str]) -> list[tuple[int, int, float]]:
+    """Greedy one-to-one matching by descending credit. Returns (pred_index, gt_index, credit)."""
+    pairs = sorted(((_icd_credit(p, g), -gi, -pi) for gi, g in enumerate(gt_codes) for pi, p in enumerate(pred_codes)
+                    if _icd_credit(p, g) > 0), reverse=True)
+    used_p, used_g, out = set(), set(), []
+    for credit, ngi, npi in pairs:
+        gi, pi = -ngi, -npi
+        if gi in used_g or pi in used_p:
+            continue
+        used_g.add(gi); used_p.add(pi)
+        out.append((pi, gi, credit))
+    return out
 
-        # ICD-10 matching
-        matched, unmatched_pred, unmatched_gt = _match_icd10_sets(pred_codes, gt_codes)
-        rec = problem_list_recall(pred_codes, gt_codes)
-        prec = problem_list_precision(pred_codes, gt_codes)
-        all_recalls.append(rec)
-        all_precisions.append(prec)
 
-        neutral = set(gt.get("_neutral_categories") or [])
-        if neutral:
-            neutral_unmatched = [u for u in unmatched_pred if u[:3] in neutral]
-            n_neutral_predictions += len(neutral_unmatched)
-            denom = len(matched) + len(unmatched_pred) - len(neutral_unmatched)
-            # Undefined (every prediction matched-or-neutral with no match at all):
-            # excluded from the mean, exactly as in the paper's rescoring.
-            all_precisions_neutral.append(len(matched) / denom if denom else float("nan"))
-        else:
-            all_precisions_neutral.append(prec)
+def _dx_entries(pred: dict) -> tuple[list[str], list[str | None]]:
+    """Predicted (codes, normalized acuities). Chronic-list entries are chronic; missing or
+    unrecognized acuity is None (scored as a mismatch)."""
+    active = pred.get("active_diagnoses") or []
+    chronic = pred.get("chronic_conditions") or []
+    if not active and not chronic:
+        active = pred.get("diagnoses") or []          # flat fallback
+    codes, acuities = [], []
+    for dx in active:
+        if isinstance(dx, dict):
+            codes.append(dx.get("icd10", "") or ""); acuities.append(_normalize_acuity(dx.get("acuity")))
+    for dx in chronic:
+        if isinstance(dx, dict):
+            codes.append(dx.get("icd10", "") or ""); acuities.append("chronic")
+    return codes, acuities
 
-        # Specificity
-        spec = _icd10_specificity_score(matched)
-        if spec is not None:
-            all_specificity.append(spec)
 
-        # Weighted recall: find matched GT entries
-        gt_code_to_acuity = dict(zip(
-            [_normalize_icd10(c) for c in gt_codes], gt_acuities
-        ))
-        matched_gt_codes_list = [gt_c for _, gt_c in matched]
-        matched_gt_acuities_list = [gt_code_to_acuity.get(gt_c, "chronic") for gt_c in matched_gt_codes_list]
-        all_gt_norm = [_normalize_icd10(c) for c in gt_codes]
+def score_patient_diagnosis_item(pred: dict, gt: dict) -> dict:
+    """Per-instance patient-diagnosis metrics (the RL reward is `weighted_problem_list_f1_neutral`).
 
-        w_rec = weighted_problem_list_recall(
-            matched_gt_codes_list, matched_gt_acuities_list,
-            all_gt_norm, gt_acuities,
-        )
-        all_weighted_recalls.append(w_rec)
+    credit(match) = ICD credit (1 / 0.75 / 0.5) x acuity factor (1, or 0.5 when the reference acuity is
+    known and the prediction's is missing or different). Weighted recall weights each reference entry by
+    its severity tier; precision is the mean credit over predictions, with unmatched predictions whose
+    3-character category lies in the patient's chart-neutral set removed from the denominator.
+    An empty or malformed prediction scores 0 (it used to be skipped).
+    """
+    gt_active = [d for d in gt.get("active_diagnoses", []) if isinstance(d, dict) and not d.get("excluded_nondiagnostic")]
+    gt_chronic = [d for d in gt.get("chronic_conditions", []) if isinstance(d, dict) and not d.get("excluded_nondiagnostic")]
+    gt_codes = [d.get("icd10", "") or "" for d in gt_active] + [d.get("icd10", "") or "" for d in gt_chronic]
+    gt_acuity = [d.get("acuity") or "unspecified" for d in gt_active] + ["chronic" for _ in gt_chronic]
+    gt_acuity = [a if a in ("acute", "chronic", "acute_on_chronic") else None for a in gt_acuity]
+    weights = [_assign_severity_tier(c, a or "acute") for c, a in zip(gt_codes, gt_acuity)]
 
-        # Acuity accuracy: for matched pairs, collect acuity labels
-        pred_code_to_acuity = dict(zip(
-            [_normalize_icd10(c) for c in pred_codes], pred_acuities
-        ))
-        for pred_c, gt_c in matched:
-            p_acuity = _normalize_acuity(pred_code_to_acuity.get(pred_c, ""))
-            g_acuity = _normalize_acuity(gt_code_to_acuity.get(gt_c, ""))
-            all_acuity_pairs.append((p_acuity or "", g_acuity or ""))
+    pred_codes, pred_acuity = _dx_entries(pred if isinstance(pred, dict) else {})
+    neutral = {c[:3] for c in (gt.get("_neutral_categories") or [])}
+    matched = _match_graded(pred_codes, gt_codes)
 
-    # Aggregate
-    mean_recall = float(np.mean(all_recalls)) if all_recalls else 0.0
-    mean_precision = float(np.mean(all_precisions)) if all_precisions else 0.0
-    mean_f1 = problem_list_f1(mean_recall, mean_precision)
-    mean_w_recall = float(np.mean(all_weighted_recalls)) if all_weighted_recalls else 0.0
-    w_f1 = problem_list_f1(mean_w_recall, mean_precision)
+    credit_by_gt: dict[int, float] = {}
+    icd_by_gt: dict[int, float] = {}
+    acuity_pairs: list[tuple[str, str]] = []
+    for pi, gi, icd_credit in matched:
+        factor = 1.0
+        if gt_acuity[gi] is not None:
+            if pred_acuity[pi] != gt_acuity[gi]:
+                factor = ACUITY_MISMATCH_FACTOR
+            acuity_pairs.append((pred_acuity[pi] or "", gt_acuity[gi]))
+        credit_by_gt[gi] = icd_credit * factor
+        icd_by_gt[gi] = icd_credit
+    matched_pred = {pi for pi, _, _ in matched}
+    unmatched_pred = [pi for pi in range(len(pred_codes)) if pi not in matched_pred]
+    neutral_unmatched = [pi for pi in unmatched_pred if _normalize_icd10(pred_codes[pi])[:3] in neutral]
 
-    acuity_acc = acuity_accuracy(all_acuity_pairs)
-    acuity_cm = acuity_confusion_matrix(all_acuity_pairs)
-
-    defined_neutral = [p for p in all_precisions_neutral if not np.isnan(p)]
-    mean_precision_neutral = (float(np.mean(defined_neutral)) if defined_neutral
-                              else mean_precision)
-    w_f1_neutral = problem_list_f1(mean_w_recall, mean_precision_neutral)
-
+    total_credit = sum(credit_by_gt.values())
+    n_gt, n_pred = len(gt_codes), len(pred_codes)
+    recall = total_credit / n_gt if n_gt else (1.0 if not n_pred else 0.0)
+    w_recall = (sum(credit_by_gt.get(gi, 0.0) * w for gi, w in enumerate(weights)) / sum(weights)) if n_gt and sum(weights) else recall
+    precision = total_credit / n_pred if n_pred else 0.0
+    denom_neutral = n_pred - len(neutral_unmatched)
+    precision_neutral = total_credit / denom_neutral if denom_neutral else (1.0 if n_pred and total_credit else 0.0)
+    if not n_pred:
+        precision = precision_neutral = 0.0
+    eligible = [(p, g) for p, g in acuity_pairs if p]
     return {
-        "problem_list_recall": mean_recall,
-        "problem_list_precision": mean_precision,
-        "problem_list_f1": mean_f1,
-        "weighted_problem_list_recall": mean_w_recall,
-        "weighted_problem_list_f1": w_f1,
-        "problem_list_precision_neutral": mean_precision_neutral,
-        "problem_list_f1_neutral": problem_list_f1(mean_recall, mean_precision_neutral),
-        "weighted_problem_list_f1_neutral": w_f1_neutral,
-        "n_neutral_predictions": n_neutral_predictions,
-        "icd10_specificity_score": float(np.mean(all_specificity)) if all_specificity else 0.0,
-        "acuity_accuracy": acuity_acc if acuity_acc is not None else 0.0,
-        "acuity_confusion_matrix": acuity_cm,
-        "n_scored": n_scored,
-        "n_tier_c": n_tier_c,
+        "problem_list_recall": recall,
+        "problem_list_precision": precision,
+        "problem_list_f1": problem_list_f1(recall, precision),
+        "weighted_problem_list_recall": w_recall,
+        "weighted_problem_list_f1": problem_list_f1(w_recall, precision),
+        "problem_list_precision_neutral": precision_neutral,
+        "problem_list_f1_neutral": problem_list_f1(recall, precision_neutral),
+        "weighted_problem_list_f1_neutral": problem_list_f1(w_recall, precision_neutral),
+        "n_neutral_predictions": len(neutral_unmatched),
+        "icd10_specificity_score": (sum(icd_by_gt.values()) / len(icd_by_gt)) if icd_by_gt else None,
+        "acuity_accuracy": (sum(1 for p, g in acuity_pairs if p == g) / len(acuity_pairs)) if acuity_pairs else None,
+        "acuity_pairs": acuity_pairs,
+        "empty_prediction": n_pred == 0,
     }
+
+
+def _compute_patient_diagnosis_metrics(predictions: list[dict], ground_truths: list[dict]) -> dict:
+    """Batch = mean of the per-item metrics, so a single-item reward equals the aggregate."""
+    items = [score_patient_diagnosis_item(p, g) for p, g in zip(predictions, ground_truths)]
+    keys = ("problem_list_recall", "problem_list_precision", "problem_list_f1", "weighted_problem_list_recall",
+            "weighted_problem_list_f1", "problem_list_precision_neutral", "problem_list_f1_neutral",
+            "weighted_problem_list_f1_neutral")
+    out = {k: float(np.mean([it[k] for it in items])) if items else 0.0 for k in keys}
+    spec = [it["icd10_specificity_score"] for it in items if it["icd10_specificity_score"] is not None]
+    pairs = [pr for it in items for pr in it["acuity_pairs"]]
+    out.update({
+        "n_neutral_predictions": sum(it["n_neutral_predictions"] for it in items),
+        "icd10_specificity_score": float(np.mean(spec)) if spec else 0.0,
+        "acuity_accuracy": acuity_accuracy(pairs),
+        "acuity_confusion_matrix": acuity_confusion_matrix(pairs),
+        "n_scored": len(items),
+        "n_tier_c": sum(1 for it in items if it["empty_prediction"]),   # empty predictions, scored 0
+    })
+    return out
 
 
 # ============================================================================
@@ -568,40 +572,82 @@ def rouge_l(predictions: list[str], references: list[str]) -> float:
     return float(np.mean(scores)) if scores else 0.0
 
 
-def clinical_f1(predictions: list[str], must_include_findings: list[list[dict]]) -> float:
-    """Recall of must_include_findings in predicted summaries.
-
-    Uses the abbreviation-aware semantic matcher (eval/semantic_match.py) so that
-    physician shorthand and synonym variants are matched, consistent with the
-    physician-side scoring (spec_v1.33 §17.9).
-    """
+def clinical_f1(predictions: list[str], must_include_findings: list[list[dict]],
+                chart_texts: list[str] | None = None, concept_extractor=None) -> float:
+    """Mean per-item whole-patient summary score (see score_summary_item)."""
     if not predictions:
         return 0.0
-    return _list_recall(predictions, must_include_findings)
+    charts = chart_texts or [None] * len(predictions)
+    return float(np.mean([score_summary_item(p, m, c, concept_extractor)["clinical_f1"]
+                          for p, m, c in zip(predictions, must_include_findings, charts)]))
+
+
+def finding_recall(summary: str, findings: list, concept_extractor=None) -> float:
+    """Share of must-include findings the summary states as present (lexical-not-negated, value
+    polarity, or concept match). 0 when there are no findings."""
+    names = _finding_names(findings)
+    if not names:
+        return 0.0
+    return concept_match.count_present(names, summary or "", concept_extractor) / len(names)
+
+
+def score_summary_item(summary: str, must_include: list, chart_text: str | None = None,
+                       concept_extractor=None, patient_terms: str | None = None) -> dict:
+    """Whole-patient summary reward (`clinical_f1`, Stage 3):
+
+        recall    = must-include findings stated as present (negation-aware, concept-level)
+        precision = share of the summary's clinical concepts the record supports (chart text or the
+                    patient's annotated finding/diagnosis names)
+        length    = 1 up to SUMMARY_WORD_BUDGET words, then budget / words
+        clinical_f1 = HM(recall, precision) x length   (recall x length when no chart text or the
+                      summary carries no clinical concept)
+
+    The old metric was recall only: pasting the chart scored 0.67 and "denies fever" credited "Fever".
+    """
+    summary = summary or ""
+    recall = finding_recall(summary, must_include, concept_extractor)
+    precision = None
+    if chart_text and concept_extractor is not None:
+        precision = concept_match.grounded_precision(summary, chart_text, concept_extractor, patient_terms)
+    length = concept_match.length_factor(summary)
+    core = concept_match.harmonic(recall, precision) if precision is not None else recall
+    return {"clinical_f1": core * length, "finding_recall": recall, "grounded_precision": precision,
+            "length_factor": length, "omission_rate": 1.0 - recall}
 
 
 def omission_rate(predictions: list[str], must_include_findings: list[list[dict]]) -> float:
-    """Fraction of must_include_findings NOT mentioned (1 - clinical recall)."""
-    return 1.0 - clinical_f1(predictions, must_include_findings)
+    """Fraction of must-include findings NOT stated as present (1 - finding recall)."""
+    if not predictions:
+        return 1.0
+    return 1.0 - float(np.mean([finding_recall(p, m) for p, m in zip(predictions, must_include_findings)]))
 
 
 def hallucination_rate(predictions: list[str], ehr_texts: list[str],
-                       jaccard_threshold: float = 0.15) -> float:
-    """Fraction of summary sentences not grounded in source EHR text."""
+                       jaccard_threshold: float = 0.15, concept_extractor=None,
+                       patient_terms: list[str | None] | None = None) -> float:
+    """Fraction of summary sentences not grounded in the source chart.
+
+    With a concept extractor (the scorer always passes one): a sentence is hallucinated when it
+    carries clinical concepts none of which the chart states. Without one, the legacy token-overlap
+    test is used; it cannot detect fabrication (audit #14) and is kept only for backward comparison.
+    """
     if not predictions:
         return 0.0
-
     rates = []
-    for pred, ehr in zip(predictions, ehr_texts):
+    terms = patient_terms or [None] * len(predictions)
+    for pred, ehr, pt in zip(predictions, ehr_texts, terms):
         if not pred:
             rates.append(0.0)
+            continue
+        if concept_extractor is not None:
+            r = concept_match.hallucination_rate_one(pred, ehr or "", concept_extractor, pt)
+            rates.append(0.0 if r is None else r)
             continue
         sentences = _split_sentences(pred)
         if not sentences:
             rates.append(0.0)
             continue
-
-        ehr_tokens = set(ehr.lower().split())
+        ehr_tokens = set((ehr or "").lower().split())
         hallucinated = 0
         for sent in sentences:
             sent_tokens = set(sent.lower().split())
@@ -611,7 +657,6 @@ def hallucination_rate(predictions: list[str], ehr_texts: list[str],
             if overlap < jaccard_threshold:
                 hallucinated += 1
         rates.append(hallucinated / len(sentences))
-
     return float(np.mean(rates)) if rates else 0.0
 
 
@@ -691,7 +736,7 @@ def precision_at_k(ranked_results: list[list[dict]], judgments: list[dict[str, i
             pid = item.get("passage_id", "")
             if judg.get(pid, 0) >= threshold:
                 relevant += 1
-        precisions.append(relevant / min(k, len(results)) if results else 0.0)
+        precisions.append(relevant / k)   # fixed-k denominator: a short list fills fewer slots (Stage 3)
     return float(np.mean(precisions)) if precisions else 0.0
 
 
@@ -901,6 +946,11 @@ def _extract_pred_summaries(predictions: list[dict]) -> list[str]:
     return summaries
 
 
+def _extract_abstains(predictions: list[dict]) -> list[bool]:
+    """The explicit abstention flag of each submission (specialty-conditioned items)."""
+    return [bool(isinstance(p, dict) and p.get("abstain") is True) for p in predictions]
+
+
 def _dominant_variant(ground_truths: list[dict]) -> str:
     """The variant shared by the GT rows in this run (default 'unconditioned')."""
     counts: dict[str, int] = defaultdict(int)
@@ -944,24 +994,33 @@ def _compute_summarization_metrics(predictions: list[dict], ground_truths: list[
             pred_summaries, ground_truths, ehr_texts
         )
     if variant == "specialty_conditioned":
-        return _compute_specialty_conditioned_metrics(pred_summaries, ground_truths, ehr_texts)
+        return _compute_specialty_conditioned_metrics(
+            pred_summaries, ground_truths, ehr_texts, abstains=_extract_abstains(predictions),
+            concept_extractor=kwargs.get("concept_extractor"))
 
     # --- Unconditioned whole-patient summary (default) ---
+    extractor = kwargs.get("concept_extractor")
+    charts = list(ehr_texts) if ehr_texts else [gt.get("_chart_text") for gt in ground_truths]
     ref_summaries = [gt.get("reference_summary", "") for gt in ground_truths]
     must_include = [gt.get("must_include_findings", []) for gt in ground_truths]
-
+    terms = [gt.get("_patient_terms") for gt in ground_truths]
+    items = [score_summary_item(p, m, c, extractor, t) for p, m, c, t in zip(pred_summaries, must_include, charts, terms)]
+    grounded = [it["grounded_precision"] for it in items if it["grounded_precision"] is not None]
     metrics = {
         "rouge_l": rouge_l(pred_summaries, ref_summaries),
-        "clinical_f1": clinical_f1(pred_summaries, must_include),
-        "omission_rate": omission_rate(pred_summaries, must_include),
-        # Length covariate: leakage/precision metrics are length-sensitive.
+        "clinical_f1": float(np.mean([it["clinical_f1"] for it in items])) if items else 0.0,
+        "finding_recall": float(np.mean([it["finding_recall"] for it in items])) if items else 0.0,
+        "grounded_precision": float(np.mean(grounded)) if grounded else None,
+        "length_factor": float(np.mean([it["length_factor"] for it in items])) if items else 0.0,
+        "omission_rate": float(np.mean([it["omission_rate"] for it in items])) if items else 1.0,
         "mean_summary_words": float(np.mean([len((s or "").split()) for s in pred_summaries])) if pred_summaries else 0.0,
     }
     aw = _acuity_weighted_recall(pred_summaries, must_include)
     if aw is not None:
         metrics["acuity_weighted_recall"] = aw
-    if ehr_texts:
-        metrics["hallucination_rate"] = hallucination_rate(pred_summaries, ehr_texts)
+    if any(charts):
+        metrics["hallucination_rate"] = hallucination_rate(
+            pred_summaries, [c or "" for c in charts], concept_extractor=extractor, patient_terms=terms)
     return metrics
 
 
@@ -1010,118 +1069,116 @@ def _compute_current_visit_metrics(pred_summaries: list[str],
     return metrics
 
 
-# Abstention detection for the specialty-conditioned "absent" stratum.
-_ABSTAIN_MAX_WORDS = 12
-_ABSTAIN_PHRASES = (
-    "no active", "not applicable", "no relevant", "none identified",
-    "no involvement", "no significant", "no specialty", "no findings",
-)
-
-
-def _is_abstention(summary: str) -> bool:
-    """A summary counts as abstaining if it is essentially empty or explicitly
-    states no specialty involvement (correct output for an 'absent' pair)."""
-    s = (summary or "").strip()
-    if len(s.split()) <= _ABSTAIN_MAX_WORDS:
-        return True
-    low = s.lower()
-    return any(p in low for p in _ABSTAIN_PHRASES)
+def _is_abstention(prediction) -> bool:
+    """A submission abstains iff it carries an explicit `abstain: true`. Text never abstains: the
+    old rule (<= 12 words, or a stock phrase such as "no significant" anywhere in the text) let a full
+    summary with "No significant distress." appended score 1.0 on every absent item (audit #4)."""
+    return bool(isinstance(prediction, dict) and prediction.get("abstain") is True)
 
 
 def _tier(gt: dict, name: str) -> list:
     return (gt.get("tiers") or {}).get(name, []) or []
 
 
+def _critical(findings: list) -> list:
+    return [f for f in findings if isinstance(f, dict) and f.get("importance") == "critical"]
+
+
+def score_specialty_item(summary: str, abstain: bool, gt: dict, chart_text: str | None = None,
+                         concept_extractor=None) -> dict:
+    """Specialty-conditioned reward (Stage 3).
+
+    Involved item (the specialty has an active problem):
+        target    = critical primary+relevant findings, or all of them when the item has none
+                    (540 items used to score 0 for every answer, audit #23)
+        recall    = target findings stated as present (negation-aware, concept-level)
+        precision = 1 - share of the excluded (off-specialty) sample the summary mentions
+        conditioned_f1 = HM(recall, precision) x length factor; 0 if the submission abstains
+    Absent item (no active problem): abstention_accuracy = 1 iff `abstain` is true.
+    """
+    summary = summary or ""
+    primary, relevant = _tier(gt, "primary"), _tier(gt, "relevant")
+    involved = gt.get("involvement") in ("high", "low", "involved") or bool(primary or relevant)
+    excluded = _tier(gt, "excluded_sample")
+    leakage = finding_recall(summary, excluded, concept_extractor) if excluded else 0.0
+    if not involved:
+        return {"involved": False, "abstention_accuracy": 1.0 if abstain else 0.0,
+                "absent_leakage_rate": 0.0 if abstain else leakage}
+    combined = primary + relevant
+    crit = _critical(combined)
+    target = crit or combined
+    # an excluded finding whose name is implied by the target findings themselves ("Hypotension" vs
+    # "Orthostatic hypotension") cannot be avoided by any faithful summary: it is not leakage
+    if excluded and combined:
+        target_text = ". ".join(_finding_names(combined))
+        excluded = [e for e in excluded if not concept_match.present(_finding_names([e])[0] if _finding_names([e]) else "", target_text, concept_extractor)]
+        leakage = finding_recall(summary, excluded, concept_extractor) if excluded else 0.0
+    recall_target = finding_recall(summary, target, concept_extractor) if not abstain else 0.0
+    recall_all = finding_recall(summary, combined, concept_extractor) if not abstain else 0.0
+    precision = 1.0 - leakage
+    length = concept_match.length_factor(summary)
+    out = {
+        "involved": True,
+        "wrong_abstention": abstain,
+        "primary_recall_critical": finding_recall(summary, _critical(primary) or primary, concept_extractor) if not abstain else 0.0,
+        "primary_recall_complete": finding_recall(summary, primary, concept_extractor) if not abstain else 0.0,
+        "relevant_recall_critical": finding_recall(summary, _critical(relevant) or relevant, concept_extractor) if relevant and not abstain else None,
+        "relevant_recall_complete": finding_recall(summary, relevant, concept_extractor) if relevant and not abstain else None,
+        "leakage_rate": leakage if not abstain else 0.0,
+        "leakage_rate_strict": finding_recall(summary, excluded + _tier(gt, "neutral"), concept_extractor) if (excluded or _tier(gt, "neutral")) and not abstain else 0.0,
+        "conditioned_f1": 0.0 if abstain else concept_match.harmonic(recall_target, precision) * length,
+        "conditioned_f1_complete": 0.0 if abstain else concept_match.harmonic(recall_all, precision) * length,
+        "critical_fallback": not crit,
+        "length_factor": length,
+    }
+    out["omission_rate"] = 1.0 - out["primary_recall_complete"]
+    return out
+
+
 def _compute_specialty_conditioned_metrics(pred_summaries: list[str],
                                            ground_truths: list[dict],
-                                           ehr_texts: list[str] | None = None) -> dict:
-    """Specialty-conditioned summarization (spec_v1.33 §17.9).
+                                           ehr_texts: list[str] | None = None,
+                                           abstains: list[bool] | None = None,
+                                           concept_extractor=None) -> dict:
+    """Batch = mean of per-item scores over involved and absent items respectively."""
+    abstains = abstains or [False] * len(pred_summaries)
+    charts = list(ehr_texts) if ehr_texts else [gt.get("_chart_text") for gt in ground_truths]
+    items = [score_specialty_item(s, a, gt, c, concept_extractor)
+             for s, a, gt, c in zip(pred_summaries, abstains, ground_truths, charts)]
+    inv = [it for it in items if it["involved"]]
+    ab = [it for it in items if not it["involved"]]
 
-    Involved items (involvement high/low): primary-tier recall, relevant-tier
-    recall, excluded-tier leakage, and conditioned_f1 = HM(primary∪relevant
-    recall, 1-leakage). Absent items (correct output = abstain): binary
-    abstention accuracy + leakage on the excluded set.
-    """
-    involvement = [gt.get("involvement") for gt in ground_truths]
-    has_content = [bool(_tier(gt, "primary") or _tier(gt, "relevant")) for gt in ground_truths]
-    involved = [i for i in range(len(ground_truths))
-                if involvement[i] in ("high", "low", "involved") or has_content[i]]
-    involved_set = set(involved)
-    absent = [i for i in range(len(ground_truths)) if i not in involved_set]
-
-    def sub(idxs, key):
-        return [_tier(ground_truths[i], key) for i in idxs]
-
-    def preds(idxs):
-        return [pred_summaries[i] for i in idxs]
+    def mean(key, pool):
+        vals = [it[key] for it in pool if it.get(key) is not None]
+        return float(np.mean(vals)) if vals else 0.0
 
     metrics = {
-        "n_involved": len(involved),
-        "n_absent": len(absent),
+        "n_involved": len(inv),
+        "n_absent": len(ab),
         "mean_summary_words": float(np.mean([len((s or "").split()) for s in pred_summaries])) if pred_summaries else 0.0,
     }
-
-    if involved:
-        ip = preds(involved)
-        primary = sub(involved, "primary")
-        relevant = sub(involved, "relevant")
-        neutral = sub(involved, "neutral")
-        excluded = sub(involved, "excluded_sample")
-        # Two-number recall: CRITICAL = pathognomonic/highly_suggestive (must-not-miss,
-        # the headline faithfulness signal); COMPLETE = all findings (secondary
-        # thoroughness). Most tier findings are 'optional' (commonly_seen/risk_factor),
-        # which a faithful, focused summary may legitimately omit.
-        crit = lambda lists: [[f for f in (lst or [])
-                               if isinstance(f, dict) and f.get("importance") == "critical"]
-                              for lst in lists]
-        primary_c, relevant_c = crit(primary), crit(relevant)
-        combined = [(p or []) + (r or []) for p, r in zip(primary, relevant)]
-        combined_c = [(p or []) + (r or []) for p, r in zip(primary_c, relevant_c)]
-        # Matcher cascade (lexical + negation guard + polarity-safe value-normalizer) for
-        # recall AND leakage (negation-aware: "no atrial fibrillation" is not a leak).
-        # leakage = the EXCLUDED tier only (truly off-target). The NEUTRAL buffer (Class-2/3
-        # associative/residual links) is neither credited nor penalized, de-circularizing the
-        # boundary; leakage_strict folds neutral back in (graph-wide) to report its sensitivity.
-        leakage, _ = _list_recall_cascade(ip, excluded)
-        leakage_strict, _ = _list_recall_cascade(
-            ip, [(e or []) + (n or []) for e, n in zip(excluded, neutral)])
-        precision = 1.0 - leakage
-
-        def _hm(recall):
-            return (2 * recall * precision / (recall + precision)
-                    if (recall + precision) > 0 else 0.0)
-
-        pr_c, _ = _list_recall_cascade(ip, primary_c)
-        pr_all, _ = _list_recall_cascade(ip, primary)
-        rr_c, _ = _list_recall_cascade(ip, relevant_c)
-        rr_all, _ = _list_recall_cascade(ip, relevant)
-        cond_c, _ = _list_recall_cascade(ip, combined_c)
-        cond_all, credits = _list_recall_cascade(ip, combined)
+    if inv:
         metrics.update({
-            "primary_recall_critical": pr_c,                 # headline (must-not-miss)
-            "primary_recall_complete": pr_all,               # secondary (thoroughness)
-            "primary_recall_critical_lexical": _list_recall(ip, primary_c),  # conservative lower bound
-            "relevant_recall_critical": rr_c,                # decomposition / secondary (novelty)
-            "relevant_recall_complete": rr_all,
-            "leakage_rate": leakage,                         # excluded-only (de-circularized boundary)
-            "leakage_rate_strict": leakage_strict,           # excluded ∪ neutral (boundary sensitivity)
-            "conditioned_f1": _hm(cond_c),                   # HEADLINE: HM(primary∪relevant critical, 1-leakage)
-            "conditioned_f1_complete": _hm(cond_all),        # secondary (all findings)
-            "value_normalizer_credits": credits,             # findings the value-normalizer added (audit)
-            # Cross-variant secondaries (match the unconditioned table): omission =
-            # fraction of primary findings omitted (1 - primary-tier recall, cascade);
-            # hallucination = summary sentences not grounded in the source EHR.
-            "omission_rate": 1.0 - pr_all,
+            "primary_recall_critical": mean("primary_recall_critical", inv),
+            "primary_recall_complete": mean("primary_recall_complete", inv),
+            "relevant_recall_critical": mean("relevant_recall_critical", inv),
+            "relevant_recall_complete": mean("relevant_recall_complete", inv),
+            "leakage_rate": mean("leakage_rate", inv),
+            "leakage_rate_strict": mean("leakage_rate_strict", inv),
+            "conditioned_f1": mean("conditioned_f1", inv),
+            "conditioned_f1_complete": mean("conditioned_f1_complete", inv),
+            "omission_rate": mean("omission_rate", inv),
+            "wrong_abstention_rate": float(np.mean([it["wrong_abstention"] for it in inv])),
+            "critical_fallback_rate": float(np.mean([it["critical_fallback"] for it in inv])),
+            "length_factor": mean("length_factor", inv),
         })
-        if ehr_texts is not None:
+        if any(charts):
+            inv_idx = [i for i, it in enumerate(items) if it["involved"]]
             metrics["hallucination_rate"] = hallucination_rate(
-                ip, [ehr_texts[i] for i in involved])
-
-    if absent:
-        ap = preds(absent)
-        metrics["abstention_accuracy"] = float(np.mean([_is_abstention(s) for s in ap]))
-        metrics["absent_leakage_rate"] = _list_recall(ap, sub(absent, "excluded_sample"))
-
+                [pred_summaries[i] for i in inv_idx], [charts[i] or "" for i in inv_idx], concept_extractor=concept_extractor)
+    if ab:
+        metrics["abstention_accuracy"] = mean("abstention_accuracy", ab)
+        metrics["absent_leakage_rate"] = mean("absent_leakage_rate", ab)
     return metrics
 
 
@@ -1208,5 +1265,24 @@ def _compute_imaging_metrics(predictions: list[dict], ground_truths: list[dict],
     }
     if concept_extractor is not None:
         from eval.imaging_concepts import concept_f1_batch
-        metrics.update(concept_f1_batch(concept_extractor, pred_questions, ref_questions))
+        # Stage 3: the primary reference is the deterministic concept set built from the graph
+        # (reference_terms: the encounter's correct diagnosis, its differential and its key findings);
+        # the LLM-authored question is scored as a secondary metric when both exist.
+        det_refs = [reference_terms_text(gt) for gt in ground_truths]
+        if all(det_refs):
+            metrics.update(concept_f1_batch(concept_extractor, pred_questions, det_refs))
+            llm = concept_f1_batch(concept_extractor, pred_questions, ref_questions)
+            metrics["clinical_question_concept_f1_llm"] = llm["clinical_question_concept_f1"]
+        else:
+            metrics.update(concept_f1_batch(concept_extractor, pred_questions, ref_questions))
     return metrics
+
+
+def reference_terms_text(gt: dict) -> str:
+    """The deterministic imaging reference as text: graph names of the correct diagnosis, the
+    differential (distractor diagnoses) and the encounter's key findings, or '' when absent."""
+    terms = gt.get("reference_terms")
+    if not isinstance(terms, dict):
+        return ""
+    names = [n for key in ("diagnosis", "differential", "findings") for n in (terms.get(key) or [])]
+    return ". ".join(str(n) for n in names if n)

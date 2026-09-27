@@ -281,20 +281,28 @@ def parse_output(raw_text: str) -> dict:
     """Parse model output into structured summarization prediction."""
     text = _strip_markdown(raw_text)
 
+    def _out(data: dict) -> dict | None:
+        summary = data.get("summary", "") or ""
+        abstain = data.get("abstain")
+        if summary or abstain is True:
+            out = {"summary": summary}
+            if isinstance(abstain, bool):
+                out["abstain"] = abstain
+            return out
+        return None
+
     try:
         data = json.loads(text, strict=False)
-        summary = data.get("summary", "")
-        if summary:
-            return {"summary": summary}
+        if isinstance(data, dict) and (r := _out(data)):
+            return r
     except json.JSONDecodeError:
         # Try to extract JSON
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             try:
                 data = json.loads(match.group(), strict=False)
-                summary = data.get("summary", "")
-                if summary:
-                    return {"summary": summary}
+                if isinstance(data, dict) and (r := _out(data)):
+                    return r
             except json.JSONDecodeError:
                 pass
 

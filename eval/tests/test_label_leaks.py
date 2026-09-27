@@ -145,14 +145,14 @@ def test_retrieval_instances_are_per_diagnosis(db):
     assert superseded == 1268
 
 
-def test_derived_judgments_follow_the_release_grading_rule(db):
-    from scripts.split_retrieval_by_diagnosis import grade, load_graph
+def test_judgments_follow_the_content_grading_rule(db):
+    """Stored judgments equal the content rule (scripts/regrade_retrieval_by_content.Graph) recomputed."""
+    from scripts.regrade_retrieval_by_content import Graph
     conn = sqlite3.connect(f"file:{D.DEFAULT_DB}?mode=ro", uri=True)
-    graph = load_graph(conn)
-    for inst in db.instances("evidence_retrieval", SPLIT)[:40]:
-        dx = [d["diagnosis_id"] for d in inst["gt"]["query_diagnoses"]]
-        for pid, stored in db.judgments(inst["gt_id"]).items():
-            assert grade(pid, dx, *graph) == stored
+    graph = Graph(conn)
+    for inst in db.instances("evidence_retrieval", SPLIT)[:30]:
+        d = inst["gt"]["query_diagnoses"][0]["diagnosis_id"]
+        assert graph.grade(inst["patient_id"], d) == db.judgments(inst["gt_id"])
 
 
 # ---------------------------------------------------------------------------

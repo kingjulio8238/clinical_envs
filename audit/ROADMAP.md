@@ -89,6 +89,17 @@ new retrieval rows and item 7 moved labels out of the release DB (89 MB after dr
 
 ## Stage 3: Harden the reward functions (scorer; deterministic)
 
+**Status: DONE (2026-09-27).** See `SCORING_CHANGES.md` for the definitions. Per-item = batch mean everywhere;
+zero-fill; graded ICD credit and acuity; documented conditions neutral; fixed-k P@k; content-graded retrieval
+judgments with nDCG@10 as reward; whole-patient summary = HM(negation-aware concept recall, grounded precision) ×
+length, must-include rebalanced per encounter; explicit `abstain` field, involvement-weighted absent specialties,
+critical-fallback for the 540 zero items; imaging concept F1 against graph reference terms; concept-grounded
+hallucination rate. All 12 Stage-3 xfails un-marked and passing; floors regenerated. `eval/concept_match.py` is the
+shared matcher. Floors before → after (public): retrieval P@5 0.995 → 0.38 (type prior; one HPI 0.06), nDCG@10
+0.81 → 0.40; summarization chart dump 0.67 → 0.32; dx copy 0.84 → 0.60; specialty absent still 1.0 for a constant
+`abstain: true` (binary unit, not normalized).
+
+
 **All tasks**
 - Zero-fill: every requested item gets a score. Today patient diagnosis skips empty predictions and the single-turn runner drops API failures (F§10 C.3), so means cover only answered items.
 

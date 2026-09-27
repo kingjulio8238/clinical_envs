@@ -32,7 +32,7 @@ LABEL_KEYS: dict[str, tuple[str, ...]] = {
     "context_summarization": ("must_include_findings", "reference_summary", "key_encounters",
                               "tiers", "involvement", "tau_residual"),
     "imaging_indication": ("inferred_clinical_question", "pre_read_summary", "must_include_findings",
-                           "differential_context", "relevant_clinical_data"),
+                           "differential_context", "relevant_clinical_data", "reference_terms"),
 }
 
 

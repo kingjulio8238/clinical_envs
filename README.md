@@ -158,7 +158,7 @@ python -m eval.cli matrix --task patient_diagnosis --split public   # all models
 
 Tasks: `patient_diagnosis`, `context_summarization`, `evidence_retrieval`, `imaging_indication`. Splits: `public`, `heldout`, `train`. See `python -m eval.cli --help`.
 
-Locked prompting strategies used in the paper: CoT (patient diagnosis), ontology-grounded structured (whole-patient summarization), zero-shot (retrieval, specialty-conditioned summarization), few-shot (imaging). `eval.cli score` reports the paper's primary metrics directly: patient diagnosis under the chart-neutral rule (`weighted_problem_list_f1_neutral`; sets from `eval/chart_neutral.py`), retrieval over chart sections only (`precision_5`, `ndcg_10`), summarization by must-include finding recall (`clinical_f1`), and the imaging clinical question by ontology-grounded concept F1 (`clinical_question_concept_f1`; extractor in `eval/imaging_concepts.py`, built from the loaded database with no external ontology files).
+Locked prompting strategies used in the paper: CoT (patient diagnosis), ontology-grounded structured (whole-patient summarization), zero-shot (retrieval, specialty-conditioned summarization), few-shot (imaging). `eval.cli score` reports the primary metrics as **redefined in this fork** (see [SCORING_CHANGES.md](SCORING_CHANGES.md); names unchanged, semantics hardened): patient diagnosis by graded-ICD, acuity-aware, severity-weighted F1 under the chart-neutral rule (`weighted_problem_list_f1_neutral`), retrieval by `ndcg_10` over content-graded chart sections (`precision_5` also returned), summarization by HM(negation-aware finding recall, chart-grounded concept precision) × length factor (`clinical_f1`), and the imaging clinical question by concept F1 against graph-derived reference terms (`clinical_question_concept_f1`; extractor in `eval/imaging_concepts.py`, built from the loaded database with no external ontology files).
 
 `context_summarization` has three variants selected via `--granularity`: whole-patient (default), `encounter` (current-visit, point-in-time), and `specialty` (specialty-conditioned; optionally scope to a frozen cohort with `--tier small|medium|large`). Example:
 
@@ -212,11 +212,12 @@ curl -s -H "X-Scorer-Token: $TOKEN" -H "Content-Type: application/json" http://l
 ```
 
 The response carries `reward` in [0, 1], the metric it was taken from, and every metric the scorer
-computed. Rewards are the tasks' primary metrics: severity-weighted, chart-neutral F1 for patient
-diagnosis; must-include finding recall for summarization (conditioned F1 or abstention accuracy for the
-specialty variant); precision at 5 over chart sections for retrieval (NDCG at 10 is also returned); and
-ontology-grounded concept F1 of the inferred clinical question for imaging (the paper's metric; token-level
-F1 is also returned). Submissions use the same JSON schemas the
+computed (reward only for the private split). Rewards are the tasks' primary metrics as defined in
+[SCORING_CHANGES.md](SCORING_CHANGES.md): graded-ICD, acuity-aware, severity-weighted chart-neutral F1 for
+patient diagnosis; HM(finding recall, grounded precision) × length for summarization (conditioned F1, or
+abstention accuracy from the explicit `abstain` field, for the specialty variant); nDCG at 10 over
+content-graded chart sections for retrieval (P@5 also returned); and concept F1 of the inferred clinical
+question against graph-derived reference terms for imaging. Submissions use the same JSON schemas the
 agent tools accept (`submit_diagnosis`, `submit_summary`, `submit_rankings`, `submit_pre_read`); a malformed
 or empty submission scores 0 rather than raising. `POST /score/batch` scores up to 256 items per call. The
 same function is available in-process as `eval.score_one.score_submission`.

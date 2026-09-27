@@ -385,7 +385,7 @@ SPECIALTY_ZERO_SHOT = PromptTemplate(
         "PATIENT MEDICAL RECORD:\n{ehr_text}\n\n"
         "Write the specialty-specific summary (no length limit); omit unrelated systems.\n\n"
         f"{_JSON_CLOSING}\n"
-        '{{"summary": "..."}}'
+        '{{"summary": "...", "abstain": <true only if the patient has no active problem in the requested specialty; then leave summary empty>}}'
     ),
 )
 
@@ -407,7 +407,7 @@ SPECIALTY_NEUTRAL = PromptTemplate(
         "PATIENT MEDICAL RECORD:\n{ehr_text}\n\n"
         "Write the summary (no length limit).\n\n"
         f"{_JSON_CLOSING}\n"
-        '{{"summary": "..."}}'
+        '{{"summary": "...", "abstain": <true only if the patient has no active problem in the requested specialty; then leave summary empty>}}'
     ),
 )
 
@@ -438,7 +438,7 @@ SPECIALTY_SAME_ONLY = PromptTemplate(
         "PATIENT MEDICAL RECORD:\n{ehr_text}\n\n"
         "Write the summary (no length limit); include ONLY the requested specialty's own active problems.\n\n"
         f"{_JSON_CLOSING}\n"
-        '{{"summary": "..."}}'
+        '{{"summary": "...", "abstain": <true only if the patient has no active problem in the requested specialty; then leave summary empty>}}'
     ),
 )
 
@@ -454,7 +454,7 @@ SPECIALTY_FEW_SHOT = PromptTemplate(
         "PATIENT MEDICAL RECORD:\n{ehr_text}\n\n"
         "Write the specialty-specific summary (no length limit); omit unrelated systems.\n\n"
         f"{_JSON_CLOSING}\n"
-        '{{"summary": "..."}}'
+        '{{"summary": "...", "abstain": <true only if the patient has no active problem in the requested specialty; then leave summary empty>}}'
     ),
 )
 
@@ -470,7 +470,7 @@ SPECIALTY_COT = PromptTemplate(
         "4. Otherwise, identify comorbidities/labs/meds from other systems that are "
         "clinically relevant to those problems, and exclude everything unrelated\n\n"
         "After your reasoning, provide your final summary as valid JSON:\n"
-        '{{"reasoning": "...", "summary": "..."}}'
+        '{{"reasoning": "...", "summary": "...", "abstain": <true only if the patient has no active problem in the requested specialty; then leave summary empty>}}'
     ),
 )
 
@@ -484,7 +484,8 @@ SPECIALTY_STRUCTURED = PromptTemplate(
         '{{\n'
         '  "summary": "<the requested specialty\'s active problems and the '
         'comorbidities/labs/meds relevant to them; omit unrelated systems; if none, say '
-        'so explicitly>"\n'
+        'so explicitly>",\n'
+        '  "abstain": <true only if the patient has no active problem in the requested specialty; then leave summary empty>\n'
         '}}\n\n'
         f"{_JSON_CLOSING}"
     ),

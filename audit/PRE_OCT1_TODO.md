@@ -155,6 +155,17 @@ optional P8.
         newest commit, 2 deferred (Kimi row by decision; G1–G6 on Oct 1); 323 tests passed, 0 failed. CI green on
         every earlier commit of this batch (e43dabd, 8f0664f, dbb1dd6).
 
+## C2. Environment checks done without a GPU (2026-09-28)
+
+- [x] **LoRA targets exist in the 9B:** from the checkpoint's weight index: `q/k/v/o_proj` in the 8 full-attention
+      layers, `in_proj_qkv` / `in_proj_z` / `out_proj` in the 24 linear-attention layers, `gate/up/down_proj` in all 32.
+- [x] **Images resolve on linux/amd64** (`pip --dry-run` in `python:3.12-slim`): the evaluation image (124 packages);
+      ART's vLLM runtime lockfile (`uv sync --frozen --extra cuda12 --dry-run`); the training image only with PyTorch's
+      cu128 index (ART pins `torch==2.11.0+cu128`) → **fixed** in `gpu/train_app.py` (it would have failed the build on
+      Oct 1). Training stack: torch 2.11.0+cu128, transformers 5.2.0, unsloth 2026.3.3, peft 0.21.0.
+- [x] **Trajectory tokenization:** ART trains on vLLM's own token ids per turn; turns are separate sequences in our
+      episodes (thinking is not sent back), ~2.0M training tokens per step → the training plan's budget basis.
+
 ## D. Needs you
 
 - [ ] **U1** Set each Modal workspace's usage limit to $30 at `modal.com/settings/<workspace>/usage` (dashboard only;

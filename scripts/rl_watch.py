@@ -4,6 +4,8 @@
     python scripts/rl_watch.py --profile newacc --path rl/c5-main --logs clinical-envs-train
     # an evaluation job (all its parts)
     python scripts/rl_watch.py --profile sales-32662 --path c2 --logs clinical-envs-vllm-eval
+    # what it looks like: a synthetic run (plausible numbers, not a measurement), a new step every 2 s
+    python scripts/rl_watch.py --demo
     # local files (a pulled run, a dry run); --once prints one snapshot and exits (for scripts and polling)
     python scripts/rl_watch.py --local results/modal/newacc/rl/c5-main --once
 
@@ -35,7 +37,7 @@ from eval.run_log import LOSS_KEYS, UNIT_ABBR, _dur, _f, _k, summarize_events  #
 VOLUME = "clinical-envs-results"
 RATE = 4.10
 SPARK = "▁▂▃▄▅▆▇█"
-ERR_RE = re.compile(r"Traceback|Error|ERROR|FATAL|OOM|out of memory|Killed|STOP|ALERT", re.I)
+ERR_RE = re.compile(r"Traceback|\bERROR\b|FATAL|\bOOM\b|CUDA out of memory|\bKilled\b|\bSTOP\b|ALERT|[A-Za-z]+Error:")
 
 
 def spark(vals: list[float | None]) -> str:
@@ -259,6 +261,100 @@ def render(data: dict, title: str, stale_s: float, logs: LogTail | None = None):
     return Group(*parts)
 
 
+class _DemoLogs:
+    """Stands in for LogTail in --demo: the formatted lines RunLog prints, as `modal app logs -f` would show them."""
+
+    def __init__(self, keep: int = 14):
+        self.app = "demo (synthetic)"
+        self.lines: deque[str] = deque(maxlen=keep)
+        self.n_flagged = 0
+
+    def write(self, text: str) -> None:
+        for line in text.splitlines():
+            if line.strip():
+                self.lines.append(line)
+                self.n_flagged += bool(ERR_RE.search(line))
+
+    def flush(self) -> None:
+        pass
+
+
+def demo_run(out: Path, logs: _DemoLogs, max_steps: int = 60, step_s: float = 2.0) -> None:
+    """A synthetic training run in the shape of a real one (same events, plausible trends): rewards rising from the
+    base's ~0.36, entropy falling, KL growing, a dev evaluation every 10 steps, an occasional failed episode, one
+    monitor alert. Only for seeing the dashboard; nothing here is a measurement."""
+    import random
+    from eval.run_log import RunLog, flat_groups, fmt_dev, fmt_step, unit_means
+    rng = random.Random(0)
+    units = ["patient_diagnosis", "differential_diagnosis", "evidence_retrieval", "test_selection"]
+    base = {"patient_diagnosis": 0.33, "differential_diagnosis": 0.42, "evidence_retrieval": 0.56, "test_selection": 0.28,
+            "atypical_diagnosis": 0.35}
+    rl = RunLog(out, "c5-main (DEMO)", stream=logs, progress_every=16, progress_s=1e9)
+    rl.emit("start", "start: 60 steps x 8 groups x 8 rollouts, lr 1e-05, loss cispo, kl 0.0, 512 prompts (keep), "
+                     "dev 100 every 10 steps, reward reward-v3", max_steps=max_steps, kind_of_run="train")
+    best = None
+    base_score = None
+
+    def dev(step: int) -> None:
+        nonlocal best, base_score
+        lift = 0.12 * (1 - 2.7 ** (-step / 25))
+        by = {u: min(1, b + lift * (0.8 if u == "atypical_diagnosis" else 1) + rng.gauss(0, 0.01)) for u, b in base.items()}
+        score = sum(by[u] for u in units) / 4
+        base_score = score if base_score is None else base_score
+        if step and (best is None or score > best["dev_score"]):
+            best = {"step": step, "dev_score": score}
+        alerts = ["probe_long_name 6.0% of answers (> 5%)"] if step == 40 else []
+        d = {"step": step, "dev_score": score, "dev_by_unit": by, "alerts": alerts,
+             "dev": {"reward_mean": score, "diagnosis_named": 0.38 + lift, "diagnosis_coded": 0.30 + lift / 2,
+                     "probe_long_name": 0.06 if step == 40 else 0.01, "entries": 3.4 + step / 60, "answer_chars": 520 + 3 * step}}
+        rl.emit("dev", fmt_dev(d, best, base_score), **d, best_step=(best or {}).get("step"), val_s=95.0)
+        for a in alerts:
+            rl.emit("alert", f"ALERT at step {step}: {a}", step=step, alert=a)
+
+    dev(0)
+    durations = []
+    for step in range(1, max_steps + 1):
+        rl.begin_batch(f"step {step} rollout", 64)
+        lift = 0.13 * (1 - 2.7 ** (-step / 20))
+        groups = []
+        for j in range(8):
+            u = units[(step * 8 + j) % 4]
+            p = base[u] + lift
+            rs = [round(min(1, max(0, rng.gauss(p, 0.22))), 3) if rng.random() > 0.15 else 0.0 for _ in range(8)]
+            if rng.random() < 0.2:
+                rs = [0.0] * 8                                  # a prompt the policy cannot solve yet: no signal
+            groups.append((u, rs))
+            for r in rs:
+                err = "ReadTimeout: policy server did not answer in 900s" if rng.random() < 0.004 else None
+                rl.episode(u, 90000 + rng.randrange(9999), {"reward": r, "turns": rng.randint(3, 12),
+                                                             "output_tokens": rng.randint(2500, 9000)}, err)
+        rew = [r for _, rs in groups for r in rs]
+        mean = sum(rew) / len(rew)
+        sd = (sum((r - mean) ** 2 for r in rew) / len(rew)) ** 0.5
+        roll, train = rng.uniform(280, 380), rng.uniform(80, 110)
+        durations.append(roll + train)
+        e = {"step": step, "train_reward": mean, "train": {"reward_sd": sd}, "episodes": 64, "exceptions": 0,
+             "train_by_unit": unit_means([(u, r) for u, rs in groups for r in rs]), "groups": 8,
+             "flat_groups": flat_groups([rs for _, rs in groups]), "output_tokens": rng.randint(300000, 420000),
+             "rollout_s": roll, "train_s": train,
+             "train_metrics": {"loss/train": rng.gauss(0.0, 0.02), "loss/entropy": 0.92 - 0.25 * step / max_steps + rng.gauss(0, 0.01),
+                               "loss/kl_div": 0.0004 * step + abs(rng.gauss(0, 0.001)), "loss/grad_norm": abs(rng.gauss(0.3, 0.08)),
+                               "loss/importance_ratio_mean": 1 + rng.gauss(0, 0.003), "loss/importance_ratio_p95": 1.05 + abs(rng.gauss(0, 0.02)),
+                               "loss/clipped_token_fraction": abs(rng.gauss(0.004, 0.002)), "loss/learning_rate": 1e-5}}
+        eta = sum(durations[-5:]) / len(durations[-5:]) * (max_steps - step)
+        rl.emit("step", fmt_step(e, max_steps, eta), **e, eta_s=round(eta))
+        if step % 10 == 0:
+            dev(step)
+        with (out / "telemetry.jsonl").open("a") as fh:
+            fh.write(json.dumps({"ts": time.time(), "gpus": [{"gpu_util": rng.uniform(88, 99), "vram_used_gb": rng.uniform(68, 74),
+                                                            "vram_total_gb": 80, "power_w": rng.uniform(560, 680)}],
+                                 "vllm": {"running": rng.randint(40, 64), "waiting": 0, "kv_cache": rng.uniform(0.4, 0.7),
+                                          "preemptions": 0}, "gen_tok_s": rng.uniform(2400, 3600), "load": 3.1, "ram_pct": 38}) + "\n")
+        time.sleep(step_s)
+    rl.emit("end", f"end: best checkpoint step {best['step']} (dev score {best['dev_score']:.3f} vs base {base_score:.3f})", best=best)
+    rl.close()
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--profile")
@@ -268,20 +364,32 @@ def main(argv=None) -> int:
     ap.add_argument("--every", type=float, default=20.0)
     ap.add_argument("--stale", type=float, default=300.0)
     ap.add_argument("--once", action="store_true")
+    ap.add_argument("--demo", action="store_true", help="a synthetic training run (plausible numbers, not a measurement) "
+                                                        "to see the dashboard; a new step every 2 s")
     a = ap.parse_args(argv)
     from rich.console import Console
     from rich.live import Live
+    logs = None
+    if a.demo:
+        import tempfile
+        out = Path(tempfile.mkdtemp(prefix="rl_watch_demo_"))
+        logs = _DemoLogs()
+        if a.once:
+            demo_run(out, logs, max_steps=24, step_s=0)
+        else:
+            threading.Thread(target=demo_run, args=(out, logs), daemon=True).start()
+            time.sleep(0.5)
+        a.local, a.every = str(out), 2.0
     if a.local:
-        src, title = LocalSource(Path(a.local)), "/".join(Path(a.local).parts[-2:])
+        src, title = LocalSource(Path(a.local)), ("DEMO — synthetic data" if a.demo else "/".join(Path(a.local).parts[-2:]))
     elif a.profile and a.path:
         src, title = VolumeSource(a.profile, a.path), f"{a.profile}:{a.path}"
     else:
         ap.error("--local DIR, or --profile P --path DIR")
     console = Console()
     if a.once:
-        console.print(render(load(src), title, a.stale))
+        console.print(render(load(src), title, a.stale, logs))
         return 0
-    logs = None
     if a.logs:
         logs = LogTail(a.profile, a.logs)
         logs.start()

@@ -3,15 +3,16 @@
   "eval/chart_neutral.py": "4f11fa1a6da0ca394bf4f223bc52889d4653c223245777fd7075c9d062df8e63",
   "eval/concept_match.py": "cade15c66ed789e37df92bcc715a74f275c0edd67e8f5f1e17a78b86b31acb34",
   "eval/diagnosis_aliases.json": "75e06ac9feda02e5c56d5ab1c2ccddacbabde1384b2171304e202c429501d4ff",
+  "eval/diagnosis_isa_aliases.json": "14e52315f4984eddd20f5195155259ea7dacb055651f55befb7bf686797a9ba8",
   "eval/imaging_concepts.py": "818e5c10776fbefeb4fdc7149f7691e5a0f5962de9b28a2fb864ede504acba10",
   "eval/private_labels.py": "725fbb49e3ab17e6263e1a2826d6ae2070e0ef37acac78daa2012969c2e53e82",
   "eval/score_one.py": "ff6e301eb7a045f0c5777ae3032e3a4b3d7c3afde235d7e0f0ff71c925bacbda",
-  "eval/scoring.py": "8e989be78664f200982c0d6d96392b10a8dbf56163de6f89e2b84176c8958d4f",
+  "eval/scoring.py": "5240a0477bd2592b0ddc70c3ffb086c1327004ff4657045e19216abb0282b1ce",
   "eval/scoring_tasks7.py": "a90196f3383ed440fc4f8dfb2c8dded368e2050ff9947a484bd02173799f5020",
   "eval/semantic_match.py": "fe525e04b9d1ce37604e7bed55df4f83e9c6b5818635f1237137d0a4a948402a",
   "eval/stage7.py": "36e06a3922d1c8524b62c1397bda9b758470356102267bb400e294d17f659af6",
   "eval/value_match.py": "e54e5872bbe23da83099446353ce9a5ab6508df9a0a5aba949f3c73b5980086b"
  },
- "fingerprint": "e416ae95b088a06d",
- "version": "reward-v2"
+ "fingerprint": "05a1dde8557ddfbc",
+ "version": "reward-v3"
 }

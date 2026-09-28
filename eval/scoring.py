@@ -461,14 +461,15 @@ _DX_SYN = {"mi": "myocardial infarction", "stemi": "st elevation myocardial infa
            "overdose": "poisoning", "csf": "cerebrospinal fluid", "arterial": "artery", "testosterone": "androgen",
            "administration": "use", "related": "", "periprosthetic": "prosthetic",
            "embolus": "embolism", "emboli": "embolism", "embolization": "embolism", "embolic": "embolism",
-           "adrenocortical": "adrenal"}      # not "i": "I-cell disease" is no type 1
+           "adrenocortical": "adrenal", "metastasis": "metastatic", "metastases": "metastatic", "metastatic": "metastatic"}      # not "i": "I-cell disease" is no type 1
 _DX_POLAR = ({"left", "right"}, {"acute", "chronic"}, {"benign", "malignant"}, {"primary", "secondary"}, {"upper", "lower"},
              {"anterior", "posterior"}, {"inferior", "superior"}, {"with", "without"}, {"congenital", "acquired"},
              {"early", "late"}, {"unilateral", "bilateral"}, {"proximal", "distal"}, {"central", "peripheral"})
 
 
 _DX_PHRASES = ((re.compile(r"\bimmunoglobulin ([agmde])\b"), r"ig\1"),     # "Immunoglobulin A vasculitis" = "IgA vasculitis"
-               (re.compile(r"\baddison'?s?(?: disease)?\b"), "primary adrenal insufficiency"))
+               (re.compile(r"\baddison'?s?(?: disease)?\b"), "primary adrenal insufficiency"),
+               (re.compile(r"\bsecondary malignant neoplasms?\b"), "metastatic"))
 _DX_QUALIFIERS = frozenset("""disseminated severe mild moderate recurrent persistent localized generalized progressive
     complicated uncomplicated active suspected probable possible stage grade initial encounter subsequent sequela
     confirmed documented new onset worsening exacerbation""".split())
@@ -552,6 +553,36 @@ def diagnosis_aliases(diagnosis_id) -> list[str]:
     return _ALIASES.get(str(diagnosis_id), []) if diagnosis_id is not None else []
 
 
+_ISA: dict[str, list[str]] | None = None
+ISA_ENABLED = True
+"""Switch for audits (scripts/isa_overcredit_audit.py); always on in the reward."""
+
+
+def diagnosis_isa_aliases(diagnosis_id) -> list[str]:
+    """More specific forms of the reference concept (is-a; eval/diagnosis_isa_aliases.json, LLM-curated once by
+    scripts/build_isa_aliases.py and frozen into the reward). A match earns the related credit, never more."""
+    global _ISA
+    if _ISA is None:
+        path = Path(__file__).with_name("diagnosis_isa_aliases.json")
+        _ISA = json.loads(path.read_text())["aliases"] if path.exists() else {}
+    return _ISA.get(str(diagnosis_id), []) if (diagnosis_id is not None and ISA_ENABLED) else []
+
+
+def _isa_match(pred_name: str, form: str) -> bool:
+    """The answer names this specific form: the same words, the form inside a (capped) more specific name, or a
+    Jaccard ≥ 0.5 overlap ("Serratia marcescens bacteremia" ~ "Serratia marcescens infection"; "Glucagonoma" ~
+    "Pancreatic glucagonoma"), with no contradicting qualifier."""
+    pa, fa = _dx_tokens(pred_name), _dx_tokens(form)
+    if not pa or not fa or _dx_conflict(pa, fa):
+        return False
+    pf = _dx_tokens(pred_name, keep_parentheticals=True)
+    if pa == fa or (fa <= pf and len(pf) <= _specific_cap(len(fa))):
+        return True
+    if len(pa) >= 2 and pa <= fa:                        # "Embolism of popliteal artery" within "Acute left popliteal artery embolism ..."
+        return True
+    return len(pa & fa) / len(pa | fa) >= 0.5
+
+
 def _alias_credit(pred_name: str, alias: str, pred_code: str, gt_code: str) -> float:
     """Name credit against an alias of the reference concept, without the 'prediction is less specific' rule (a short
     generic name inside a long CMS description is not the concept): equal names, the alias inside a specific name,
@@ -586,6 +617,13 @@ def concept_name_credit(pred_name: str, gt_name: str, pred_code: str = "", gt_co
             if best >= NAME_CREDIT["equivalent"]:
                 return best
             best = max(best, _alias_credit(cand, alias, pred_code, gt_code))
+        if best < NAME_CREDIT["related"]:
+            # a correct answer more specific than a generic reference ("Serratia marcescens bacteremia" for
+            # "Gram-negative rod infection"): related credit at most (Stage B4 open decision, closed)
+            for alias in diagnosis_isa_aliases(gt_diagnosis_id):
+                if _isa_match(cand, alias):
+                    best = max(best, NAME_CREDIT["related"])
+                    break
     return best
 
 

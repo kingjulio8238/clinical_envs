@@ -139,13 +139,16 @@ Ordered by dependency; items in the same group are independent. Costs are comput
       test per §3.6 of RL_READINESS.md), differential_diagnosis, evidence_retrieval, test_selection; evaluation-only:
       lab_triage, error_detection, context_summarization, specialty_conditioned, imaging_indication
 
-## Open decision (from B4)
+## Open decision (from B4) — closed 2026-09-28 ("close all gaps before we proceed")
 
-- [ ] **Is-a matches.** On test_selection, 4 of GPT-6 Sol's 50 zero-scored answers are more specific forms of a
-      generic reference (8% > the 5% A1 gate; Qwen 1.1%). Options: (a) an LLM-curated table of specific forms per
-      reference diagnosis, frozen into the reward like the CMS/SNOMED aliases (~155 judge calls over every surviving
-      node so private references are not singled out; ≈ $10 of OpenAI credits; adds an LLM-built reward component that
-      must itself be audited); (b) accept, monitor with the reward-noise judge at every checkpoint (C6), and revisit if
-      the trained policy produces more specific answers.
-- [ ] C1–C6 done on the target hardware, with the cost projection inside the available budget
-- [ ] D1–D2 written down before training starts
+- [x] **Is-a matches.** 4 of GPT-6 Sol's 50 zero-scored test_selection answers were correct, more specific forms of a
+      generic reference. Built `eval/diagnosis_isa_aliases.json` (`scripts/build_isa_aliases.py`): GPT-6 Sol listed the
+      specific forms (is-a only: subtypes, organisms, sites; never causes, complications or differentials) of **every**
+      surviving diagnosis node, so private references are not singled out — 3,221 nodes, 9,839 forms, $1.6 of OpenAI
+      credits, cached per batch, frozen into the reward (`reward-v3`). A match earns the related credit (0.5), never
+      more. Over-credit audit (`scripts/isa_overcredit_audit.py`, the judge on every stored answer the table newly
+      credits): 33 answers, 18 same / 14 related / 1 different → **3.0%** (≤ 10% gate). Two more lexical fixes from the
+      same audit ("secondary malignant neoplasm" = metastatic; a name inside a specific form). Correct-but-0 now ≤ 5%
+      on every unit for both models: Qwen 2.9 / 3.7 / 0 / 2.4%, GPT-6 Sol 0 / 0 / 0 / 4.2%, Qwen no-tools 2.7 / – / 0 / 0%.
+      Residual cases need knowledge no table here holds (a Hollenhorst plaque is a retinal cholesterol embolus).
+

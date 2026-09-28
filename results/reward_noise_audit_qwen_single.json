@@ -20,18 +20,18 @@
   "correct_zero_rate": null
  },
  "differential_diagnosis": {
-  "zero_scored_answered": 15,
-  "judged": 15,
+  "zero_scored_answered": 13,
+  "judged": 13,
   "same": 0,
-  "related": 4,
-  "different": 11,
+  "related": 3,
+  "different": 10,
   "correct_zero_rate": 0.0
  },
  "test_selection": {
-  "zero_scored_answered": 44,
-  "judged": 44,
+  "zero_scored_answered": 42,
+  "judged": 42,
   "same": 0,
-  "related": 21,
+  "related": 19,
   "different": 23,
   "correct_zero_rate": 0.0
  },
@@ -46,7 +46,7 @@
     "Tension pneumothorax (S29.01)"
    ],
    "verdict": "different",
-   "reason": "Tension pneumothorax is air under pressure in the pleural space, not traumatic hemothorax with hypovolemic shock.",
+   "reason": "Tension pneumothorax is not traumatic hemothorax with hypovolemic shock.",
    "cost_input_tokens": 140
   },
   {
@@ -77,7 +77,7 @@
     "Opioid use disorder, in sustained remission (F13.10)"
    ],
    "verdict": "different",
-   "reason": "The answer lists viral encephalitis, HIV infection, and substance use disorder, but not primary central nervous system lymphoma.",
+   "reason": "The answer lists viral encephalitis and other conditions, but does not name primary central nervous system lymphoma.",
    "cost_input_tokens": 162
   },
   {
@@ -118,7 +118,7 @@
     "Mild cognitive impairment (F02.80)"
    ],
    "verdict": "related",
-   "reason": "The answer names an LAD STEMI, which is related to but distinct from myocardial reperfusion injury.",
+   "reason": "LAD STEMI is related to myocardial reperfusion injury, but the answer does not name reperfusion injury.",
    "cost_input_tokens": 259
   },
   {
@@ -132,7 +132,7 @@
     "Polycystic ovary syndrome (E28.2)"
    ],
    "verdict": "related",
-   "reason": "Pelvic inflammatory disease is related to cervicitis but does not specifically identify viral cervicitis; PCOS is a separate diagnosis.",
+   "reason": "Pelvic inflammatory disease is related to cervicitis but does not identify viral cervicitis; polycystic ovary syndrome is unrelated.",
    "cost_input_tokens": 145
   },
   {
@@ -152,7 +152,7 @@
     "Hyperlipidemia (E78.5)"
    ],
    "verdict": "different",
-   "reason": "The answer lists comorbidities and symptoms but does not name Wilms tumor or another kidney cancer.",
+   "reason": "The answer lists other conditions and symptoms but does not name Wilms tumor or another kidney cancer.",
    "cost_input_tokens": 205
   },
   {
@@ -168,7 +168,7 @@
     "History of peptic ulcer disease (Z87.898)"
    ],
    "verdict": "related",
-   "reason": "Postoperative gastric surgery is associated with dumping syndrome, but the answer does not name dumping syndrome.",
+   "reason": "Postoperative gastric surgery status is associated with dumping syndrome, but the answer does not diagnose dumping syndrome.",
    "cost_input_tokens": 166
   },
   {
@@ -183,7 +183,7 @@
     "Mild intermittent asthma (J45.909)"
    ],
    "verdict": "different",
-   "reason": "The answer lists plaque psoriasis and asthma, not streptococcal pharyngitis.",
+   "reason": "The answer lists psoriasis and asthma, not streptococcal pharyngitis.",
    "cost_input_tokens": 151
   },
   {
@@ -209,7 +209,7 @@
     "Viral meningitis (G00.9)"
    ],
    "verdict": "related",
-   "reason": "Viral meningitis is a related CNS infection but does not diagnose herpes simplex encephalitis.",
+   "reason": "Both are viral central nervous system infections, but meningitis is distinct from herpes simplex encephalitis.",
    "cost_input_tokens": 131
   },
   {
@@ -227,7 +227,7 @@
     "Gestational hypertension (O14.9)"
    ],
    "verdict": "related",
-   "reason": "Secondary amenorrhea can result from Asherman syndrome, but none of the listed diagnoses identifies intrauterine adhesions.",
+   "reason": "Secondary amenorrhea can result from Asherman syndrome, but the answer does not name intrauterine adhesions or Asherman syndrome.",
    "cost_input_tokens": 184
   },
   {
@@ -260,7 +260,7 @@
     "Essential hypertension (I10)"
    ],
    "verdict": "related",
-   "reason": "The answer names essential hypertension but does not specify that it was pre-existing and complicating pregnancy in the second trimester.",
+   "reason": "The answer names essential hypertension but does not specify that it predates and complicates pregnancy in the second trimester.",
    "cost_input_tokens": 160
   },
   {
@@ -278,7 +278,7 @@
     "Opioid use disorder, unspecified (F13.20)"
    ],
    "verdict": "different",
-   "reason": "The answer lists HIV, asthma, and opioid use disorder but does not mention exposure to high altitude.",
+   "reason": "The answer lists HIV, asthma, and substance use disorder, but not exposure to high altitude.",
    "cost_input_tokens": 180
   },
   {
@@ -293,7 +293,7 @@
     "Acquired absence of spleen (Z90.1)"
    ],
    "verdict": "related",
-   "reason": "The answer mentions thalassemia but does not specify beta-thalassemia, and it also lists other diagnoses.",
+   "reason": "The answer names thalassemia but does not specify the beta subtype.",
    "cost_input_tokens": 154
   },
   {
@@ -340,7 +340,7 @@
     "Type 2 diabetes mellitus without complications (E11.9)"
    ],
    "verdict": "related",
-   "reason": "Acute cholecystitis is a related biliary condition, but it is distinct from acute cholangitis, which the answer does not name.",
+   "reason": "Acute cholecystitis is a related biliary condition, but it is not acute cholangitis.",
    "cost_input_tokens": 203
   },
   {
@@ -356,7 +356,7 @@
     "Essential hypertension (I10)"
    ],
    "verdict": "related",
-   "reason": "Lumbago with sciatica is related to an L5-S1 disc herniation but does not identify the herniated disc.",
+   "reason": "Lumbago with sciatica is related to, but does not specifically identify, an L5-S1 disc herniation.",
    "cost_input_tokens": 165
   },
   {
@@ -373,7 +373,7 @@
     "Hypothyroidism, unspecified (E03.9)"
    ],
    "verdict": "related",
-   "reason": "Acute respiratory failure can result from transfusion-related acute lung injury, but the answer does not identify the transfusion-related diagnosis.",
+   "reason": "Acute respiratory failure is a manifestation of transfusion-related acute lung injury, but the answer does not identify the transfusion-related cause.",
    "cost_input_tokens": 172
   },
   {
@@ -390,7 +390,7 @@
     "Type 2 diabetes mellitus without complications (E11.9)"
    ],
    "verdict": "different",
-   "reason": "The answer lists other conditions but does not name post-obstructive atelectasis.",
+   "reason": "The answer does not mention post-obstructive atelectasis or an equivalent diagnosis.",
    "cost_input_tokens": 184
   },
   {
@@ -403,7 +403,7 @@
     "Intrahepatic cholestasis of pregnancy (O21.01)"
    ],
    "verdict": "different",
-   "reason": "Intrahepatic cholestasis of pregnancy and acute fatty liver of pregnancy are distinct pregnancy-related liver disorders.",
+   "reason": "Intrahepatic cholestasis of pregnancy is a distinct liver disorder from acute fatty liver of pregnancy.",
    "cost_input_tokens": 136
   },
   {
@@ -417,7 +417,7 @@
     "Primary hypothyroidism (E03.9)"
    ],
    "verdict": "related",
-   "reason": "Primary hypothyroidism is named, but the answer does not identify pregnancy, first trimester, or inadequate control.",
+   "reason": "Primary hypothyroidism is named, but the answer does not identify pregnancy, first-trimester status, or inadequate control.",
    "cost_input_tokens": 149
   },
   {
@@ -435,7 +435,7 @@
     "Recurrent optic neuritis (H17.1)"
    ],
    "verdict": "related",
-   "reason": "Urinary tract infection is less specific than uncomplicated cystitis and does not establish bladder involvement or lack of complications.",
+   "reason": "Urinary tract infection is broader than uncomplicated cystitis and does not specify bladder involvement or lack of complications.",
    "cost_input_tokens": 190
   },
   {
@@ -449,7 +449,7 @@
     "Recurrent tonsillitis (J03.10)"
    ],
    "verdict": "related",
-   "reason": "Tonsillitis with abscess may be associated with a deep neck space infection, but it does not explicitly identify one.",
+   "reason": "Tonsillitis with abscess is related to a deep neck space infection but does not explicitly identify one.",
    "cost_input_tokens": 144
   },
   {
@@ -483,7 +483,7 @@
     "Myotonic dystrophy type 1 (G71.11)"
    ],
    "verdict": "different",
-   "reason": "The answer lists myotonic dystrophy type 1 and essential hypertension, not exogenous androgen use.",
+   "reason": "The answer lists myotonic dystrophy type 1 and hypertension, not exogenous androgen use.",
    "cost_input_tokens": 154
   },
   {
@@ -503,7 +503,7 @@
     "Atrial fibrillation, non-valvular (I48.91)"
    ],
    "verdict": "different",
-   "reason": "The answer does not name orthostatic hypotension or an equivalent diagnosis.",
+   "reason": "The answer does not include orthostatic hypotension or an equivalent diagnosis.",
    "cost_input_tokens": 205
   },
   {
@@ -517,7 +517,7 @@
     "Allergic rhinitis, unspecified (J30.9)"
    ],
    "verdict": "different",
-   "reason": "Neither preterm labor nor allergic rhinitis identifies respiratory distress syndrome.",
+   "reason": "Neither preterm labor nor allergic rhinitis is respiratory distress syndrome.",
    "cost_input_tokens": 143
   },
   {
@@ -530,7 +530,7 @@
     "Fracture of shaft of left humerus (S52.201A)"
    ],
    "verdict": "related",
-   "reason": "A humeral shaft fracture can cause a radial nerve injury, but it is not the same diagnosis.",
+   "reason": "A humeral shaft fracture can cause radial nerve injury, but it does not name the nerve injury itself.",
    "cost_input_tokens": 136
   },
   {
@@ -560,7 +560,7 @@
     "Tarsal tunnel syndrome (G56.1)"
    ],
    "verdict": "related",
-   "reason": "The answer lists non-alcoholic steatohepatitis, another liver condition, but does not name hepatic adenoma.",
+   "reason": "The answer lists non-alcoholic steatohepatitis, a liver condition, but does not name hepatic adenoma.",
    "cost_input_tokens": 314
   },
   {
@@ -573,7 +573,7 @@
     "Aortic stenosis (I35.0)"
    ],
    "verdict": "related",
-   "reason": "Aortic stenosis can result from a bicuspid aortic valve, but it does not identify the valve\u2019s bicuspid anatomy.",
+   "reason": "Aortic stenosis can result from a bicuspid aortic valve, but it does not identify the congenital valve abnormality.",
    "cost_input_tokens": 132
   },
   {
@@ -596,7 +596,7 @@
     "History of coronary artery disease (Z95.1)"
    ],
    "verdict": "related",
-   "reason": "Interstitial lung disease is a possible manifestation of amiodarone-induced pulmonary toxicity, but the answer does not identify amiodarone as the cause.",
+   "reason": "Interstitial lung disease may describe the pulmonary condition, but the answer does not identify amiodarone as its cause.",
    "cost_input_tokens": 257
   },
   {
@@ -614,7 +614,7 @@
     "Unspecified vaginal laceration (N86.9)"
    ],
    "verdict": "same",
-   "reason": "Suspected sexual abuse names the same underlying event as sexual assault.",
+   "reason": "Suspected sexual abuse names the reference diagnosis of sexual assault, although it expresses uncertainty.",
    "cost_input_tokens": 189
   },
   {
@@ -633,7 +633,7 @@
     "Gastroesophageal reflux disease with esophagitis (K21.0)"
    ],
    "verdict": "different",
-   "reason": "The answer lists migraine and other conditions but does not name expressive aphasia or a related language disorder.",
+   "reason": "The answer lists migraine and other conditions but does not name expressive aphasia.",
    "cost_input_tokens": 196
   },
   {
@@ -656,7 +656,7 @@
     "Chronic hypotonia (R29.6)"
    ],
    "verdict": "related",
-   "reason": "The answer does not name DiGeorge syndrome, but includes associated findings such as tetralogy of Fallot and cleft palate.",
+   "reason": "The answer does not name DiGeorge syndrome, but includes related findings such as tetralogy of Fallot, cleft palate, and immunodeficiency.",
    "cost_input_tokens": 258
   },
   {
@@ -669,7 +669,7 @@
     "Unspecified intracranial hypertension (G83.9)"
    ],
    "verdict": "different",
-   "reason": "Intracranial hypertension is a different diagnosis from neonatal tetanus.",
+   "reason": "Intracranial hypertension is not neonatal tetanus.",
    "cost_input_tokens": 132
   },
   {
@@ -682,7 +682,7 @@
     "Fracture of shaft of left humerus, initial encounter (S42.201A)"
    ],
    "verdict": "related",
-   "reason": "A humeral shaft fracture can be associated with radial nerve injury, but it is a distinct diagnosis.",
+   "reason": "A humeral shaft fracture can be associated with radial nerve injury, but it does not name the nerve injury.",
    "cost_input_tokens": 139
   },
   {
@@ -695,7 +695,7 @@
     "Pneumonia, unspecified (J18.9)"
    ],
    "verdict": "different",
-   "reason": "Pneumonia is not the reference diagnosis of hyperchloremic metabolic acidosis caused by excess normal saline infusion.",
+   "reason": "Pneumonia is distinct from hyperchloremic metabolic acidosis caused by excess normal saline infusion.",
    "cost_input_tokens": 140
   },
   {
@@ -708,7 +708,7 @@
     "Other specified disorders of nose and nasal cavities (J34.80)"
    ],
    "verdict": "related",
-   "reason": "The model names a broad nasal disorder rather than localized idiopathic epistaxis.",
+   "reason": "The answer gives a broad nasal disorder category but does not specifically identify localized idiopathic epistaxis.",
    "cost_input_tokens": 137
   },
   {
@@ -721,7 +721,7 @@
     "Cystic fibrosis (E84.9)"
    ],
    "verdict": "different",
-   "reason": "Cystic fibrosis and alpha-1 antitrypsin deficiency are distinct genetic disorders.",
+   "reason": "Cystic fibrosis is a distinct genetic disorder from alpha-1 antitrypsin deficiency.",
    "cost_input_tokens": 135
   },
   {
@@ -734,21 +734,8 @@
     "Encounter for routine child health examination with abnormal findings (Z00.129)"
    ],
    "verdict": "different",
-   "reason": "A routine child health examination does not identify caregiver refusal as the reason immunization was not carried out.",
+   "reason": "A routine child health examination does not identify caregiver refusal of immunization.",
    "cost_input_tokens": 140
-  },
-  {
-   "unit": "differential_diagnosis",
-   "gt_id": 73746,
-   "reference": [
-    "Tracheoesophageal fistula with esophageal atresia"
-   ],
-   "answer": [
-    "Gestational diabetes mellitus (O24.4)"
-   ],
-   "verdict": "different",
-   "reason": "Gestational diabetes mellitus is unrelated to tracheoesophageal fistula with esophageal atresia.",
-   "cost_input_tokens": 138
   },
   {
    "unit": "differential_diagnosis",
@@ -760,7 +747,7 @@
     "Cytomegalovirus infection (B19.9)"
    ],
    "verdict": "different",
-   "reason": "Cytomegalovirus infection is a different diagnosis from DiGeorge syndrome.",
+   "reason": "Cytomegalovirus infection is distinct from DiGeorge syndrome.",
    "cost_input_tokens": 130
   },
   {
@@ -773,7 +760,7 @@
     "Acute exacerbation of chronic obstructive pulmonary disease (J44.1)"
    ],
    "verdict": "different",
-   "reason": "An acute COPD exacerbation is distinct from hyperchloremic metabolic acidosis caused by excess normal saline.",
+   "reason": "Acute COPD exacerbation is not hyperchloremic metabolic acidosis caused by excess normal saline infusion.",
    "cost_input_tokens": 144
   },
   {
@@ -812,7 +799,7 @@
     "Hypothyroidism, unspecified (E03.9)"
    ],
    "verdict": "related",
-   "reason": "Hypothyroidism may result from Hashimoto thyroiditis, but the answer does not identify the autoimmune cause.",
+   "reason": "Hypothyroidism can result from Hashimoto thyroiditis, but it does not identify the autoimmune cause.",
    "cost_input_tokens": 131
   },
   {
@@ -825,21 +812,8 @@
     "Heat stroke (T67.4)"
    ],
    "verdict": "different",
-   "reason": "Heat stroke is a distinct diagnosis, though it can cause acute liver failure.",
+   "reason": "Heat stroke is a distinct diagnosis, although it can cause acute liver failure.",
    "cost_input_tokens": 127
-  },
-  {
-   "unit": "differential_diagnosis",
-   "gt_id": 74026,
-   "reference": [
-    "Renal artery stenosis"
-   ],
-   "answer": [
-    "Fibromuscular dysplasia (E45.9)"
-   ],
-   "verdict": "related",
-   "reason": "Fibromuscular dysplasia can cause renal artery stenosis, but it does not itself specify renal artery involvement or stenosis.",
-   "cost_input_tokens": 133
   },
   {
    "unit": "differential_diagnosis",
@@ -851,7 +825,7 @@
     "Apnea of prematurity (P29.0)"
    ],
    "verdict": "different",
-   "reason": "Apnea of prematurity is a breathing disorder, whereas anemia of prematurity is a blood disorder.",
+   "reason": "Apnea of prematurity is a breathing disorder, not anemia of prematurity.",
    "cost_input_tokens": 132
   },
   {
@@ -864,7 +838,7 @@
     "Korsakoff syndrome (F06.20)"
    ],
    "verdict": "related",
-   "reason": "Korsakoff syndrome is a component of Wernicke-Korsakoff syndrome but does not name the full syndrome.",
+   "reason": "Korsakoff syndrome is the chronic amnestic component of Wernicke-Korsakoff syndrome, but does not name the full syndrome.",
    "cost_input_tokens": 134
   },
   {
@@ -890,7 +864,7 @@
     "Alzheimer's disease (G30.9)"
    ],
    "verdict": "related",
-   "reason": "Alzheimer's disease can cause mild cognitive impairment, but it is a distinct diagnosis.",
+   "reason": "Alzheimer's disease can cause mild cognitive impairment, but it is a distinct diagnosis and the answer does not specify mild cognitive impairment.",
    "cost_input_tokens": 127
   },
   {
@@ -903,7 +877,7 @@
     "Urethral diverticulum (N32.80)"
    ],
    "verdict": "different",
-   "reason": "Urethral diverticulum is a different condition from idiopathic polyhydramnios.",
+   "reason": "Urethral diverticulum is a urinary tract condition, not idiopathic polyhydramnios.",
    "cost_input_tokens": 133
   },
   {
@@ -916,7 +890,7 @@
     "Dehydration (E86.00)"
    ],
    "verdict": "related",
-   "reason": "Dehydration reflects the associated hypovolemia but does not identify the hypochloremic metabolic alkalosis caused by vomiting.",
+   "reason": "Dehydration reflects the hypovolemia but does not identify the hypochloremic metabolic alkalosis caused by vomiting.",
    "cost_input_tokens": 141
   },
   {
@@ -929,21 +903,8 @@
     "Traumatic pneumothorax (S29.001A)"
    ],
    "verdict": "different",
-   "reason": "Traumatic pneumothorax does not identify hemorrhagic shock or acute coagulopathy.",
+   "reason": "Traumatic pneumothorax is distinct from hemorrhagic shock with acute coagulopathy.",
    "cost_input_tokens": 140
-  },
-  {
-   "unit": "test_selection",
-   "gt_id": 78758,
-   "reference": [
-    "Diabetic ketoacidosis"
-   ],
-   "answer": [
-    "Type 2 Diabetes Mellitus (E11.90)"
-   ],
-   "verdict": "related",
-   "reason": "Type 2 diabetes mellitus is related to diabetic ketoacidosis but does not identify the acute ketoacidosis.",
-   "cost_input_tokens": 133
   },
   {
    "unit": "test_selection",
@@ -955,7 +916,7 @@
     "Ovarian cyst (N83.9)"
    ],
    "verdict": "related",
-   "reason": "An ovarian cyst is less specific and does not identify a mature cystic teratoma.",
+   "reason": "An ovarian cyst is less specific and does not identify the mature cystic teratoma.",
    "cost_input_tokens": 135
   },
   {
@@ -968,7 +929,7 @@
     "Pelvic inflammatory disease (N73.90)"
    ],
    "verdict": "related",
-   "reason": "Pelvic inflammatory disease is a related but distinct upper genital tract infection, not viral cervicitis.",
+   "reason": "Pelvic inflammatory disease is a broader upper genital tract infection, not the same diagnosis as viral cervicitis.",
    "cost_input_tokens": 130
   },
   {
@@ -981,7 +942,7 @@
     "Threatened abortion (O20.9)"
    ],
    "verdict": "different",
-   "reason": "Threatened abortion is not gestational trophoblastic neoplasia.",
+   "reason": "Threatened abortion is distinct from gestational trophoblastic neoplasia.",
    "cost_input_tokens": 134
   },
   {
@@ -994,7 +955,7 @@
     "Gynecomastia (N64.40)"
    ],
    "verdict": "different",
-   "reason": "Gynecomastia is breast tissue enlargement, not hyperkalemia.",
+   "reason": "Gynecomastia is breast tissue enlargement, not elevated serum potassium.",
    "cost_input_tokens": 129
   },
   {
@@ -1007,7 +968,7 @@
     "Hydrocephalus due to ventriculoperitoneal shunt malfunction (G91.1)"
    ],
    "verdict": "different",
-   "reason": "Hydrocephalus from shunt malfunction does not name the cerebellar hemangioblastoma.",
+   "reason": "Hydrocephalus from shunt malfunction is not a cerebellar hemangioblastoma.",
    "cost_input_tokens": 143
   },
   {
@@ -1033,7 +994,7 @@
     "Tension pneumothorax (J93.0)"
    ],
    "verdict": "different",
-   "reason": "Tension pneumothorax is air in the pleural space, not traumatic bleeding into it with hypovolemic shock.",
+   "reason": "Tension pneumothorax is air in the pleural space, not traumatic hemothorax with hypovolemic shock.",
    "cost_input_tokens": 140
   },
   {
@@ -1046,7 +1007,7 @@
     "Traumatic brain injury (S06.0X0A)"
    ],
    "verdict": "related",
-   "reason": "Traumatic brain injury may accompany the same trauma but does not identify right retrobulbar traumatic optic neuropathy.",
+   "reason": "Traumatic brain injury is trauma-related but does not identify right retrobulbar traumatic optic neuropathy.",
    "cost_input_tokens": 141
   },
   {
@@ -1059,7 +1020,7 @@
     "Heart failure with reduced ejection fraction (I50.30)"
    ],
    "verdict": "related",
-   "reason": "Heart failure can be associated with pulmonary hypertension, but it is a distinct diagnosis.",
+   "reason": "Heart failure with reduced ejection fraction can be associated with pulmonary hypertension but is a distinct diagnosis.",
    "cost_input_tokens": 133
   },
   {
@@ -1072,7 +1033,7 @@
     "Esophageal rupture (K22.0)"
    ],
    "verdict": "different",
-   "reason": "Esophageal rupture is distinct from an acute inferior-wall STEMI.",
+   "reason": "Esophageal rupture is not an inferior-wall ST-segment elevation myocardial infarction.",
    "cost_input_tokens": 141
   },
   {
@@ -1098,7 +1059,7 @@
     "Opioid-induced respiratory depression (T40.609)"
    ],
    "verdict": "related",
-   "reason": "Opioid-induced respiratory depression can cause hypercapnic respiratory failure, but it does not explicitly name that diagnosis.",
+   "reason": "Opioid-induced respiratory depression can cause hypercapnic respiratory failure, but it does not explicitly diagnose respiratory failure.",
    "cost_input_tokens": 133
   },
   {
@@ -1124,7 +1085,7 @@
     "Kaposi sarcoma (C46.9)"
    ],
    "verdict": "different",
-   "reason": "Kaposi sarcoma and bacillary angiomatosis are distinct diseases, although they can look similar clinically.",
+   "reason": "Kaposi sarcoma and bacillary angiomatosis are distinct conditions despite similar-appearing vascular lesions.",
    "cost_input_tokens": 132
   },
   {
@@ -1150,7 +1111,7 @@
     "Irritable bowel syndrome with diarrhea (K58.00)"
    ],
    "verdict": "different",
-   "reason": "IBS with diarrhea does not indicate intentionally induced diarrhea, which defines factitious diarrhea.",
+   "reason": "Irritable bowel syndrome with diarrhea is not the same diagnosis as factitious diarrhea.",
    "cost_input_tokens": 131
   },
   {
@@ -1163,7 +1124,7 @@
     "Acute kidney injury (N17.90)"
    ],
    "verdict": "related",
-   "reason": "Acute kidney injury can be a complication of rhabdomyolysis, but it does not name the reference diagnosis.",
+   "reason": "Acute kidney injury can result from rhabdomyolysis, but it does not name the reference diagnosis.",
    "cost_input_tokens": 136
   },
   {
@@ -1176,7 +1137,7 @@
     "Placenta previa (O44.90)"
    ],
    "verdict": "related",
-   "reason": "Placenta previa involves the placenta covering the cervical opening, while vasa previa involves fetal blood vessels crossing it.",
+   "reason": "Placenta previa and vasa previa are distinct conditions involving the placental region.",
    "cost_input_tokens": 128
   },
   {
@@ -1189,7 +1150,7 @@
     "Symptomatic bradycardia (R00.1)"
    ],
    "verdict": "related",
-   "reason": "Symptomatic bradycardia can result from third-degree atrioventricular block but does not identify the conduction disorder.",
+   "reason": "Symptomatic bradycardia can result from third-degree atrioventricular block but does not identify the specific conduction disorder.",
    "cost_input_tokens": 135
   },
   {
@@ -1202,7 +1163,7 @@
     "Polycystic ovary syndrome (E28.2)"
    ],
    "verdict": "different",
-   "reason": "Polycystic ovary syndrome is a distinct diagnosis from prolactinoma.",
+   "reason": "Polycystic ovary syndrome is distinct from a prolactin-secreting pituitary adenoma.",
    "cost_input_tokens": 133
   },
   {
@@ -1228,7 +1189,7 @@
     "Spinal cord injury (S14.101A)"
    ],
    "verdict": "related",
-   "reason": "Spinal cord injury is broader than Brown-S\u00e9quard syndrome and does not specify its characteristic hemicord pattern.",
+   "reason": "Spinal cord injury is a broader diagnosis that does not specify Brown-S\u00e9quard syndrome.",
    "cost_input_tokens": 132
   },
   {
@@ -1241,7 +1202,7 @@
     "Non-Hodgkin lymphoma (C83.90)"
    ],
    "verdict": "different",
-   "reason": "Non-Hodgkin lymphoma is a different malignancy from primary myelofibrosis.",
+   "reason": "Non-Hodgkin lymphoma is distinct from primary myelofibrosis.",
    "cost_input_tokens": 134
   },
   {
@@ -1254,21 +1215,8 @@
     "Hypertension (I10)"
    ],
    "verdict": "different",
-   "reason": "Hypertension does not name systemic inflammatory response syndrome or an equivalent diagnosis.",
+   "reason": "Hypertension is not the same diagnosis as systemic inflammatory response syndrome.",
    "cost_input_tokens": 127
-  },
-  {
-   "unit": "test_selection",
-   "gt_id": 77217,
-   "reference": [
-    "Renal artery stenosis"
-   ],
-   "answer": [
-    "Fibromuscular dysplasia (Q27.1)"
-   ],
-   "verdict": "related",
-   "reason": "Fibromuscular dysplasia can cause renal artery stenosis, but it does not itself specify stenosis of the renal artery.",
-   "cost_input_tokens": 133
   },
   {
    "unit": "test_selection",
@@ -1306,7 +1254,7 @@
     "Renal osteodystrophy (M85.809)"
    ],
    "verdict": "related",
-   "reason": "Renal osteodystrophy is a bone disorder associated with chronic kidney disease and secondary hyperparathyroidism, but it is not the same diagnosis.",
+   "reason": "Renal osteodystrophy is a bone disorder associated with secondary hyperparathyroidism, not the same diagnosis.",
    "cost_input_tokens": 133
   },
   {
@@ -1319,7 +1267,7 @@
     "Hypothyroidism, unspecified (E03.9)"
    ],
    "verdict": "related",
-   "reason": "It identifies hypothyroidism but omits the pregnancy, first-trimester, and inadequate-control qualifiers.",
+   "reason": "The answer identifies hypothyroidism but omits pregnancy, first trimester, and inadequate control.",
    "cost_input_tokens": 139
   },
   {
@@ -1332,7 +1280,7 @@
     "Cellulitis of right foot (L03.451)"
    ],
    "verdict": "related",
-   "reason": "Foot cellulitis is a related infection but does not identify the reference diagnosis of Pseudomonas osteomyelitis.",
+   "reason": "Foot cellulitis is a related infection but does not identify Pseudomonas acute osteomyelitis.",
    "cost_input_tokens": 144
   },
   {
@@ -1345,7 +1293,7 @@
     "Lesch-Nyhan syndrome (E75.1)"
    ],
    "verdict": "different",
-   "reason": "Lesch-Nyhan syndrome is a distinct genetic disorder from tuberous sclerosis complex.",
+   "reason": "Lesch-Nyhan syndrome is a distinct disorder from tuberous sclerosis complex.",
    "cost_input_tokens": 133
   },
   {
@@ -1358,7 +1306,7 @@
     "Meningitis (G00.90)"
    ],
    "verdict": "related",
-   "reason": "Meningitis is a related central nervous system infection but is not herpes simplex encephalitis.",
+   "reason": "Meningitis is a related central nervous system infection but does not name herpes simplex encephalitis.",
    "cost_input_tokens": 131
   },
   {
@@ -1371,7 +1319,7 @@
     "Acute heart failure (I50.9)"
    ],
    "verdict": "related",
-   "reason": "Acute heart failure can cause flash pulmonary edema, but it does not specifically identify that diagnosis.",
+   "reason": "Acute heart failure can cause flash pulmonary edema, but it does not specifically name pulmonary edema.",
    "cost_input_tokens": 128
   },
   {
@@ -1384,7 +1332,7 @@
     "Malignant neoplasm of lung (C34.90)"
    ],
    "verdict": "related",
-   "reason": "Lung cancer can cause SIADH, but it is a different diagnosis.",
+   "reason": "Lung cancer can cause SIADH, but it is a distinct diagnosis.",
    "cost_input_tokens": 141
   },
   {
@@ -1397,7 +1345,7 @@
     "Pneumonia, unspecified organism (J18.9)"
    ],
    "verdict": "different",
-   "reason": "Pneumonia is unrelated to hyperchloremic metabolic acidosis caused by excess normal saline.",
+   "reason": "Pneumonia does not name the reference diagnosis of saline-induced hyperchloremic metabolic acidosis.",
    "cost_input_tokens": 141
   },
   {

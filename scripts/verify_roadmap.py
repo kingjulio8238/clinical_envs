@@ -208,6 +208,15 @@ def chk_b1_runs():
     return ok, f"floor {floor:.3f}; " + "; ".join(f"{m} {r:.3f} (n={n})" for m, r, n in out)
 
 
+def chk_isa_overcredit():
+    p = ROOT / "results" / "isa_overcredit_audit.json"
+    if not p.exists():
+        return False, "missing results/isa_overcredit_audit.json"
+    d = json.loads(p.read_text())
+    return d["over_credit_rate"] <= 0.10, (f"is-a table: {d['gained_episodes']} stored answers newly credited; judge: {d['same']} same, "
+                                           f"{d['related']} related, {d['different']} different -> over-credit {d['over_credit_rate']:.1%} (≤ 10% required)")
+
+
 def chk_b4_decision():
     md = (ROOT / "results" / "rl_decision.md").read_text()
     row = next((l for l in md.splitlines() if l.startswith("| test_selection |")), "")
@@ -317,6 +326,8 @@ ITEMS = [
     ("B2", "error_detection retired from RL; turn cap recorded", T, ["eval/tests/test_task_set_b.py::test_error_detection_episodes_are_turn_capped"]),
     ("B3", "Privileged policies are gates, not floors; summarization evaluation-only", T, ["eval/tests/test_task_set_b.py::test_privileged_policies_are_gates_not_floors", "eval/tests/test_reward_hacking.py::test_echoing_finding_names_is_not_a_good_summary"]),
     ("B4", "test_selection re-measured on all 314 public instances", C, chk_b4_decision),
+    ("B4", "is-a matches (open decision, closed): forms of a generic reference credited", T, ["eval/tests/test_task_set_b.py::test_isa_forms_of_a_generic_reference", "eval/tests/test_task_set_b.py::test_isa_table_is_frozen_and_audited"]),
+    ("B4", "(is-a over-credit audit)", C, chk_isa_overcredit),
     ("order", "Dependency order 1 → 2 → 3 → 4 → 4b → 5 → 6 → 7 → 8", C, chk_order),
     ("gate", "Stage 7 only after Stages 1–4 made rewards exploit-resistant and data leak-free", C, chk_gate),
 ]

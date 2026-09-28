@@ -115,6 +115,6 @@ correctly* (name credit or the LLM judge) and *coded it exactly*.
   Sol 0.607) but its anchor gap is not significant, so it is not a round-1 target.
 - **Floors no longer count policies that read the labels** (`PRIVILEGED_POLICIES`): summarization's floor is 0.435,
   lab_triage's 0.23; the privileged policies remain CI gates.
-- **Reward re-frozen as `reward-v2`** (lab_triage scorer, triage rows, concept-matcher fixes from the B4 audit).
-- **Open:** is-a matches (a specific answer to a generic reference) are 8% of GPT-6 Sol's zero-scored test_selection
-  answers — see "Open decision" in `audit/RL_READINESS_TODO.md`.
+- **Reward re-frozen as `reward-v3`** (lab_triage scorer and rows, concept-matcher fixes from the B4 audit, and an
+  LLM-curated is-a table of specific forms, frozen and audited: over-credit 3.0%). Judge-audited correct-but-0 is
+  ≤ 5% on every diagnosis unit for both models.

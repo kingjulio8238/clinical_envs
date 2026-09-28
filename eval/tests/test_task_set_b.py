@@ -108,3 +108,37 @@ def test_privileged_policies_are_gates_not_floors():
     assert summ["privileged_floor"] <= 0.5                                   # still CI-gated (test_reward_hacking)
     tri = doc["lab_triage"]["metrics"]["triage_score"]
     assert tri["floor_policy"] not in F.PRIVILEGED_POLICIES
+
+
+# ---------------------------------------------------------------------------
+# B4 open decision (closed): is-a forms of a generic reference
+# ---------------------------------------------------------------------------
+
+def _node(db, name):
+    return db.conn.execute("select diagnosis_id, icd10_code from diagnoses where display_name=? and merged_into is null", (name,)).fetchone()
+
+
+@pytest.mark.parametrize("pred,ref,expect", [
+    ("Serratia marcescens bacteremia", "Gram-negative rod infection", 0.5),
+    ("Glucagonoma (pancreatic alpha-cell neuroendocrine tumor)", "Pancreatic neuroendocrine tumor localization", 0.5),
+    ("Disseminated histoplasmosis", "Histoplasmosis", 0.75),          # a qualifier, not another disease
+    ("Pneumonia", "Gram-negative rod infection", 0.0),               # not a form of it
+    ("Pancreatic cancer", "Pancreatic neuroendocrine tumor localization", 0.0),
+])
+def test_isa_forms_of_a_generic_reference(db, pred, ref, expect):
+    from eval.scoring import dx_credit
+    did, code = _node(db, ref)
+    assert dx_credit("Z99.9", code, pred, ref, did) == pytest.approx(expect)
+
+
+def test_isa_table_is_frozen_and_audited():
+    """The LLM-curated is-a table is part of the reward lock, and the judge's over-credit audit of every answer it
+    newly credits stays ≤ 10%."""
+    from pathlib import Path
+    from eval import reward_version as RV
+    assert "eval/diagnosis_isa_aliases.json" in RV.REWARD_FILES and RV.drift() == []
+    audit = Path(__file__).resolve().parents[2] / "results" / "isa_overcredit_audit.json"
+    if not audit.exists():
+        pytest.skip("results/isa_overcredit_audit.json not present")
+    d = json.loads(audit.read_text())
+    assert d["judged"] > 0 and d["over_credit_rate"] <= 0.10, d["over_credit_rate"]

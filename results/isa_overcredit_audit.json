@@ -1,0 +1,645 @@
+{
+ "gained_episodes": 33,
+ "judged": 33,
+ "same": 18,
+ "related": 14,
+ "different": 1,
+ "over_credit_rate": 0.030303030303030304,
+ "cases": [
+  {
+   "run": "gpt-6-sol__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 73231,
+   "gain": 0.060460999951801875,
+   "reference": [
+    "Coccydynia (musculoskeletal pelvic pain)",
+    "Coccygeal fracture",
+    "Bilateral sacroiliitis",
+    "Pelvic floor dysfunction"
+   ],
+   "answer": [
+    "Postpartum coccydynia (M53.3)",
+    "Coccyx fracture due to childbirth (S32.2XXA)",
+    "Subluxation or dislocation of coccyx (S33.2XXA)",
+    "Pelvic floor muscle spasm (M62.838)",
+    "Pilonidal cyst with abscess (L05.01)"
+   ],
+   "verdict": "same",
+   "reason": "The answer names coccydynia and coccyx fracture, both reference diagnoses."
+  },
+  {
+   "run": "gpt-6-sol__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 74880,
+   "gain": 0.054537294816366544,
+   "reference": [
+    "Hyperchloremic metabolic acidosis due to excess normal saline infusion",
+    "Delirium due to medical condition",
+    "Acute ischemic stroke",
+    "Dehydration",
+    "Diabetic ketoacidosis"
+   ],
+   "answer": [
+    "Delirium due to multiple etiologies (hospital-acquired acute confusional state) (F05)",
+    "Hyponatremia causing encephalopathy (E87.1)",
+    "Acute on chronic hypercapnic respiratory failure (J96.22)",
+    "Type 2 diabetes mellitus with hypoglycemia (E11.649)",
+    "Acute kidney injury with possible medication-related toxic encephalopathy (N17.9)"
+   ],
+   "verdict": "same",
+   "reason": "Delirium due to multiple etiologies is clinically equivalent to the reference diagnosis of delirium due to a medical condition."
+  },
+  {
+   "run": "gpt-6-sol__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 76465,
+   "gain": 0.0545372948163666,
+   "reference": [
+    "Inflammatory breast carcinoma",
+    "Acute bacterial prostatitis",
+    "Secondary malignant neoplasm of axillary lymph nodes",
+    "Malignant neoplasm of breast",
+    "Otomycosis"
+   ],
+   "answer": [
+    "Inflammatory breast cancer, left breast (C50.912)",
+    "Nonlactational mastitis (N61.0)",
+    "Breast abscess (N61.1)",
+    "Noninflammatory invasive breast carcinoma, left breast (C50.912)",
+    "Granulomatous mastitis, unspecified breast (N61.20)"
+   ],
+   "verdict": "same",
+   "reason": "Inflammatory breast cancer is the same diagnosis as inflammatory breast carcinoma."
+  },
+  {
+   "run": "gpt-6-sol__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 74017,
+   "gain": 0.048987819752877915,
+   "reference": [
+    "Acetaminophen overdose",
+    "Fulminant hepatic failure requiring transplantation",
+    "Acute hepatitis B virus infection",
+    "Autoimmune Hepatitis",
+    "Acute viral hepatitis"
+   ],
+   "answer": [
+    "Acetaminophen toxicity, accidental overdose (T39.1X1A)",
+    "Acute liver failure with hepatic encephalopathy (K72.00)",
+    "Acute viral hepatitis, unspecified (B17.9)",
+    "Toxic liver disease with acute hepatitis (K71.2)",
+    "Acute liver failure with hepatic coma (K72.01)"
+   ],
+   "verdict": "same",
+   "reason": "Acetaminophen toxicity from accidental overdose and acute viral hepatitis both name reference diagnoses."
+  },
+  {
+   "run": "gpt-6-sol__test_selection__agent__public__s0",
+   "unit": "test_selection",
+   "gt_id": 77217,
+   "gain": 0.5,
+   "reference": [
+    "Renal artery stenosis"
+   ],
+   "answer": [
+    "Fibromuscular dysplasia (I77.3)"
+   ],
+   "verdict": "related",
+   "reason": "Fibromuscular dysplasia can cause renal artery stenosis, but it does not explicitly identify stenosis of the renal artery."
+  },
+  {
+   "run": "gpt-6-sol__test_selection__agent__public__s0",
+   "unit": "test_selection",
+   "gt_id": 78080,
+   "gain": 0.5,
+   "reference": [
+    "Gram-negative rod infection"
+   ],
+   "answer": [
+    "Serratia marcescens bacteremia (R78.81)"
+   ],
+   "verdict": "same",
+   "reason": "Serratia marcescens is a gram-negative rod, and bacteremia specifies the infection's manifestation."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 73964,
+   "gain": 0.061779221778013094,
+   "reference": [
+    "Subacute thyroiditis",
+    "Hypothyroidism",
+    "Graves disease"
+   ],
+   "answer": [
+    "Subacute granulomatous thyroiditis (H05.1)",
+    "Acute suppurative thyroiditis (H05.0)",
+    "Graves' disease (E05.0)",
+    "Subacute lymphocytic thyroiditis (E05.1)",
+    "Hashimoto's thyroiditis (H05.9)"
+   ],
+   "verdict": "same",
+   "reason": "The answer explicitly names Graves' disease and subacute granulomatous thyroiditis, both reference diagnoses."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 76158,
+   "gain": 0.1403860944330722,
+   "reference": [
+    "Traumatic injury of right subclavian vessels",
+    "Acute respiratory failure due to severe bronchospasm",
+    "Complicated parapneumonic effusion",
+    "Tension pneumothorax"
+   ],
+   "answer": [
+    "Traumatic pneumothorax (S27.0)",
+    "Fracture of clavicle (S42.0)",
+    "Pulmonary contusion (S26.0)",
+    "Contusion of chest wall (S20.8)",
+    "Dislocation of shoulder joint (S43.0)"
+   ],
+   "verdict": "related",
+   "reason": "Traumatic pneumothorax is related to tension pneumothorax but does not specify the tension physiology."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 74844,
+   "gain": 0.10075757095025117,
+   "reference": [
+    "Guillain-Barr\u00e9 syndrome",
+    "Neuromuscular junction disorder (e.g., Myasthenia gravis, Lambert-Eaton syndrome)",
+    "Peripheral neuropathy"
+   ],
+   "answer": [
+    "Guillain-Barr\u00e9 syndrome (G61.1)",
+    "Chronic inflammatory demyelinating polyneuropathy (G61.9)",
+    "Transverse myelitis (G42.0)",
+    "Myasthenia gravis (G70.0)",
+    "Botulism (A05.0)"
+   ],
+   "verdict": "same",
+   "reason": "The answer explicitly names Guillain-Barr\u00e9 syndrome and myasthenia gravis, both accepted reference diagnoses."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 76626,
+   "gain": 0.1597913855951283,
+   "reference": [
+    "Primary central nervous system lymphoma",
+    "Cerebral toxoplasmosis",
+    "Cryptococcal meningitis",
+    "Herpes simplex encephalitis",
+    "Progressive multifocal leukoencephalopathy"
+   ],
+   "answer": [
+    "Toxoplasmosis of brain (B59.0)",
+    "Primary CNS lymphoma (C81.5)",
+    "Cryptococcal meningitis (B45.0)",
+    "Progressive multifocal leukoencephalopathy (B17.1)",
+    "Tuberculous meningitis (A17.0)"
+   ],
+   "verdict": "same",
+   "reason": "The answer explicitly names four reference diagnoses, despite some incorrect codes and an additional diagnosis."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 73541,
+   "gain": 0.11990623328406574,
+   "reference": [
+    "Ureterolithiasis",
+    "Urinary Tract Infection/Pyelonephritis"
+   ],
+   "answer": [
+    "Nephrolithiasis (N20.9)",
+    "Acute pyelonephritis (N10)",
+    "Acute appendicitis (K35.80)",
+    "Ovarian torsion (N83.4)",
+    "Obstruction of ureter (N13.0)"
+   ],
+   "verdict": "same",
+   "reason": "The answer explicitly names acute pyelonephritis, which is a reference diagnosis."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 74026,
+   "gain": 0.013576275713860608,
+   "reference": [
+    "Renal artery stenosis",
+    "Eosinophilic granulomatosis with polyangiitis",
+    "Microscopic polyangiitis",
+    "Polyarteritis nodosa",
+    "Granulomatosis with polyangiitis"
+   ],
+   "answer": [
+    "Fibromuscular dysplasia (I74.8)",
+    "Renal artery stenosis (I70.2)",
+    "Carotid artery stenosis (I65.9)",
+    "Takayasu arteritis (M31.6)",
+    "Pheochromocytoma (E21.1)"
+   ],
+   "verdict": "same",
+   "reason": "The model explicitly names renal artery stenosis, a reference diagnosis."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 73534,
+   "gain": 0.25326335410655315,
+   "reference": [
+    "Genital herpes simplex",
+    "Chancroid",
+    "Gonorrhea treated with inadequate monotherapy (ceftriaxone only)",
+    "Lymphogranuloma Venereum",
+    "Primary syphilis"
+   ],
+   "answer": [
+    "Herpes simplex virus infection (B20)",
+    "Gonococcal infection, unspecified (A54.9)",
+    "Syphilis, unspecified (A55.9)",
+    "Urinary tract infection, site not specified (N39.0)",
+    "Chlamydial infection (A56.0)"
+   ],
+   "verdict": "same",
+   "reason": "Herpes simplex virus infection names the reference diagnosis genital herpes simplex, despite the incorrect code."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 76465,
+   "gain": 0.0545372948163666,
+   "reference": [
+    "Inflammatory breast carcinoma",
+    "Acute bacterial prostatitis",
+    "Secondary malignant neoplasm of axillary lymph nodes",
+    "Malignant neoplasm of breast",
+    "Otomycosis"
+   ],
+   "answer": [
+    "Inflammatory breast cancer (C50.911)",
+    "Acute mastitis with abscess (L04.11)",
+    "Non-Hodgkin lymphoma (C81.9)",
+    "Paget's disease of breast (D05.0)",
+    "Fat necrosis of breast (T79.0)"
+   ],
+   "verdict": "same",
+   "reason": "Inflammatory breast cancer is the same diagnosis as inflammatory breast carcinoma."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 75060,
+   "gain": 0.0633158385266383,
+   "reference": [
+    "Acute mesenteric ischemia",
+    "Perforated peptic ulcer",
+    "Acute cholecystitis",
+    "Diverticulitis",
+    "Acute pancreatitis"
+   ],
+   "answer": [
+    "Bowel ischemia (K55.8)",
+    "Perforated viscus (K91.81)",
+    "Small bowel obstruction (K56.9)",
+    "Unspecified noninfective gastroenteritis (K52.9)",
+    "Atherosclerosis of mesenteric artery (I70.2)"
+   ],
+   "verdict": "related",
+   "reason": "Bowel ischemia and perforated viscus are broader than the reference diagnoses, without naming acute mesenteric ischemia or a perforated peptic ulcer specifically."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__agent__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 76560,
+   "gain": 0.12663167705327652,
+   "reference": [
+    "Metabolic syndrome",
+    "Leptin receptor deficiency",
+    "Secondary polycythemia",
+    "Hyperinsulinemia",
+    "Diabetic ketoacidosis",
+    "Type 1 diabetes mellitus"
+   ],
+   "answer": [
+    "Type 2 diabetes mellitus with hypertriglyceridemia (E11.65)",
+    "Type 2 diabetes mellitus with other specified complications (E11.39)",
+    "Obesity due to excess calories (E66.01)",
+    "Hyperlipidemia, unspecified (E78.5)",
+    "Type 2 diabetes mellitus with other specified complications (E11.69)"
+   ],
+   "verdict": "related",
+   "reason": "Type 2 diabetes and obesity are related to several reference diagnoses, but the answer does not name any reference diagnosis."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__single__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 73541,
+   "gain": 0.11990623328406574,
+   "reference": [
+    "Ureterolithiasis",
+    "Urinary Tract Infection/Pyelonephritis"
+   ],
+   "answer": [
+    "Nephrolithiasis (N20.0)",
+    "Acute pyelonephritis (N10)",
+    "Acute appendicitis (K35.80)",
+    "Ectopic pregnancy (O00.9)",
+    "Hydronephrosis (N13.10)"
+   ],
+   "verdict": "same",
+   "reason": "The answer explicitly names acute pyelonephritis, which matches a reference diagnosis."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__single__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 73746,
+   "gain": 0.15979138559512832,
+   "reference": [
+    "Tracheoesophageal fistula with esophageal atresia",
+    "Posterior urethral valves",
+    "Renal agenesis",
+    "Bilateral adrenal hemorrhage (Waterhouse-Friderichsen syndrome)",
+    "Cystic hygroma"
+   ],
+   "answer": [
+    "Gestational diabetes mellitus (O24.4)",
+    "Esophageal atresia (Q79.1)",
+    "Duodenal atresia (Q79.2)",
+    "Fetal anemia (P51.0)",
+    "Polyhydramnios (O41.0)"
+   ],
+   "verdict": "related",
+   "reason": "Esophageal atresia is related to, but does not specify, the reference diagnosis of tracheoesophageal fistula with esophageal atresia."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__single__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 73964,
+   "gain": 0.0687777420720026,
+   "reference": [
+    "Subacute thyroiditis",
+    "Hypothyroidism",
+    "Graves disease"
+   ],
+   "answer": [
+    "Subacute thyroiditis (H05.1)",
+    "Thyrotoxicosis without mention of goiter (E05.00)",
+    "Graves' disease (E05.90)",
+    "Hashimoto's thyroiditis (E06.3)",
+    "Toxic multinodular goiter (E05.10)"
+   ],
+   "verdict": "same",
+   "reason": "The answer explicitly names subacute thyroiditis and Graves' disease, both reference diagnoses."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__single__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 76595,
+   "gain": 0.035114174841086615,
+   "reference": [
+    "Malignant neoplasm of thyroid gland",
+    "Hashimoto thyroiditis",
+    "Subacute thyroiditis",
+    "TSH-secreting pituitary adenoma",
+    "Euthyroid hyperthyroxinemia secondary to increased thyroid-binding globulin from oral contraceptives",
+    "Graves disease"
+   ],
+   "answer": [
+    "Medullary thyroid carcinoma (C74.0)",
+    "Amyloidosis (E87.1)",
+    "Thyroid adenoma (D20)",
+    "Thyroid follicular carcinoma (C73)",
+    "Thyroid carcinoma, unspecified (C72.9)"
+   ],
+   "verdict": "same",
+   "reason": "Medullary and follicular thyroid carcinomas are malignant neoplasms of the thyroid gland."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__single__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 76216,
+   "gain": 0.014328018773760332,
+   "reference": [
+    "Schizophrenia",
+    "Schizoaffective disorder",
+    "Social Anxiety Disorder (Performance Type)",
+    "Substance-induced psychotic disorder",
+    "Major depressive disorder"
+   ],
+   "answer": [
+    "Schizophrenia (F20.9)",
+    "Schizoaffective disorder (F25.9)",
+    "Bipolar disorder with psychotic features (F31.6)",
+    "Cannabis-induced psychotic disorder (F12.20)",
+    "Major depressive disorder with psychotic features (F32.3)"
+   ],
+   "verdict": "same",
+   "reason": "The answer explicitly names schizophrenia, schizoaffective disorder, and major depressive disorder."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__single__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 73534,
+   "gain": 0.25326335410655304,
+   "reference": [
+    "Genital herpes simplex",
+    "Chancroid",
+    "Gonorrhea treated with inadequate monotherapy (ceftriaxone only)",
+    "Lymphogranuloma Venereum",
+    "Primary syphilis"
+   ],
+   "answer": [
+    "Herpes simplex virus infection (B20)",
+    "Syphilis (A53.0)",
+    "Cellulitis (L03.9)",
+    "Gonococcal infection (A54.0)",
+    "Chlamydial infection (A54.1)"
+   ],
+   "verdict": "same",
+   "reason": "Herpes simplex virus infection and syphilis name reference diagnoses, despite incorrect or nonspecific codes."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__single__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 74026,
+   "gain": 0.25326335410655304,
+   "reference": [
+    "Renal artery stenosis",
+    "Eosinophilic granulomatosis with polyangiitis",
+    "Microscopic polyangiitis",
+    "Polyarteritis nodosa",
+    "Granulomatosis with polyangiitis"
+   ],
+   "answer": [
+    "Fibromuscular dysplasia (E45.9)",
+    "Transient cerebral ischemic attack, unspecified (G45.9)",
+    "Occlusion and stenosis of internal carotid artery, unspecified (I65.9)",
+    "Migraine, unspecified (G43.909)",
+    "Other specified vascular disorders (I67.8)"
+   ],
+   "verdict": "related",
+   "reason": "Fibromuscular dysplasia can cause renal artery stenosis, but the answer does not name renal artery stenosis or any listed vasculitis."
+  },
+  {
+   "run": "qwen3.5-9b__differential_diagnosis__single__public__s0",
+   "unit": "differential_diagnosis",
+   "gt_id": 74880,
+   "gain": 0.048987819752877915,
+   "reference": [
+    "Hyperchloremic metabolic acidosis due to excess normal saline infusion",
+    "Delirium due to medical condition",
+    "Acute ischemic stroke",
+    "Dehydration",
+    "Diabetic ketoacidosis"
+   ],
+   "answer": [
+    "Pneumonia, unspecified organism (J18.9)",
+    "Hyponatremia (E87.6)",
+    "Migraine, unspecified (G43.909)",
+    "Essential hypertension (I10)",
+    "Type 2 diabetes mellitus without complications (E11.9)"
+   ],
+   "verdict": "different",
+   "reason": "The answer does not name any reference diagnosis; uncomplicated diabetes is not diabetic ketoacidosis."
+  },
+  {
+   "run": "qwen3.5-9b__patient_diagnosis__agent__public__s0",
+   "unit": "patient_diagnosis",
+   "gt_id": 70933,
+   "gain": 0.16666666666666669,
+   "reference": [
+    "Acute arterial embolism of left lower extremity causing acute limb ischemia"
+   ],
+   "answer": [
+    "Embolism of popliteal artery (I65.22)",
+    "Hypertension (I10)",
+    "Atrial fibrillation (I48.91)",
+    "Paget disease of bone (M85.80)",
+    "Achalasia (K22.0)",
+    "Iliofemoral Deep Vein Thrombosis (I82.40)",
+    "Acute mesenteric ischemia (I25.1)",
+    "Rheumatic fever (I00)",
+    "Osteoarthritis (M19.90)",
+    "History of intracranial hemorrhage (G45.909)"
+   ],
+   "verdict": "same",
+   "reason": "Popliteal artery embolism names the acute arterial embolic cause of lower-extremity ischemia, despite the incorrect code and unrelated additional diagnoses."
+  },
+  {
+   "run": "qwen3.5-9b__test_selection__agent__public__s0",
+   "unit": "test_selection",
+   "gt_id": 77217,
+   "gain": 0.375,
+   "reference": [
+    "Renal artery stenosis"
+   ],
+   "answer": [
+    "Fibromuscular dysplasia (I73.1)"
+   ],
+   "verdict": "related",
+   "reason": "Fibromuscular dysplasia can cause renal artery stenosis, but does not itself establish that the renal artery is stenosed."
+  },
+  {
+   "run": "qwen3.5-9b__test_selection__agent__public__s0",
+   "unit": "test_selection",
+   "gt_id": 76997,
+   "gain": 0.5,
+   "reference": [
+    "Gestational Trophoblastic Neoplasia"
+   ],
+   "answer": [
+    "Complete hydatidiform mole (O00.0)"
+   ],
+   "verdict": "related",
+   "reason": "A complete hydatidiform mole is a gestational trophoblastic lesion, but it is not itself gestational trophoblastic neoplasia."
+  },
+  {
+   "run": "qwen3.5-9b__test_selection__agent__public__s0",
+   "unit": "test_selection",
+   "gt_id": 77751,
+   "gain": 0.5,
+   "reference": [
+    "Chronic prosthetic joint infection of right hip"
+   ],
+   "answer": [
+    "Periprosthetic joint infection (M96.8)"
+   ],
+   "verdict": "related",
+   "reason": "Periprosthetic joint infection matches the condition but does not specify the chronic course or right hip."
+  },
+  {
+   "run": "qwen3.5-9b__test_selection__agent__public__s0",
+   "unit": "test_selection",
+   "gt_id": 77172,
+   "gain": 0.25,
+   "reference": [
+    "Primary genital herpes simplex virus infection"
+   ],
+   "answer": [
+    "Genital herpes (B22.0)"
+   ],
+   "verdict": "related",
+   "reason": "Genital herpes matches the infection but does not specify that it is a primary episode."
+  },
+  {
+   "run": "qwen3.5-9b__test_selection__agent__public__s0",
+   "unit": "test_selection",
+   "gt_id": 77865,
+   "gain": 0.006944444444444444,
+   "reference": [
+    "Acute arterial embolism of left lower extremity causing acute limb ischemia"
+   ],
+   "answer": [
+    "Acute limb ischemia (I65.2)"
+   ],
+   "verdict": "related",
+   "reason": "Acute limb ischemia is correct but does not specify the left leg or arterial embolism as the cause."
+  },
+  {
+   "run": "qwen3.5-9b__test_selection__agent__public__s0",
+   "unit": "test_selection",
+   "gt_id": 77754,
+   "gain": 0.5,
+   "reference": [
+    "Gastrointestinal angiodysplasia with hemorrhage"
+   ],
+   "answer": [
+    "Colonic angiodysplasia (K58.0)"
+   ],
+   "verdict": "related",
+   "reason": "Colonic angiodysplasia is a subtype of gastrointestinal angiodysplasia, but the answer does not specify hemorrhage."
+  },
+  {
+   "run": "qwen3.5-9b__test_selection__single__public__s0",
+   "unit": "test_selection",
+   "gt_id": 78758,
+   "gain": 0.125,
+   "reference": [
+    "Diabetic ketoacidosis"
+   ],
+   "answer": [
+    "Type 2 Diabetes Mellitus (E11.90)"
+   ],
+   "verdict": "related",
+   "reason": "Type 2 diabetes is related to diabetic ketoacidosis but does not identify the acute ketoacidosis."
+  },
+  {
+   "run": "qwen3.5-9b__test_selection__single__public__s0",
+   "unit": "test_selection",
+   "gt_id": 77217,
+   "gain": 0.125,
+   "reference": [
+    "Renal artery stenosis"
+   ],
+   "answer": [
+    "Fibromuscular dysplasia (Q27.1)"
+   ],
+   "verdict": "related",
+   "reason": "Fibromuscular dysplasia can cause renal artery stenosis, but it does not specify that the renal artery is affected."
+  }
+ ]
+}

@@ -76,7 +76,9 @@ sample was the longest charts minus a ceiling filter, and the data generator sat
   coded it differently (`eval/scoring.py dx_credit`: 0.75 same name, 0.5 related name, 0 on a contradicting
   qualifier), in every diagnosis-scored task. Names are compared with the reference and with the concept's other
   names in the release (CMS and SNOMED descriptions, merged duplicates, the reference's parenthetical gloss;
-  `eval/diagnosis_aliases.json`). A more specific name may add qualifiers, not a list of diseases.
+  `eval/diagnosis_aliases.json`), and a correct answer that is a more specific form of a generic reference earns the
+  related credit (`eval/diagnosis_isa_aliases.json`, LLM-curated once, frozen, over-credit audited). A more specific
+  name may add qualifiers, not a list of diseases.
 - Every diagnosis-scored result reports `diagnosis_named` (the reference named, code ignored) and
   `diagnosis_coded` (coded exactly) beside the reward, so a gain splits into naming and coding.
 - The reward is frozen: `eval/reward_lock.json` holds the version and the SHA-256 of every reward file; the runner

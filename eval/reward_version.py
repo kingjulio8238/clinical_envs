@@ -21,7 +21,7 @@ LOCK = Path(__file__).with_name("reward_lock.json")
 REWARD_FILES = (
     "eval/scoring.py", "eval/scoring_tasks7.py", "eval/score_one.py", "eval/stage7.py", "eval/concept_match.py",
     "eval/semantic_match.py", "eval/value_match.py", "eval/imaging_concepts.py", "eval/chart_neutral.py",
-    "eval/diagnosis_aliases.json", "eval/private_labels.py",
+    "eval/diagnosis_aliases.json", "eval/diagnosis_isa_aliases.json", "eval/private_labels.py",
 )
 """Files whose content determines a reward: the scorers, the matchers, order matching (stage7), the concept aliases."""
 

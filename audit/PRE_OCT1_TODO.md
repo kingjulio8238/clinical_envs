@@ -21,9 +21,24 @@ optional P8.
         signal), a synthetic padded-answer hack (→ 3c FAIL, "reward hack"), balanced rarity terciles. Monitor signals are
         now backfilled for the stored runs by the rescore script, and a long ranked retrieval list is no longer a
         "many entries" probe (it is scored at a fixed k).
-- [ ] **P3 Serving the trained checkpoint:** `gpu/vllm_eval.py` serves base + LoRA (`--enable-lora --lora-modules`) from
-      the ART checkpoint directory on the results volume; `qwen3.5-9b-local` targets it by name (`SH_VLLM_MODEL`); the
-      same limits and sampling as the base run. Tested for configuration (command line, model name routing).
+- [x] **P3 Serving the trained checkpoint:** `gpu/vllm_eval.py` serves base + LoRA from the ART checkpoint directory on
+      the results volume; the trained policy is requested by its own name; the same limits and sampling as the base run.
+      → done, with a change of engine: plain vLLM 0.30 was the evaluation engine, but LoRA on Qwen3.5's linear-attention
+        (Gated DeltaNet) modules is what ART patches into its own pinned runtime (vLLM 0.25.1 + `art_vllm_runtime`,
+        "validated" for Qwen3.5 dense). Both sides now run on **ART's runtime — the engine the policy is sampled from
+        during training**: one server starts on the base (`gpu/serving.py launch_config`: LoRA enabled, room for one
+        adapter of the checkpoint's rank, the training parsers, `generation_config=vllm` as ART sets it); for the after
+        run the adapter is loaded into it at run time (`/v1/load_lora_adapter`) as `qwen3.5-9b-rl`. Guards: the job
+        refuses to start unless `/v1/models` shows the adapter at that path, and a greedy logprob probe (base vs adapter,
+        one fixed prompt) must differ — a zero gap means requests for the adapter are answered by the base.
+        `eval/config.py qwen3.5-9b-rl` (same limits and sampling as `qwen3.5-9b-local`); `SH_VLLM_MODEL` is set only when
+        an adapter is loaded, so `--model qwen3.5-9b-rl` against a base-only server fails instead of scoring the base.
+        The runtime is installed at image-build time (`with_art_runtime`, CUDA profile pinned to cuda12 so the build and
+        the GPU container agree on its hash) in both the evaluation and the training images. Checkpoint path:
+        `/results/rl/<run>/.art/clinical-envs/models/qwen35-9b-clinical/checkpoints/<step:04d>`. Test:
+        `test_trained_checkpoint_serving_configuration`; the launch command was built with ART 0.5.20's own
+        `build_vllm_runtime_server_cmd`. Not verifiable without a GPU: that the runtime serves Qwen3.5-9B and loads the
+        adapter — G1 now smokes the base on this engine, and the first after-run's `served.json` records the probe gap.
 - [x] **P4 Checkpoint selection on a train-dev split:** `scripts/train_rl.py` validates on a fixed, seeded slice of
       train-split patients excluded from the training prompts (today it validates on a heldout sample — contrary to the
       criteria doc); test that dev patients never appear in training batches.

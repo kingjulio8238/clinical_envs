@@ -5,7 +5,9 @@
     MODAL_PROFILE=<p> modal run --detach gpu/vllm_eval.py --run-name c4 --minutes 240 \
         --cmd "scripts/group_variance.py --per-unit 250 --k 8 --workers 96"
 
-`--cmd` is appended to `python -u` and gets `--out /results/<run-name>` (protocol_run / group_variance write there).
+`--cmd` is appended to `python -u` and gets `--out /results/<run-name>/partN` ("&&" separates several client commands
+that share one server start). `--lora-path /results/rl/<run>/.art/.../checkpoints/<step>` serves the trained policy
+(base + LoRA; the client's `--model qwen3.5-9b-rl`); both sides run on ART's managed vLLM runtime (P3).
 Outputs, the vLLM log and the client log land on the `clinical-envs-results` volume under <run-name>/:
     modal volume get clinical-envs-results <run-name> results/modal/
 The function's timeout is `--minutes` (server-side: a lost laptop connection cannot keep the GPU running).
@@ -17,10 +19,14 @@ from pathlib import Path
 
 import modal
 
-from common import HF_CACHE, MODEL, RESULTS, committer, repo_image, start_vllm, tee
+from common import (HF_CACHE, MODEL, RESULTS, adapter_effect, check_served, committer, load_adapter, repo_image,
+                    runtime_server_cmd, served_models, start_vllm, tee, with_art_runtime)
 
 app = modal.App("clinical-envs-vllm-eval")
-image = repo_image(modal.Image.debian_slim(python_version="3.12").pip_install("vllm==0.30.0", "hf_transfer"))
+# Engine: ART's managed vLLM runtime — the engine that samples the policy during ART training — for both the before
+# (base) and the after (base + LoRA) evaluation (P3; gpu/common.py launch_config).
+image = repo_image(with_art_runtime(modal.Image.debian_slim(python_version="3.12").apt_install("git")
+                                    .pip_install("openpipe-art==0.5.20", "uv", "hf_transfer")))
 
 
 @app.function(image=image, volumes={"/hf": HF_CACHE}, timeout=30 * 60, cpu=4)
@@ -33,21 +39,43 @@ def download() -> str:
 
 
 @app.function(image=image, gpu="H100", volumes={"/hf": HF_CACHE, "/results": RESULTS}, timeout=60 * 60, max_containers=1)
-def run(run_name: str, cmd: str) -> dict:
+def run(run_name: str, cmd: str, lora_path: str = "") -> dict:
+    """`lora_path`: an ART checkpoint directory on the results volume
+    (/results/rl/<run>/.art/clinical-envs/models/qwen35-9b-clinical/checkpoints/<step>) → the trained policy is served
+    as base + LoRA and the client requests it as `qwen3.5-9b-rl`; empty → the base model as `qwen3.5-9b-local`."""
     import json
     import time
     out = Path("/results") / run_name
     out.mkdir(parents=True, exist_ok=True)
     stop = committer(RESULTS)
     t0 = time.time()
-    proc = start_vllm(out / "vllm.log")
+    rank = 16
+    if lora_path:
+        cfg = Path(lora_path) / "adapter_config.json"
+        if not cfg.exists():
+            raise FileNotFoundError(f"no LoRA adapter at {lora_path} (expected adapter_config.json)")
+        rank = int(json.loads(cfg.read_text()).get("r", 16))
+    proc = start_vllm(out / "vllm.log", runtime_server_cmd(rank))
     ready = time.time() - t0
     HF_CACHE.commit()
+    effect = None
+    if lora_path:
+        load_adapter(lora_path)
+        effect = adapter_effect()
+        if effect["gap"] == 0.0:
+            raise RuntimeError(f"the adapter does not change the base's outputs ({effect}): not evaluating the base twice")
+    models = served_models()
+    name = check_served(models, lora_path or None)
+    client_env = {"SH_VLLM_URL": "http://127.0.0.1:8000/v1", "SH_VLLM_BASE_MODEL": MODEL}
+    if lora_path:   # unset for a base-only server, so `--model qwen3.5-9b-rl` there fails instead of scoring the base
+        client_env["SH_VLLM_MODEL"] = name
+    (out / "served.json").write_text(json.dumps({"models": models, "lora_path": lora_path, "lora_rank": rank,
+                                                 "adapter_effect": effect, **client_env}, indent=1))
     rc = 0
     for i, part in enumerate(c.strip() for c in cmd.split("&&")):   # several client commands share one server start
         t1 = time.time()
         sub = out / f"part{i}"
-        rc = tee(["python", "-u", *shlex.split(part), "--out", str(sub)], out / "client.log", env={"SH_VLLM_URL": "http://127.0.0.1:8000/v1"})
+        rc = tee(["python", "-u", *shlex.split(part), "--out", str(sub)], out / "client.log", env=client_env)
         (out / f"part{i}.json").write_text(json.dumps({"cmd": part, "rc": rc, "seconds": round(time.time() - t1, 1)}))
         RESULTS.commit()
         if rc:
@@ -61,8 +89,9 @@ def run(run_name: str, cmd: str) -> dict:
 
 
 @app.local_entrypoint()
-def main(run_name: str = "", cmd: str = "", minutes: int = 40, gpu: str = "H100", download_only: bool = False):
+def main(run_name: str = "", cmd: str = "", minutes: int = 40, gpu: str = "H100", download_only: bool = False,
+         lora_path: str = ""):
     if download_only:
         print(download.remote())
         return
-    print(run.with_options(timeout=minutes * 60, gpu=gpu).remote(run_name, cmd))
+    print(run.with_options(timeout=minutes * 60, gpu=gpu).remote(run_name, cmd, lora_path))

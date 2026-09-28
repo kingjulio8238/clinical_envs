@@ -1,5 +1,6 @@
 """Evaluation pipeline configuration: model registry, DB helper, cost rates."""
 
+import dataclasses
 import os
 from dataclasses import dataclass, field
 from enum import Enum
@@ -262,9 +263,13 @@ MODEL_REGISTRY.update(PROTOCOL_PANEL)
 VLLM_URL = os.environ.get("SH_VLLM_URL", "http://localhost:8000/v1")
 MODEL_REGISTRY["qwen3.5-9b-local"] = ModelConfig(
     name="qwen3.5-9b-local", adapter_type=AdapterType.OPENAI_COMPATIBLE, base_url=VLLM_URL, api_key_env="",
-    model_id=os.environ.get("SH_VLLM_MODEL", "Qwen/Qwen3.5-9B"), max_tokens=4096, temperature=1.0, timeout_secs=900.0,
+    model_id=os.environ.get("SH_VLLM_BASE_MODEL", "Qwen/Qwen3.5-9B"), max_tokens=4096, temperature=1.0, timeout_secs=900.0,
     extra={"sampling": {"top_p": 0.95, "presence_penalty": 1.5, "top_k": 20}, "seeded": True, "stream": False,
            "total_timeout_s": 900})
+# The trained policy (base + LoRA on the same server and engine; gpu/vllm_eval.py sets SH_VLLM_MODEL to the LoRA's name):
+# a separate registry name so the before and after runs never share a results directory.
+MODEL_REGISTRY["qwen3.5-9b-rl"] = dataclasses.replace(
+    MODEL_REGISTRY["qwen3.5-9b-local"], name="qwen3.5-9b-rl", model_id=os.environ.get("SH_VLLM_MODEL", "qwen3.5-9b-rl"))
 
 
 def _live_prices() -> dict[str, tuple[float, float]]:

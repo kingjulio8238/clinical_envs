@@ -13,11 +13,11 @@ from pathlib import Path
 
 import modal
 
-from common import HF_CACHE, RESULTS, committer, repo_image, tee
+from common import HF_CACHE, RESULTS, committer, repo_image, tee, with_art_runtime
 
 app = modal.App("clinical-envs-train")
-image = repo_image(modal.Image.debian_slim(python_version="3.12").apt_install("git")
-                   .pip_install("openpipe-art[backend]==0.5.20", "hf_transfer"))
+image = repo_image(with_art_runtime(modal.Image.debian_slim(python_version="3.12").apt_install("git")
+                                    .pip_install("openpipe-art[backend]==0.5.20", "uv", "hf_transfer")))
 
 
 @app.function(image=image, gpu="H100", volumes={"/hf": HF_CACHE, "/results": RESULTS}, timeout=60 * 60, max_containers=1)

@@ -10,27 +10,35 @@ import os
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 import modal
+from serving import MODEL, PROBE_MESSAGES, RL_SERVED_NAME, check_served, launch_config, logprob_gap  # noqa: F401
 
 REPO = Path(__file__).resolve().parent.parent
 HF_CACHE = modal.Volume.from_name("clinical-envs-hf-cache", create_if_missing=True)
 RESULTS = modal.Volume.from_name("clinical-envs-results", create_if_missing=True)
 IGNORE = [".venv", ".git", "results", "data", "private", "scratchpad", "**/__pycache__", ".art", "audit/bench", "*.pyc",
           "docker", "harbor", "node_modules", ".pytest_cache"]
-MODEL = "Qwen/Qwen3.5-9B"
-VLLM_ARGS = ["--served-model-name", MODEL, "--max-model-len", "65536", "--reasoning-parser", "qwen3",
-             "--enable-auto-tool-choice", "--tool-call-parser", "qwen3_coder", "--language-model-only",
-             "--gpu-memory-utilization", "0.90", "--max-num-seqs", "128", "--port", "8000"]
+ART_RUNTIME_ENV = {"ART_VLLM_RUNTIME_CACHE_DIR": "/opt/art-vllm-runtime",
+                   # pinned so the build-time install (no GPU) and the GPU container agree on the runtime's hash
+                   "ART_VLLM_RUNTIME_CUDA_PROFILE": "cuda12"}
 
 
 def repo_image(base: modal.Image) -> modal.Image:
     return (base.pip_install_from_requirements(str(REPO / "requirements-rl.txt"))
             .env({"HF_HOME": "/hf", "HF_HUB_ENABLE_HF_TRANSFER": "1", "PYTHONUNBUFFERED": "1"})
-            .add_local_python_source("common")
+            .add_local_python_source("common", "serving")
             .add_local_dir(str(REPO), "/repo", ignore=IGNORE))
+
+
+def with_art_runtime(base: modal.Image) -> modal.Image:
+    """ART's managed vLLM runtime (vLLM 0.25.1 + ART's patches; a uv sync of ART's pinned lockfile), installed at
+    image-build time into the image so no GPU container spends its first minutes installing it."""
+    return base.env(ART_RUNTIME_ENV).run_commands(
+        "python -c 'from art.vllm_runtime import ensure_vllm_runtime as e; print(e(progress=print))'")
 
 
 def tee(cmd: list[str], log: Path, env: dict | None = None, cwd: str = "/repo") -> int:
@@ -44,10 +52,57 @@ def tee(cmd: list[str], log: Path, env: dict | None = None, cwd: str = "/repo") 
         return p.wait()
 
 
-def start_vllm(log: Path, extra: list[str] | None = None, wait_s: int = 1200) -> subprocess.Popen:
+def runtime_server_cmd(lora_rank: int = 16) -> list[str]:
+    from art.vllm_runtime import VllmRuntimeLaunchConfig, build_vllm_runtime_server_cmd
+    return build_vllm_runtime_server_cmd(VllmRuntimeLaunchConfig(**launch_config(lora_rank)))
+
+
+def _post(path: str, body: dict, timeout: int = 300) -> tuple[int, str]:
+    import json as _json
+    req = urllib.request.Request(f"http://127.0.0.1:8000{path}", data=_json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode()
+
+
+def load_adapter(lora_path: str) -> None:
+    """Load the trained LoRA into the running server as `RL_SERVED_NAME` (vLLM's runtime LoRA endpoint; ART's server
+    enables it)."""
+    code, text = _post("/v1/load_lora_adapter", {"lora_name": RL_SERVED_NAME, "lora_path": lora_path})
+    if code != 200:
+        raise RuntimeError(f"loading the adapter {lora_path} failed ({code}): {text[:500]}")
+
+
+def adapter_effect() -> dict:
+    """Greedy logprobs of one fixed prompt from the base and from the adapter: a trained adapter must change them —
+    a zero gap means requests named `RL_SERVED_NAME` are silently answered by the base (the after run would be the
+    before run)."""
+    import json as _json
+    lps = {}
+    for name in (MODEL, RL_SERVED_NAME):
+        code, text = _post("/v1/chat/completions", {"model": name, "messages": PROBE_MESSAGES, "max_tokens": 16,
+                                                    "temperature": 0, "logprobs": True, "seed": 0})
+        if code != 200:
+            raise RuntimeError(f"probe request to {name} failed ({code}): {text[:500]}")
+        lps[name] = [t["logprob"] for t in _json.loads(text)["choices"][0]["logprobs"]["content"]]
+    return {"gap": logprob_gap(lps[MODEL], lps[RL_SERVED_NAME]), "tokens": len(lps[MODEL])}
+
+
+def served_models() -> list[dict]:
+    import json as _json
+    with urllib.request.urlopen("http://127.0.0.1:8000/v1/models", timeout=10) as r:
+        return _json.loads(r.read())["data"]
+
+
+def start_vllm(log: Path, cmd: list[str], wait_s: int = 1200) -> subprocess.Popen:
     log.parent.mkdir(parents=True, exist_ok=True)
     fh = log.open("a")
-    proc = subprocess.Popen(["vllm", "serve", MODEL, *VLLM_ARGS, *(extra or [])], stdout=fh, stderr=subprocess.STDOUT)
+    fh.write(f"$ {' '.join(cmd)}\n")
+    fh.flush()
+    proc = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT)
     t0 = time.time()
     while time.time() - t0 < wait_s:
         if proc.poll() is not None:

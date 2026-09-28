@@ -211,3 +211,39 @@ def test_art_configuration_for_qwen35_9b():
     asyncio.run(rollout(client, "p", {**R.shared_db().instances("patient_diagnosis", "train")[0], "task": "patient_diagnosis"},
                         RolloutConfig(logprobs=True)))
     assert client.requests[0]["logprobs"] is True
+
+
+def test_trained_checkpoint_serving_configuration():
+    """P3: one engine for the before and the after (ART's runtime, the training engine), the adapter loaded into the
+    base server under its own name, the same parsers as training, name routing that fails instead of scoring the base
+    under the trained name, and a probe that catches an adapter which changes nothing."""
+    import argparse
+    import importlib
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "gpu"))
+    S = importlib.import_module("serving")
+    import scripts.train_rl as T
+    cfg = S.launch_config(32)
+    assert cfg["served_model_name"] == S.MODEL and cfg["lora_path"] is None
+    assert cfg["engine_args"]["max_lora_rank"] == 32 and S.launch_config()["engine_args"]["max_lora_rank"] == 16
+    assert cfg["engine_args"]["max_model_len"] == 65536 and cfg["engine_args"]["generation_config"] == "vllm"
+    _, server = T.art_configs(argparse.Namespace(max_seq_length=65536, gpu_memory_utilization=0.8, lora_rank=16, lora_alpha=32))
+    assert all(cfg["server_args"][k] == v for k, v in server["server_args"].items())     # training parsers = eval parsers
+    base = [{"id": S.MODEL, "root": S.MODEL}]
+    ckpt = "/results/rl/r/.art/clinical-envs/models/qwen35-9b-clinical/checkpoints/0040"
+    assert S.check_served(base, None) == S.MODEL
+    with pytest.raises(RuntimeError):
+        S.check_served(base, ckpt)                                                        # adapter not loaded
+    with pytest.raises(RuntimeError):
+        S.check_served(base + [{"id": S.RL_SERVED_NAME, "root": "/elsewhere"}], ckpt)       # a different adapter
+    assert S.check_served(base + [{"id": S.RL_SERVED_NAME, "root": ckpt + "/"}], ckpt) == S.RL_SERVED_NAME
+    assert S.logprob_gap([-0.1, -0.2], [-0.1, -0.2]) == 0.0 and S.logprob_gap([-0.1, -0.2], [-0.3, -0.2, -5]) > 0
+    # registry routing: the trained name is requested only when the job says an adapter is loaded
+    import eval.config as C
+    if {"SH_VLLM_MODEL", "SH_VLLM_BASE_MODEL"} & set(__import__("os").environ):
+        pytest.skip("serving env vars set in this shell")
+    assert C.MODEL_REGISTRY["qwen3.5-9b-rl"].model_id == S.RL_SERVED_NAME
+    assert C.MODEL_REGISTRY["qwen3.5-9b-local"].model_id == S.MODEL
+    rl, local = C.MODEL_REGISTRY["qwen3.5-9b-rl"], C.MODEL_REGISTRY["qwen3.5-9b-local"]
+    assert (rl.max_tokens, rl.temperature, rl.extra, rl.base_url) == (local.max_tokens, local.temperature, local.extra, local.base_url)

@@ -138,6 +138,7 @@ Ordered by dependency; items in the same group are independent. Costs are comput
 - [x] B1–B4 decided and documented → RL round-1 units: patient_diagnosis, atypical_diagnosis (evaluation-only transfer
       test per §3.6 of RL_READINESS.md), differential_diagnosis, evidence_retrieval, test_selection; evaluation-only:
       lab_triage, error_detection, context_summarization, specialty_conditioned, imaging_indication
+      → 2026-09-28: `scripts/verify_roadmap.py` 94 pass / 0 fail / 1 deferred (Kimi row); 292 tests passed; CI green; reward-v3
 
 ## Open decision (from B4) — closed 2026-09-28 ("close all gaps before we proceed")
 

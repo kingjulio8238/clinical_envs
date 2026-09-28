@@ -123,7 +123,8 @@ Ordered by dependency; items in the same group are independent. Costs are comput
 
 ## D. Evaluation plan fixed in advance
 
-- [ ] **D1 Pre-register the success criteria** (in this file, before training): trained vs base on the training
+- [x] **D1 Pre-register the success criteria** → recorded in `audit/RL_SUCCESS_CRITERIA.md` (2026-09-28); the criterion-2
+      thresholds are filled in from the C2 local baseline. Original item: (in this file, before training): trained vs base on the training
       units, paired 95% intervals on public and on heldout; judge-confirmed; decomposed named vs coded; no significant
       regression on untrained units; atypical_diagnosis as the transfer test; the tools ablation re-run on the
       trained model; one confirmation on the private split through the operator scorer.

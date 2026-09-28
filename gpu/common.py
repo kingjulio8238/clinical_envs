@@ -15,6 +15,7 @@ import urllib.request
 from pathlib import Path
 
 import modal
+from telemetry import Telemetry  # noqa: F401
 from serving import MODEL, PROBE_MESSAGES, RL_SERVED_NAME, check_served, launch_config, logprob_gap  # noqa: F401
 
 REPO = Path(__file__).resolve().parent.parent
@@ -30,7 +31,7 @@ ART_RUNTIME_ENV = {"ART_VLLM_RUNTIME_CACHE_DIR": "/opt/art-vllm-runtime",
 def repo_image(base: modal.Image) -> modal.Image:
     return (base.pip_install_from_requirements(str(REPO / "requirements-rl.txt"))
             .env({"HF_HOME": "/hf", "HF_HUB_ENABLE_HF_TRANSFER": "1", "PYTHONUNBUFFERED": "1"})
-            .add_local_python_source("common", "serving")
+            .add_local_python_source("common", "serving", "telemetry")
             .add_local_dir(str(REPO), "/repo", ignore=IGNORE))
 
 
@@ -106,7 +107,7 @@ def start_vllm(log: Path, cmd: list[str], wait_s: int = 1200) -> subprocess.Pope
     t0 = time.time()
     while time.time() - t0 < wait_s:
         if proc.poll() is not None:
-            raise RuntimeError(f"vLLM exited with {proc.returncode}; see {log}")
+            raise RuntimeError(f"vLLM exited with {proc.returncode}; last lines of {log}:\n{_tail(log)}")
         try:
             with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=5) as r:
                 if r.status == 200:
@@ -115,10 +116,17 @@ def start_vllm(log: Path, cmd: list[str], wait_s: int = 1200) -> subprocess.Pope
         except Exception:  # noqa: BLE001
             time.sleep(5)
     proc.kill()
-    raise RuntimeError(f"vLLM not ready after {wait_s}s; see {log}")
+    raise RuntimeError(f"vLLM not ready after {wait_s}s; last lines of {log}:\n{_tail(log)}")
 
 
-def committer(volume: modal.Volume, every_s: int = 60) -> threading.Event:
+def _tail(path: Path, n: int = 40) -> str:
+    try:
+        return "\n".join(path.read_text(errors="replace").splitlines()[-n:])
+    except OSError:
+        return "(no log)"
+
+
+def committer(volume: modal.Volume, every_s: int = 30) -> threading.Event:
     """Commit the results volume periodically so progress is visible from outside while the job runs."""
     stop = threading.Event()
 

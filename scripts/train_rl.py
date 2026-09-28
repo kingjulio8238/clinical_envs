@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from eval import degenerate as D  # noqa: E402
 from eval import rl_monitor as M  # noqa: E402
+from eval.run_log import RunLog, flat_groups, fmt_dev, fmt_step, unit_means  # noqa: E402
 from eval.rl_rollout import TRAIN_UNITS, TRANSFER_UNITS, RolloutConfig, dev_instances, rollout, start_up, train_prompts  # noqa: E402
 
 
@@ -110,6 +111,7 @@ class ArtTrainer:
         from art.local import LocalBackend
         self.art = art
         self.args = args
+        self.log = None
         self.internal, self.server = art_configs(args)
         self.backend = LocalBackend(path=args.art_path)
         self.model = art.TrainableModel(name=args.model_name, project=args.project, run_name=args.run_name,
@@ -119,6 +121,7 @@ class ArtTrainer:
     async def setup(self):
         await self.model.register(self.backend, _openai_client_config=self.server)
         self.client = self.model.openai_client()
+        self.base_url = str(self.client.base_url)
 
     def policy(self):
         return self.client, self.model.get_inference_name()
@@ -129,6 +132,8 @@ class ArtTrainer:
         async def one():
             client, name = self.policy()
             res = await rollout(client, name, inst, cfg)
+            if self.log:
+                self.log.episode(inst["task"], inst["gt_id"], res.record, res.error)
             if res.error:
                 raise RuntimeError(res.error)
             return art.Trajectory(messages_and_choices=res.messages_and_choices, tools=res.tools, reward=res.reward,
@@ -158,10 +163,12 @@ class DryRunTrainer:
 
     def __init__(self, args):
         self.args, self._step = args, 0
+        self.log = None
 
     async def setup(self):
         from eval.tests.rl_fakes import ScriptedAsyncClient
         self.client = ScriptedAsyncClient()
+        self.base_url = None
 
     def policy(self):
         return self.client, "dry-run-policy"
@@ -169,6 +176,8 @@ class DryRunTrainer:
     async def group(self, inst, k, cfg):
         async def one():
             res = await rollout(self.client, "dry-run-policy", inst, cfg)
+            if self.log:
+                self.log.episode(inst["task"], inst["gt_id"], res.record, res.error)
             if res.error:
                 raise RuntimeError(res.error)
             return res
@@ -182,8 +191,9 @@ class DryRunTrainer:
         return out
 
     async def train(self, groups):
-        self._step += 1
-        return type("R", (), {"step": self._step, "metrics": {}})()
+        self._step += 1                     # ART-shaped metrics so the logging path is exercised on CPU
+        return type("R", (), {"step": self._step, "metrics": {"loss/train": 0.0, "loss/entropy": 0.0, "loss/grad_norm": 0.0,
+                                                               "loss/importance_ratio_mean": 1.0}})()
 
     async def prune(self, keep: list[int]) -> None:
         self.kept = sorted(set(keep) | {self._step})
@@ -254,7 +264,20 @@ async def main_async(args) -> int:
     (out / "config.json").write_text(json.dumps({**vars(args), **reward, "n_prompts": len(prompts), "prompt_mode": prompt_mode,
                                                   "n_val": len(val)}, indent=1, default=str))
     trainer = (DryRunTrainer if args.dry_run else ArtTrainer)(args)
-    await trainer.setup()
+    rl = RunLog(out, args.run_name)
+    trainer.log = rl
+    rl.emit("start", f"start: {args.max_steps} steps x {args.groups_per_step} groups x {args.rollouts_per_group} rollouts, "
+                     f"lr {args.lr}, loss {args.loss_fn}, kl {args.kl_coef}, {len(prompts)} prompts ({prompt_mode}), "
+                     f"dev {len(val)} every {args.val_every} steps, reward {reward['reward_version']}",
+            max_steps=args.max_steps, groups=args.groups_per_step, k=args.rollouts_per_group, lr=args.lr, units=units,
+            n_prompts=len(prompts), prompt_mode=prompt_mode, n_val=len(val), val_every=args.val_every,
+            reward_version=reward["reward_version"], kind_of_run="train")
+    try:
+        await trainer.setup()
+    except Exception as exc:
+        rl.emit("error", f"FATAL setup failed: {type(exc).__name__}: {exc}", where="setup", error=repr(exc))
+        raise
+    (out / "server.json").write_text(json.dumps({"base_url": trainer.base_url}))   # the telemetry thread reads vLLM metrics
     cfg_train = RolloutConfig(per_turn_tokens=args.per_turn_tokens, per_episode_tokens=args.per_episode_tokens, logprobs=True)
     cfg_val = RolloutConfig(per_turn_tokens=args.per_turn_tokens, per_episode_tokens=args.per_episode_tokens, seed=args.seed)
     # a resumed run (ART restarts from its latest checkpoint) picks up its own history, baseline and best checkpoint
@@ -267,8 +290,12 @@ async def main_async(args) -> int:
         else next((e["dev"] for e in prior if e["step"] == 0), {})
     best = json.loads((out / "best.json").read_text()) if (out / "best.json").exists() else None
     start_step = await trainer.step()
+    if start_step:
+        rl.emit("resume", f"resumed at step {start_step} ({len(evals)} dev evaluations, best "
+                          f"{(best or {}).get('step', '—')})", step=start_step)
     k, g = args.rollouts_per_group, args.groups_per_step
     log = (out / "steps.jsonl").open("a")
+    durations: list[float] = []
 
     def record_eval(step: int, entry: dict, vagg: dict, by_unit: dict) -> None:
         nonlocal best
@@ -281,23 +308,36 @@ async def main_async(args) -> int:
         if step > 0 and score is not None and (best is None or score > best["dev_score"]):
             best = {"step": step, "dev_score": score, "dev_by_unit": by_unit, "base_dev_score": evals[0]["score"]}
             (out / "best.json").write_text(json.dumps(best, indent=1))
+        rl.emit("dev", fmt_dev(entry, best, evals[0]["score"]), step=step, dev_score=score, dev_reward=entry["dev_reward"],
+                dev_by_unit=by_unit, dev=vagg, alerts=entry.get("alerts"), best_step=(best or {}).get("step"),
+                val_s=entry.get("val_s"))
+        for a in entry.get("alerts") or []:
+            rl.emit("alert", f"ALERT at step {step}: {a}", step=step, alert=a)
+
+    async def run_dev(step: int, entry: dict) -> None:
+        rl.begin_batch(f"step {step} dev", len(val))
+        t2 = time.time()
+        vagg, by_unit, _ = await dev_eval(trainer, val, cfg_val)
+        entry["val_s"] = round(time.time() - t2, 1)
+        record_eval(step, entry, vagg, by_unit)
 
     stop_reason = None
     try:
         if args.val_every and start_step == 0 and not evals:        # step 0: the base policy on dev (baseline + reference)
-            t2 = time.time()
-            vagg, by_unit, _ = await dev_eval(trainer, val, cfg_val)
-            entry = {"step": 0, "val_s": round(time.time() - t2, 1)}
-            record_eval(0, entry, vagg, by_unit)
-            baseline = baseline or vagg
+            entry = {"step": 0}
+            await run_dev(0, entry)
+            baseline = baseline or entry["dev"]
             log.write(json.dumps(entry, default=str) + "\n"); log.flush()
-            print(f"step 0 (base): dev {entry['dev_reward']:.3f}, selection score {entry['dev_score']:.3f}", flush=True)
         for step in range(start_step, args.max_steps):
             batch = [prompts[(step * g + j) % len(prompts)] for j in range(g)]
+            rl.begin_batch(f"step {step + 1} rollout", k * g)
             t0 = time.time()
             groups = await trainer.gather([trainer.group(inst, k, cfg_train) for inst in batch], max_exceptions=k * g)
             t_roll = time.time() - t0
             recs = _records(groups)
+            per_group = [[float(r.get("reward") or 0) for r in _records([grp])] for grp in groups]
+            rl.emit("phase", f"step {step + 1}: rollout done in {t_roll:.0f}s; training on {len(recs)} trajectories",
+                    step=step + 1, phase="train")
             t1 = time.time()
             result = await trainer.train(groups)
             t_train = time.time() - t1
@@ -305,27 +345,30 @@ async def main_async(args) -> int:
             entry = {"step": step + 1, "rollout_s": round(t_roll, 1), "train_s": round(t_train, 1), "episodes": len(recs),
                      "exceptions": k * g - len(recs), "output_tokens": sum(r.get("output_tokens", 0) for r in recs),
                      "train_reward": agg.get("reward_mean"), "train": agg,
+                     "train_by_unit": unit_means([(inst["task"], r) for inst, rs in zip(batch, per_group) for r in rs]),
+                     "groups": len(per_group), "flat_groups": flat_groups(per_group),
                      "train_metrics": numeric(getattr(result, "metrics", {}) or {})}
+            durations.append(t_roll + t_train)
+            eta = sum(durations[-5:]) / len(durations[-5:]) * (args.max_steps - step - 1)
+            rl.emit("step", fmt_step(entry, args.max_steps, eta), **{k_: v for k_, v in entry.items()}, eta_s=round(eta))
             if args.val_every and ((step + 1) % args.val_every == 0 or step + 1 == args.max_steps):
-                t2 = time.time()
-                vagg, by_unit, _ = await dev_eval(trainer, val, cfg_val)
-                entry["val_s"] = round(time.time() - t2, 1)
-                record_eval(step + 1, entry, vagg, by_unit)
+                await run_dev(step + 1, entry)
                 stop_reason = should_stop(evals, args.patience, args.alert_repeats)
                 entry["stop"] = stop_reason
                 await trainer.prune([e["step"] for e in evals if e["step"] > 0])
             log.write(json.dumps(entry, default=str) + "\n"); log.flush()
-            print(f"step {step + 1}/{args.max_steps}: train reward {entry['train_reward']:.3f}, {entry['episodes']} episodes, "
-                  f"rollout {t_roll:.0f}s, train {t_train:.0f}s" + (f", dev {entry['dev_reward']:.3f}" if "dev_reward" in entry else "")
-                  + (f", ALERTS {entry['alerts']}" if entry.get("alerts") else ""), flush=True)
             if stop_reason:
-                print(f"STOP at step {step + 1}: {stop_reason}", flush=True)
+                rl.emit("stop", f"STOP at step {step + 1}: {stop_reason}", step=step + 1, reason=stop_reason)
                 break
+    except Exception as exc:
+        rl.emit("error", f"FATAL {type(exc).__name__}: {exc}", where="loop", error=repr(exc))
+        raise
     finally:
         log.close()
         await trainer.close()
-    if best:
-        print(f"best checkpoint: step {best['step']} (dev selection score {best['dev_score']:.3f} vs base {best['base_dev_score']:.3f})")
+        rl.emit("end", "end: best checkpoint " + (f"step {best['step']} (dev score {best['dev_score']:.3f} vs base "
+                                                  f"{best['base_dev_score']:.3f})" if best else "none"), best=best)
+        rl.close()
     return 0
 
 

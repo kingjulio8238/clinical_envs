@@ -17,6 +17,32 @@ paid step follows the same four moves: **smoke → project from the smoke → `g
 - After any disconnect, crash or interrupt: **first** `bash gpu/kill_sweep.sh <profile>`, then diagnose.
 - A failed full run is never re-run to see if it repeats: reproduce the mechanism small first.
 
+## 0b. Watching a run (every GPU job, from launch to end)
+
+Every job writes the same two streams (`eval/run_log.py`, `gpu/telemetry.py`):
+- **stdout**, one formatted line per event, prefixed `HH:MM:SS [run]`: episode progress in batches with per-unit mean
+  reward and ETA; **every training step** (reward ± sd and per unit, groups with no reward spread, ART's `loss`,
+  `entropy`, `kl`, `grad_norm`, importance ratio mean / p95, clipped-token fraction, generated tokens and tokens/s,
+  rollout / train time, exceptions, ETA); every dev evaluation (selection score vs base and best ★, per unit, named /
+  coded, probe rate, answer size, alerts); every episode **error immediately** with its instance id; `ALERT`, `STOP`,
+  `FATAL` lines; a `[telemetry]` line each minute (GPU util / VRAM / power, vLLM running / waiting / KV cache / tokens/s
+  / preemptions, host load). A failed start prints the last 40 lines of the vLLM log.
+- **files on the results volume** (committed every 30 s): `events.jsonl` (the same events as JSON), `telemetry.jsonl`
+  (every 15 s), `steps.jsonl` / `best.json` (training), `train.log` / `client.log` / `vllm.log`, `job.json` (rc, or
+  the error of a failed job).
+
+Two terminal views:
+```bash
+# live dashboard (PufferLib-style: summary, losses table, trends, dev table, utilization, errors, live log tail)
+python scripts/rl_watch.py --profile newacc --path rl/c5-main --logs clinical-envs-train
+python scripts/rl_watch.py --profile sales-32662 --path c2 --logs clinical-envs-vllm-eval
+# the raw formatted stream only
+MODAL_PROFILE=newacc modal app logs <ap-id from the launch> -f
+```
+(`rl_watch.py` needs a Python with `modal` and `rich`, e.g. the one `modal` is installed in; `--once` prints a single
+snapshot for scripted polling; the header turns red on errors, on a stop, or when no event has arrived for 5 min.)
+After the run, the same dashboard works on the pulled directory: `--local results/modal/<p>/rl/c5-main`.
+
 ## 1. Workspace plan
 
 Nine workspaces (`modal profile list`; `sales-45040` and `sales-credits` are one workspace). Each has $25 of usable

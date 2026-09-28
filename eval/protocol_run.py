@@ -224,6 +224,13 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
         todo += [(task, i) for i in insts if i["gt_id"] not in done_ids]
     # interleave units so every unit progresses together and no unit's stragglers idle the pool
     random.Random(seed).shuffle(todo)
+    from eval.run_log import RunLog, by_unit
+    rl = RunLog(out_root, f"{model} {arm} {split}")
+    rl.emit("start", None if quiet else f"start: {len(todo)} episodes to run over {len(tasks)} units "
+            f"({sum(u['n_done'] for u in units.values())} already recorded)", kind_of_run="eval", model=model, arm=arm,
+            split=split, shard=list(shard) if shard else None,
+            units={t: {"total": len(u["insts"]), "done": u["n_done"]} for t, u in units.items()})
+    unit_rewards: dict[str, list[float]] = {t: [] for t in tasks}
     total, n_done, spent = len(todo), 0, sum(u["spent"] for u in units.values())
     t0 = time.time()
     lock = threading.Lock()
@@ -246,10 +253,15 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
                     u["fh"].write(json.dumps(rec, default=str) + "\n"); u["fh"].flush()
                     u["spent"] += rec["cost_usd"]; u["n_done"] += 1
                     spent += rec["cost_usd"]; n_done += 1
+                    unit_rewards[task].append(float(rec.get("reward") or 0))
+                    rl.episode(task, rec["gt_id"], rec, seconds=round(rec.get("latency_ms", 0) / 1000, 1))
                     if not quiet and (n_done % 20 == 0 or n_done == total):
                         el = time.time() - t0
-                        print(f"[{model} {arm}] {n_done}/{total} episodes ({100 * n_done / max(total, 1):.0f}%), ${spent:.2f} spent, "
-                              f"{el / 60:.1f} min elapsed, ETA {(total - n_done) * el / n_done / 60:.1f} min", flush=True)
+                        means = {t: sum(v) / len(v) for t, v in unit_rewards.items() if v}
+                        line = (f"{n_done}/{total} episodes ({100 * n_done / max(total, 1):.0f}%), ${spent:.2f} spent, "
+                                f"{el / 60:.1f} min elapsed, ETA {(total - n_done) * el / n_done / 60:.1f} min | mean reward "
+                                f"{by_unit(means)}")
+                        rl.emit("progress", line, done=n_done, total=total, spent=round(spent, 4), unit_means=means)
                 if max_usd is not None and spent >= max_usd and stop_reason is None:
                     stop_reason = f"cost cap ${max_usd} reached at ${spent:.2f}"
                 if min_balance is not None and "openrouter" in cfg.base_url and time.time() - last_balance_check > 60:
@@ -262,8 +274,11 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
                 nxt = next(it, None)
                 if nxt is not None:
                     futures[ex.submit(run_episode, adapter, {**nxt[1], "task": nxt[0]}, arm, budget, prices, turn_cap[nxt[0]], limits[nxt[0]])] = nxt[0]
-    if stop_reason and not quiet:
-        print(f"[{model} {arm}] STOPPED: {stop_reason}; completed episodes are kept and a rerun resumes", flush=True)
+    if stop_reason:
+        rl.emit("stop", None if quiet else f"STOPPED: {stop_reason}; completed episodes are kept and a rerun resumes",
+                reason=stop_reason)
+    rl.emit("end", None if quiet else f"end: {n_done} episodes, ${spent:.2f}", done=n_done, total=total)
+    rl.close()
     prompt_hash = None
     for task, u in units.items():
         u["fh"].close()

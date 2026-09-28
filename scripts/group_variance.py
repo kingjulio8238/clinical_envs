@@ -114,6 +114,11 @@ def main(argv=None) -> int:
                     jobs.append({**inst, "task": u, "sample": s})
     lock = threading.Lock()
     t0, n = time.time(), 0
+    from eval.run_log import RunLog
+    rl = RunLog(out, f"c4 {a.model}", progress_every=100)
+    rl.emit("start", f"start: {len(jobs)} episodes ({len(done)} already recorded), k={a.k}", kind_of_run="c4",
+            model=a.model, k=a.k, total=len(jobs))
+    rl.begin_batch("c4", len(jobs))
     with path.open("a") as fh, ThreadPoolExecutor(a.workers) as ex:
         futs = {ex.submit(R.run_episode, adapter, j, "agent", 40, (0.0, 0.0), 0,
                           EpisodeLimits.for_unit(j["task"], 40, per_turn=cfg.max_tokens, per_episode=LOCAL_LIMITS["per_episode"])): j
@@ -126,11 +131,12 @@ def main(argv=None) -> int:
             with lock:
                 fh.write(json.dumps(row, default=str) + "\n"); fh.flush()
                 n += 1
-                if n % 100 == 0 or n == len(jobs):
-                    el = time.time() - t0
-                    print(f"{n}/{len(jobs)} episodes ({100 * n // max(len(jobs), 1)}%), {el / 60:.1f} min, ETA {(len(jobs) - n) * el / n / 60:.1f} min", flush=True)
+            rl.episode(j["task"], j["gt_id"], rec, sample=j["sample"])
     samples = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
     summ = write_summary(out, samples, a.k, a.model, reward["reward_version"])
+    rl.emit("end", "end: " + ", ".join(f"{u} zero-variance {v['zero_variance_share']:.0%}" for u, v in summ["per_unit"].items())
+            + f"; {summ['n_keep']} prompts kept", n_keep=summ["n_keep"], per_unit=summ["per_unit"])
+    rl.close()
     print(json.dumps({k: v for k, v in summ.items() if k not in ("keep", "drop")}, indent=1))
     return 0
 

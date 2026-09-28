@@ -126,6 +126,20 @@ optional P8.
         C4 in parallel, monitoring, resume-elsewhere, merge; C5-smoke with the plan's five risks and the P3 adapter
         check on its step-3 checkpoint; C5-main in segments moved between workspaces; the after-evaluation on the
         `best.json` step; the verdict command; clean-up.
+- [x] **P13 Observability (added on request):** every RL training run and GPU evaluation inspectable at any time
+      while it runs, esp. the losses and key metrics, from a terminal.
+      → done: `eval/run_log.py` — one formatted stdout line per event (streamed by `modal app logs -f`) and the same
+        event in `events.jsonl`: episode progress with per-unit means and ETA, every training step with ART's losses
+        (loss, entropy, KL, grad norm, importance ratio mean / p95, clipped fraction), reward ± sd per unit, groups
+        without reward spread, tokens/s, timings; dev evaluations with best ★ and alerts; errors immediately with the
+        instance id; STOP / FATAL / end. `gpu/telemetry.py` — GPU, vLLM (running / waiting / KV cache / tokens/s /
+        preemptions) and host every 15 s in both Modal apps; a failed vLLM start prints its log tail; `job.json` records
+        a failed job's error; volume commits every 30 s. `scripts/rl_watch.py` — a live terminal dashboard after
+        PufferLib's (`pufferl.py print_dashboard`: summary, losses, env stats, performance, utilization, log tail),
+        reading the volume while the job runs plus the live `modal app logs` stream; red on errors / stop / 5 min of
+        silence; `--once` for scripted polls. PufferLib's dashboard is part of its own PPO trainer, so the pattern is
+        reused rather than the library. Verified: a dry run rendered from local files and from a throwaway Modal volume.
+        Tests: `eval/tests/test_run_logs.py`.
 - [ ] **P12 Verification:** `scripts/verify_roadmap.py` gains checks for the stage-C / D artifacts; tests, CI green;
       committed and pushed.
 

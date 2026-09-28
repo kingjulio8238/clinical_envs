@@ -20,7 +20,7 @@ from pathlib import Path
 import modal
 
 from common import (HF_CACHE, MODEL, RESULTS, adapter_effect, check_served, committer, load_adapter, repo_image,
-                    runtime_server_cmd, served_models, start_vllm, tee, with_art_runtime)
+                    runtime_server_cmd, served_models, start_vllm, tee, with_art_runtime, Telemetry)
 
 app = modal.App("clinical-envs-vllm-eval")
 # Engine: ART's managed vLLM runtime — the engine that samples the policy during ART training — for both the before
@@ -48,43 +48,53 @@ def run(run_name: str, cmd: str, lora_path: str = "") -> dict:
     out = Path("/results") / run_name
     out.mkdir(parents=True, exist_ok=True)
     stop = committer(RESULTS)
+    tele = Telemetry(out, "http://127.0.0.1:8000/metrics")      # GPU / vLLM / host every 15 s → telemetry.jsonl
+    tele.start()
     t0 = time.time()
-    rank = 16
-    if lora_path:
-        cfg = Path(lora_path) / "adapter_config.json"
-        if not cfg.exists():
-            raise FileNotFoundError(f"no LoRA adapter at {lora_path} (expected adapter_config.json)")
-        rank = int(json.loads(cfg.read_text()).get("r", 16))
-    proc = start_vllm(out / "vllm.log", runtime_server_cmd(rank))
-    ready = time.time() - t0
-    HF_CACHE.commit()
-    effect = None
-    if lora_path:
-        load_adapter(lora_path)
-        effect = adapter_effect()
-        if effect["gap"] == 0.0:
-            raise RuntimeError(f"the adapter does not change the base's outputs ({effect}): not evaluating the base twice")
-    models = served_models()
-    name = check_served(models, lora_path or None)
-    client_env = {"SH_VLLM_URL": "http://127.0.0.1:8000/v1", "SH_VLLM_BASE_MODEL": MODEL}
-    if lora_path:   # unset for a base-only server, so `--model qwen3.5-9b-rl` there fails instead of scoring the base
-        client_env["SH_VLLM_MODEL"] = name
-    (out / "served.json").write_text(json.dumps({"models": models, "lora_path": lora_path, "lora_rank": rank,
-                                                 "adapter_effect": effect, **client_env}, indent=1))
-    rc = 0
-    for i, part in enumerate(c.strip() for c in cmd.split("&&")):   # several client commands share one server start
-        t1 = time.time()
-        sub = out / f"part{i}"
-        rc = tee(["python", "-u", *shlex.split(part), "--out", str(sub)], out / "client.log", env=client_env)
-        (out / f"part{i}.json").write_text(json.dumps({"cmd": part, "rc": rc, "seconds": round(time.time() - t1, 1)}))
+    info: dict = {"rc": None, "cmd": cmd}
+    try:
+        rank = 16
+        if lora_path:
+            cfg = Path(lora_path) / "adapter_config.json"
+            if not cfg.exists():
+                raise FileNotFoundError(f"no LoRA adapter at {lora_path} (expected adapter_config.json)")
+            rank = int(json.loads(cfg.read_text()).get("r", 16))
+        proc = start_vllm(out / "vllm.log", runtime_server_cmd(rank))
+        ready = time.time() - t0
+        HF_CACHE.commit()
+        effect = None
+        if lora_path:
+            load_adapter(lora_path)
+            effect = adapter_effect()
+            if effect["gap"] == 0.0:
+                raise RuntimeError(f"the adapter does not change the base's outputs ({effect}): not evaluating the base twice")
+        models = served_models()
+        name = check_served(models, lora_path or None)
+        client_env = {"SH_VLLM_URL": "http://127.0.0.1:8000/v1", "SH_VLLM_BASE_MODEL": MODEL}
+        if lora_path:   # unset for a base-only server, so `--model qwen3.5-9b-rl` there fails instead of scoring the base
+            client_env["SH_VLLM_MODEL"] = name
+        (out / "served.json").write_text(json.dumps({"models": models, "lora_path": lora_path, "lora_rank": rank,
+                                                     "adapter_effect": effect, **client_env}, indent=1))
+        rc = 0
+        for i, part in enumerate(c.strip() for c in cmd.split("&&")):   # several client commands share one server start
+            t1 = time.time()
+            sub = out / f"part{i}"
+            rc = tee(["python", "-u", *shlex.split(part), "--out", str(sub)], out / "client.log", env=client_env)
+            (out / f"part{i}.json").write_text(json.dumps({"cmd": part, "rc": rc, "seconds": round(time.time() - t1, 1)}))
+            RESULTS.commit()
+            if rc:
+                break
+        proc.terminate()
+        info = {"rc": rc, "vllm_ready_s": round(ready, 1), "total_s": round(time.time() - t0, 1), "cmd": cmd}
+    except Exception as exc:        # a failed job leaves its reason on the volume, not only in the Modal log
+        info = {"rc": -1, "error": f"{type(exc).__name__}: {exc}", "total_s": round(time.time() - t0, 1), "cmd": cmd}
+        print(f"FATAL {info['error']} (see {out}/vllm.log)", flush=True)
+        raise
+    finally:
+        tele.stop()
+        (out / "job.json").write_text(json.dumps(info, indent=1))
+        stop.set()
         RESULTS.commit()
-        if rc:
-            break
-    proc.terminate()
-    info = {"rc": rc, "vllm_ready_s": round(ready, 1), "total_s": round(time.time() - t0, 1), "cmd": cmd}
-    (out / "job.json").write_text(json.dumps(info, indent=1))
-    stop.set()
-    RESULTS.commit()
     return info
 
 

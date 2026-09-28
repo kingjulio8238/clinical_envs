@@ -13,7 +13,7 @@ from pathlib import Path
 
 import modal
 
-from common import HF_CACHE, RESULTS, committer, repo_image, tee, with_art_runtime
+from common import HF_CACHE, RESULTS, Telemetry, committer, repo_image, tee, with_art_runtime
 
 app = modal.App("clinical-envs-train")
 image = repo_image(with_art_runtime(modal.Image.debian_slim(python_version="3.12").apt_install("git")
@@ -28,9 +28,12 @@ def train(run_name: str, args: str) -> dict:
     out = Path("/results") / "rl" / run_name
     out.mkdir(parents=True, exist_ok=True)
     stop = committer(RESULTS)
+    tele = Telemetry(out)                  # GPU + ART's vLLM (its URL from server.json) every 15 s → telemetry.jsonl
+    tele.start()
     t0 = time.time()
     rc = tee(["python", "-u", "scripts/train_rl.py", "--run-name", run_name, "--art-path", str(out / ".art"), *shlex.split(args)],
              out / "train.log", env={"WANDB_MODE": os.environ.get("WANDB_MODE", "disabled"), "SH_RL_RESULTS": str(out)})
+    tele.stop()
     info = {"rc": rc, "total_s": round(time.time() - t0, 1), "args": args}
     (out / "job.json").write_text(json.dumps(info, indent=1))
     stop.set()

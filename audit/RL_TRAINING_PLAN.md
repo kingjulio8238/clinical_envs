@@ -55,6 +55,17 @@ then fewer steps. If many groups are all-zero: k = 16 at 4 groups per step (same
 - **Manual kill:** > 10% of a step's episodes are exceptions (infrastructure), step time > 2× the smoke's, or the
   month-to-date spend reaches the $25 stop line.
 
+## Observability
+
+Every step, dev evaluation, episode error, alert and stop is a formatted stdout line (streamed by `modal app logs -f`)
+and a JSON event in `events.jsonl`; GPU / vLLM / host telemetry every 15 s. `scripts/rl_watch.py` renders them live
+as a terminal dashboard (after PufferLib's `print_dashboard`: summary, ART losses per step, reward / loss / entropy / KL
+/ dev trends, per-unit rewards, dev table with the best checkpoint, performance breakdown, utilization, error tail).
+What to watch, per step: reward and its spread (a collapse of spread = no signal); the share of groups with no spread;
+`kl` and the importance ratio (≈ 1 at step 1; growing ratios / clipped fraction = the sampler and trainer diverge);
+`entropy` (a fast fall = mode collapse); `grad_norm` spikes; exceptions; tokens per episode (a climb toward the cap
+= a length hack). The runbook (§0b) has the commands.
+
 ## Checkpoints
 
 ART saves a LoRA checkpoint every step; after each dev evaluation only the evaluated steps and the latest are kept

@@ -15,10 +15,10 @@
        "copy_problem_list_plus_chronic": 0.032033639143730884,
        "duplicate_entries": 0.0010842368640533778,
        "empty": 0.0,
-       "hedge_one_name": 0.0,
+       "hedge_one_name": 0.0009174311926605505,
        "many_diagnoses": 0.003491840920759431,
        "name_sink": 0.0,
-       "names_only": 0.002064220183486238,
+       "names_only": 0.002370030581039755,
        "problem_list_names_only": 0.0055002184359982526,
        "profile_chronic": 0.00871559633027523
       }
@@ -30,14 +30,16 @@
     "metrics": {
      "clinical_f1": {
       "ceiling": 1.0,
-      "floor": 0.4588952992769705,
-      "floor_policy": "echo_structured_hints",
-      "headroom": 0.5411047007230295,
+      "floor": 0.4175469423053976,
+      "floor_policy": "chart_dump",
+      "headroom": 0.5824530576946024,
       "policies": {
        "chart_dump": 0.4175469423053976,
        "echo_structured_hints": 0.4588952992769705,
        "empty": 0.0
-      }
+      },
+      "privileged_floor": 0.4588952992769705,
+      "privileged_floor_policy": "echo_structured_hints"
      }
     },
     "n": 268
@@ -53,11 +55,11 @@
        "copy_problem_list": 0.02440563191488302,
        "duplicate_entries": 0.010080227535752113,
        "empty": 0.0,
-       "frequency_prior": 0.020205789198669662,
-       "hedge_one_name": 0.00016080881378358788,
+       "frequency_prior": 0.020891351291436024,
+       "hedge_one_name": 0.004003200053677331,
        "name_sink": 0.0,
-       "names_only": 0.014213121812854312,
-       "problem_list_names_only": 0.010490537308852502
+       "names_only": 0.014895245324044733,
+       "problem_list_names_only": 0.010584244000976845
       }
      }
     },
@@ -129,14 +131,18 @@
    "lab_triage": {
     "metrics": {
      "triage_score": {
-      "ceiling": 1.0,
-      "floor": 0.6503442271929807,
-      "floor_policy": "all_results",
-      "headroom": 0.3496557728070193,
+      "ceiling": 0.9984962406015039,
+      "floor": 0.22422792083340515,
+      "floor_policy": "first_three_documented",
+      "headroom": 0.7742683197680987,
       "policies": {
-       "all_results": 0.6503442271929807,
-       "empty": 0.0
-      }
+       "all_documented": 0.14094163981382024,
+       "all_results": 0.0406015037593985,
+       "empty": 0.0,
+       "first_three_documented": 0.22422792083340515
+      },
+      "privileged_floor": 0.0406015037593985,
+      "privileged_floor_policy": "all_results"
      }
     },
     "n": 266
@@ -157,10 +163,10 @@
        "duplicate_entries": 0.0024359618282270216,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
-       "hedge_one_name": 0.0,
+       "hedge_one_name": 0.0005524861878453039,
        "many_diagnoses": 0.00371367289086842,
        "name_sink": 0.0,
-       "names_only": 0.0028545119705340695,
+       "names_only": 0.0030386740331491712,
        "problem_list_names_only": 0.00425611681136543,
        "profile_chronic": 0.011602209944751382
       }
@@ -261,11 +267,11 @@
        "copy_problem_list_plus_chronic": 0.03078817733990148,
        "duplicate_entries": 0.0012315270935960591,
        "empty": 0.0,
-       "hedge_one_name": 0.0,
+       "hedge_one_name": 0.003694581280788177,
        "many_diagnoses": 0.0036247520607458664,
        "name_sink": 0.0,
        "names_only": 0.0015394088669950735,
-       "problem_list_names_only": 0.0008210180623973727,
+       "problem_list_names_only": 0.002668308702791461,
        "profile_chronic": 0.014778325123152709
       }
      }
@@ -276,14 +282,16 @@
     "metrics": {
      "clinical_f1": {
       "ceiling": 1.0,
-      "floor": 0.4748602497468806,
-      "floor_policy": "echo_structured_hints",
-      "headroom": 0.5251397502531194,
+      "floor": 0.4244883293187408,
+      "floor_policy": "chart_dump",
+      "headroom": 0.5755116706812592,
       "policies": {
        "chart_dump": 0.4244883293187408,
        "echo_structured_hints": 0.4748602497468806,
        "empty": 0.0
-      }
+      },
+      "privileged_floor": 0.4748602497468806,
+      "privileged_floor_policy": "echo_structured_hints"
      }
     },
     "n": 200
@@ -299,11 +307,11 @@
        "copy_problem_list": 0.024097197228059322,
        "duplicate_entries": 0.005225046287567902,
        "empty": 0.0,
-       "frequency_prior": 0.01646607100991942,
-       "hedge_one_name": 0.00018459428141877045,
+       "frequency_prior": 0.016703572852753798,
+       "hedge_one_name": 0.0033085292385334752,
        "name_sink": 0.0,
-       "names_only": 0.010913290472741359,
-       "problem_list_names_only": 0.010578180617617063
+       "names_only": 0.010992457753686152,
+       "problem_list_names_only": 0.011316557743292145
       }
      }
     },
@@ -375,14 +383,18 @@
    "lab_triage": {
     "metrics": {
      "triage_score": {
-      "ceiling": 1.0,
-      "floor": 0.6428122356156196,
-      "floor_policy": "all_results",
-      "headroom": 0.3571877643843804,
+      "ceiling": 0.9995937711577522,
+      "floor": 0.20840859772139392,
+      "floor_policy": "first_three_documented",
+      "headroom": 0.7911851734363582,
       "policies": {
-       "all_results": 0.6428122356156196,
-       "empty": 0.0
-      }
+       "all_documented": 0.13165702386081535,
+       "all_results": 0.04170616113744076,
+       "empty": 0.0,
+       "first_three_documented": 0.20840859772139392
+      },
+      "privileged_floor": 0.04170616113744076,
+      "privileged_floor_policy": "all_results"
      }
     },
     "n": 211
@@ -403,11 +415,11 @@
        "duplicate_entries": 0.0015343306482546988,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
-       "hedge_one_name": 0.0,
+       "hedge_one_name": 0.0031645569620253164,
        "many_diagnoses": 0.004353471591582592,
        "name_sink": 0.0,
        "names_only": 0.002461322081575246,
-       "problem_list_names_only": 0.0018501774830888753,
+       "problem_list_names_only": 0.002905029803763981,
        "profile_chronic": 0.02109704641350211
       }
      }
@@ -475,12 +487,12 @@
     "metrics": {
      "workup_score": {
       "ceiling": 1.0,
-      "floor": 0.0004966887417218544,
-      "floor_policy": "order_everything_copy_problem_list",
-      "headroom": 0.9995033112582782,
+      "floor": 0.0006208609271523179,
+      "floor_policy": "hedge_one_name",
+      "headroom": 0.9993791390728477,
       "policies": {
        "empty": 0.0,
-       "hedge_one_name": 0.0,
+       "hedge_one_name": 0.0006208609271523179,
        "mega_order": 0.0,
        "name_sink": 0.0,
        "order_everything": 0.0,
@@ -507,10 +519,10 @@
        "copy_problem_list_plus_chronic": 0.035421545667447304,
        "duplicate_entries": 0.0013838620395997445,
        "empty": 0.0,
-       "hedge_one_name": 0.0,
-       "many_diagnoses": 0.003135694034612661,
+       "hedge_one_name": 0.00234192037470726,
+       "many_diagnoses": 0.003171071183130148,
        "name_sink": 0.0,
-       "names_only": 0.0023419203747072595,
+       "names_only": 0.00312256049960968,
        "problem_list_names_only": 0.004391100702576112,
        "profile_chronic": 0.01053864168618267
       }
@@ -522,14 +534,16 @@
     "metrics": {
      "clinical_f1": {
       "ceiling": 1.0,
-      "floor": 0.4868236599389178,
-      "floor_policy": "echo_structured_hints",
-      "headroom": 0.5131763400610823,
+      "floor": 0.43531021448099766,
+      "floor_policy": "chart_dump",
+      "headroom": 0.5646897855190023,
       "policies": {
        "chart_dump": 0.43531021448099766,
        "echo_structured_hints": 0.4868236599389178,
        "empty": 0.0
-      }
+      },
+      "privileged_floor": 0.4868236599389178,
+      "privileged_floor_policy": "echo_structured_hints"
      }
     },
     "n": 200
@@ -545,10 +559,10 @@
        "copy_problem_list": 0.026838219452373562,
        "duplicate_entries": 0.011482166488243207,
        "empty": 0.0,
-       "frequency_prior": 0.020547886939776883,
-       "hedge_one_name": 0.0,
+       "frequency_prior": 0.021601744541689522,
+       "hedge_one_name": 0.005215009695715146,
        "name_sink": 0.0,
-       "names_only": 0.014308838439101685,
+       "names_only": 0.01535019931925599,
        "problem_list_names_only": 0.013397440291483485
       }
      }
@@ -622,13 +636,17 @@
     "metrics": {
      "triage_score": {
       "ceiling": 1.0,
-      "floor": 0.6312794796299044,
-      "floor_policy": "all_results",
-      "headroom": 0.3687205203700956,
+      "floor": 0.2297924749668936,
+      "floor_policy": "first_three_documented",
+      "headroom": 0.7702075250331064,
       "policies": {
-       "all_results": 0.6312794796299044,
-       "empty": 0.0
-      }
+       "all_documented": 0.1418921969503365,
+       "all_results": 0.03953488372093024,
+       "empty": 0.0,
+       "first_three_documented": 0.2297924749668936
+      },
+      "privileged_floor": 0.03953488372093024,
+      "privileged_floor_policy": "all_results"
      }
     },
     "n": 172
@@ -649,10 +667,10 @@
        "duplicate_entries": 0.00173816082906992,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
-       "hedge_one_name": 0.0,
-       "many_diagnoses": 0.0037637054466610736,
+       "hedge_one_name": 0.002886002886002886,
+       "many_diagnoses": 0.0037855034876667967,
        "name_sink": 0.0,
-       "names_only": 0.0029461279461279457,
+       "names_only": 0.003547378547378547,
        "problem_list_names_only": 0.003427128427128427,
        "profile_chronic": 0.012265512265512266
       }
@@ -726,7 +744,7 @@
       "headroom": 0.9991441082802548,
       "policies": {
        "empty": 0.0,
-       "hedge_one_name": 0.0,
+       "hedge_one_name": 0.0007961783439490446,
        "mega_order": 0.0,
        "name_sink": 0.0,
        "order_everything": 0.0,
@@ -753,11 +771,11 @@
        "copy_problem_list_plus_chronic": 0.03789320142059868,
        "duplicate_entries": 0.0016604400166044,
        "empty": 0.0,
-       "hedge_one_name": 0.0,
-       "many_diagnoses": 0.005554842285517565,
+       "hedge_one_name": 0.004185692541856925,
+       "many_diagnoses": 0.005563087625170314,
        "name_sink": 0.0,
-       "names_only": 0.00491501775748351,
-       "problem_list_names_only": 0.003283322461404653,
+       "names_only": 0.005168696093353627,
+       "problem_list_names_only": 0.003908458360513155,
        "profile_chronic": 0.016362252663622526
       }
      }
@@ -768,14 +786,16 @@
     "metrics": {
      "clinical_f1": {
       "ceiling": 1.0,
-      "floor": 0.46794655278034486,
-      "floor_policy": "echo_structured_hints",
-      "headroom": 0.5320534472196552,
+      "floor": 0.41275039961560345,
+      "floor_policy": "chart_dump",
+      "headroom": 0.5872496003843966,
       "policies": {
        "chart_dump": 0.41275039961560345,
        "echo_structured_hints": 0.46794655278034486,
        "empty": 0.0
-      }
+      },
+      "privileged_floor": 0.46794655278034486,
+      "privileged_floor_policy": "echo_structured_hints"
      }
     },
     "n": 600
@@ -791,11 +811,11 @@
        "copy_problem_list": 0.025668130154144184,
        "duplicate_entries": 0.009797365661623599,
        "empty": 0.0,
-       "frequency_prior": 0.02394243248329295,
-       "hedge_one_name": 0.00017801184765756583,
+       "frequency_prior": 0.024850477290112343,
+       "hedge_one_name": 0.006788116777827835,
        "name_sink": 0.0,
-       "names_only": 0.015893910709041868,
-       "problem_list_names_only": 0.01348513658575621
+       "names_only": 0.016685876958112793,
+       "problem_list_names_only": 0.013608251903366763
       }
      }
     },
@@ -867,14 +887,18 @@
    "lab_triage": {
     "metrics": {
      "triage_score": {
-      "ceiling": 0.9991891247316957,
-      "floor": 0.651248932577865,
-      "floor_policy": "all_results",
-      "headroom": 0.34794019215383076,
+      "ceiling": 0.9980888782892121,
+      "floor": 0.19017958374729463,
+      "floor_policy": "first_three_documented",
+      "headroom": 0.8079092945419175,
       "policies": {
-       "all_results": 0.651248932577865,
-       "empty": 0.0
-      }
+       "all_documented": 0.13556078590302295,
+       "all_results": 0.05208681135225376,
+       "empty": 0.0,
+       "first_three_documented": 0.19017958374729463
+      },
+      "privileged_floor": 0.05208681135225376,
+      "privileged_floor_policy": "all_results"
      }
     },
     "n": 599
@@ -895,11 +919,11 @@
        "duplicate_entries": 0.0030732860520094564,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
-       "hedge_one_name": 0.0,
-       "many_diagnoses": 0.0054127490333455855,
+       "hedge_one_name": 0.00425531914893617,
+       "many_diagnoses": 0.005417871669895804,
        "name_sink": 0.0,
-       "names_only": 0.004826635145784081,
-       "problem_list_names_only": 0.0029263762242485647,
+       "names_only": 0.005063041765169424,
+       "problem_list_names_only": 0.0033147585275244847,
        "profile_chronic": 0.01702127659574468
       }
      }
@@ -967,12 +991,12 @@
     "metrics": {
      "workup_score": {
       "ceiling": 1.0,
-      "floor": 0.0004922279792746114,
-      "floor_policy": "order_everything_copy_problem_list",
-      "headroom": 0.9995077720207254,
+      "floor": 0.0013601036269430052,
+      "floor_policy": "hedge_one_name",
+      "headroom": 0.998639896373057,
       "policies": {
        "empty": 0.0,
-       "hedge_one_name": 0.0,
+       "hedge_one_name": 0.0013601036269430052,
        "mega_order": 0.0,
        "name_sink": 0.0,
        "order_everything": 0.0,

@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from eval.stage7 import ERROR_TYPES, match_name, match_names, order_matches, ordered_names, orderable_from_gt
+from eval.stage7 import ERROR_TYPES, match_name, match_names, order_matches, ordered_names, orderable_from_gt, triage_rows
 
 DIFFERENTIAL_K = 5
 DISTRACTOR_GAIN = 0.5
@@ -160,8 +160,46 @@ def score_error_detection_item(pred: dict, gt: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def score_lab_triage_item(pred: dict, gt: dict) -> dict:
+    """Stage B1: each documented result is flagged or not; a flagged name reaches the result it names, by the label's
+    name or by the analyte a clinician uses ("Platelet count" for "Thrombocytopenia"; eval.stage7.order_matches on
+    the documenting text). triage_score = 0.6 x Youden's J (sensitivity to the results that bear on the diagnosis +
+    specificity to the incidental ones - 1, floored at 0) + 0.4 x most-urgent hit: flagging everything, nothing or a
+    random subset earns 0 of the first term (the old F1 gave flag-everything 0.82). Rows built before Stage B1 (no
+    `results`) fall back to the F1 rule."""
     if not isinstance(pred, dict):
         pred = {}
+    rows = triage_rows(gt)
+    if not rows:
+        return _score_lab_triage_f1(pred, gt)
+    names = [str(x) for x in (pred.get("relevant") or []) if isinstance(x, (str, int, float))] if isinstance(pred.get("relevant"), list) else []
+    flagged: set[str] = set()
+    for q in names:
+        flagged.update(_triage_matches(q, rows))
+    rel = {r["name"] for r in rows if r["relevant"]}
+    bg = {r["name"] for r in rows if not r["relevant"]}
+    sens = len(flagged & rel) / len(rel) if rel else 1.0
+    spec = len(bg - flagged) / len(bg) if bg else 1.0
+    youden = max(0.0, sens + spec - 1.0) if names else 0.0
+    urgent_gt = gt.get("most_urgent")
+    urgent_hit = 0.0
+    if urgent_gt and pred.get("most_urgent"):
+        m = _triage_matches(str(pred["most_urgent"]), rows)
+        urgent_hit = 1.0 if m and m[0] == urgent_gt else 0.0
+    score = TRIAGE_W_RELEVANT * youden + TRIAGE_W_URGENT * urgent_hit if urgent_gt else youden
+    return {"triage_score": score, "triage_youden": youden, "triage_sensitivity": sens if names else 0.0,
+            "triage_specificity": spec if names else 0.0, "triage_urgent_hit": urgent_hit, "n_flagged": len(names),
+            "n_flagged_matched": len(flagged)}
+
+
+def _triage_matches(query: str, rows: list[dict]) -> list[str]:
+    """A query equal to a result's name denotes that result alone; otherwise the analyte/context matcher."""
+    from eval.stage7 import norm_tokens
+    qt = norm_tokens(query)
+    exact = [r["name"] for r in rows if qt and norm_tokens(r["name"]) == qt]
+    return exact[:1] if exact else order_matches(query, rows)
+
+
+def _score_lab_triage_f1(pred: dict, gt: dict) -> dict:
     relevant = list(gt.get("relevant", []))
     background = list(gt.get("background", []))
     cand = relevant + background

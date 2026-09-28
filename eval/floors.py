@@ -48,6 +48,10 @@ RANDOM_SEEDS = 5
 TOL = 1e-9
 NEGLIGIBLE_HEADROOM = 0.05
 TOOL_POLICIES = {"echo_problem_list_tool"}
+PRIVILEGED_POLICIES = {"echo_structured_hints", "all_results"}
+"""Policies that read the label side of an instance (the rubric's finding names, the triage label names) — information
+no model is served since Stage 2. They stay as CI gates and are recorded (`privileged_floor`), but they do not set the
+floor a model's score is normalized against (Stage B1/B3)."""
 """Policies that need the simulator's tool API rather than the chart. They are recorded as the
 `agentic_floor` and excluded from `floor`, which is what single-turn scores are normalized against."""
 
@@ -76,7 +80,7 @@ def compute_floors(db: D.ReleaseDB, split: str) -> dict:
         oracle = D.score(db, task, [D.oracle(db, i) for i in insts], insts)
         for metric in METRICS[task]:
             pol = {name: float(m[metric]) for name, m in scores.items()}
-            chart_only = {k: v for k, v in pol.items() if k not in TOOL_POLICIES}
+            chart_only = {k: v for k, v in pol.items() if k not in TOOL_POLICIES and k not in PRIVILEGED_POLICIES}
             floor_policy = max(chart_only, key=chart_only.get)
             entry = {
                 "ceiling": float(oracle[metric]),
@@ -85,6 +89,10 @@ def compute_floors(db: D.ReleaseDB, split: str) -> dict:
                 "policies": pol,
             }
             entry["headroom"] = entry["ceiling"] - entry["floor"]
+            priv = {k: v for k, v in pol.items() if k in PRIVILEGED_POLICIES}
+            if priv:
+                entry["privileged_floor_policy"] = max(priv, key=priv.get)
+                entry["privileged_floor"] = priv[entry["privileged_floor_policy"]]
             tool = {k: v for k, v in pol.items() if k in TOOL_POLICIES}
             if tool:
                 entry["agentic_floor_policy"] = max(tool, key=tool.get)

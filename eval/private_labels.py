@@ -37,7 +37,7 @@ LABEL_KEYS: dict[str, tuple[str, ...]] = {
     "differential_diagnosis": ("correct", "distractors"),
     "test_selection": ("diagnosis", "orderable", "discriminating", "n_needed"),
     "error_detection": ("section_id", "section_type", "error_type", "original", "injected", "section_overrides"),
-    "lab_triage": ("relevant", "background", "most_urgent"),
+    "lab_triage": ("relevant", "background", "most_urgent", "results"),
     "atypical_diagnosis": ("active_diagnoses", "chronic_conditions", "encounter_diagnosis_map", "neutral_extra",
                            "masked_findings", "section_overrides"),
 }

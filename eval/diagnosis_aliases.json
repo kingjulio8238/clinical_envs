@@ -388,8 +388,7 @@
 "Decompressive craniectomy"
 ],
 "10140": [
-"Sezary disease, unspecified site",
-"Sézary's disease"
+"Sezary disease, unspecified site"
 ],
 "1015": [
 "Unspecified intracranial injury with loss of consciousness of 6 hours to 24 hours, initial encounter",
@@ -1045,9 +1044,6 @@
 "Hypoglycemia, unspecified",
 "Recurrent severe hypoglycemia"
 ],
-"1239": [
-"Primary adrenocortical insufficiency"
-],
 "1242": [
 "Palpitations",
 "Intermittent palpitations"
@@ -1570,8 +1566,7 @@
 "Dilatation of the vestibular aqueduct"
 ],
 "1418": [
-"Meniere's disease, unspecified ear",
-"Ménière's disease"
+"Meniere's disease, unspecified ear"
 ],
 "1419": [
 "Vestibular neuronitis, left ear",
@@ -2238,9 +2233,6 @@
 "1633": [
 "Strain of muscle, fascia and tendon at neck level, initial encounter",
 "Neck sprain"
-],
-"1634": [
-"Guillain-Barre syndrome"
 ],
 "1635": [
 "Cervical disc disorder at C4-C5 level with myelopathy",
@@ -9203,9 +9195,6 @@
 "4242": [
 "Thyrotoxicosis, unspecified without thyrotoxic crisis or storm"
 ],
-"4244": [
-"Brown-Sequard syndrome"
-],
 "4245": [
 "Complete lesion at unspecified level of thoracic spinal cord, initial encounter",
 "Spinal cord transection"
@@ -9632,9 +9621,6 @@
 ],
 "4419": [
 "Familial hyperaldosteronism type 3"
-],
-"4420": [
-"Behcet's disease"
 ],
 "4421": [
 "Typhoid fever, unspecified",
@@ -10279,8 +10265,7 @@
 "Rabies - recovery phase"
 ],
 "4664": [
-"Atheroembolism of other site",
-"Cholesterol embolus syndrome"
+"Atheroembolism of other site"
 ],
 "4665": [
 "Livedoid vasculitis"
@@ -10835,9 +10820,6 @@
 ],
 "4870": [
 "Genetic anomalies of leukocytes"
-],
-"4871": [
-"Chediak-Higashi syndrome"
 ],
 "4872": [
 "Cyclical neutropenia"
@@ -12631,8 +12613,7 @@
 "Pathological fracture, unspecified site, initial encounter for fracture"
 ],
 "5481": [
-"Cafe au lait spots",
-"Café au lait spot"
+"Cafe au lait spots"
 ],
 "5482": [
 "Hemarthrosis, right knee",
@@ -22971,8 +22952,7 @@
 "Normal pituitary function"
 ],
 "9431": [
-"Malignant neoplasm of cortex of unspecified adrenal gland",
-"Adrenal carcinoma"
+"Malignant neoplasm of cortex of unspecified adrenal gland"
 ],
 "9433": [
 "Lambert-Eaton syndrome, unspecified",

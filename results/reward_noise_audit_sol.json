@@ -7,8 +7,8 @@
   "zero_scored_answered": 7,
   "judged": 7,
   "same": 0,
-  "related": 7,
-  "different": 0,
+  "related": 6,
+  "different": 1,
   "correct_zero_rate": 0.0
  },
  "atypical_diagnosis": {
@@ -28,12 +28,12 @@
   "correct_zero_rate": 0.0
  },
  "test_selection": {
-  "zero_scored_answered": 4,
-  "judged": 4,
-  "same": 0,
-  "related": 4,
-  "different": 0,
-  "correct_zero_rate": 0.0
+  "zero_scored_answered": 50,
+  "judged": 50,
+  "same": 4,
+  "related": 31,
+  "different": 15,
+  "correct_zero_rate": 0.08
  },
  "cases": [
   {
@@ -46,7 +46,7 @@
     "Gross hematuria (R31.0)"
    ],
    "verdict": "related",
-   "reason": "Gross hematuria can occur with urolithiasis but is a symptom, not the same diagnosis.",
+   "reason": "Gross hematuria can occur with urolithiasis, but it is a symptom rather than the diagnosis of renal colic.",
    "cost_input_tokens": 135
   },
   {
@@ -59,7 +59,7 @@
     "Left S1 lumbosacral radiculopathy, acute exacerbation (M54.17)"
    ],
    "verdict": "related",
-   "reason": "S1 radiculopathy can result from an L5-S1 disc herniation, but it does not identify the herniation itself.",
+   "reason": "S1 radiculopathy can result from an L5-S1 disc herniation but does not itself identify the herniation.",
    "cost_input_tokens": 148
   },
   {
@@ -72,7 +72,7 @@
     "Acute viral infection following upper respiratory illness (B34.9)"
    ],
    "verdict": "related",
-   "reason": "An acute viral infection can trigger SIRS, but it does not name the systemic inflammatory response syndrome.",
+   "reason": "A viral infection can trigger systemic inflammatory response syndrome, but it is not the same diagnosis.",
    "cost_input_tokens": 134
   },
   {
@@ -84,8 +84,8 @@
    "answer": [
     "Traumatic compartment syndrome of left lower extremity (T79.A22A)"
    ],
-   "verdict": "related",
-   "reason": "Both are compartment syndrome, but the model identifies the lower extremity rather than the hand.",
+   "verdict": "different",
+   "reason": "The model names compartment syndrome of the left lower extremity, not the hand.",
    "cost_input_tokens": 137
   },
   {
@@ -98,7 +98,7 @@
     "Localized enlarged lymph nodes (cervical and supraclavicular lymphadenopathy) (R59.0)"
    ],
    "verdict": "related",
-   "reason": "Cervical and supraclavicular lymphadenopathy can occur with lymphoma but does not diagnose lymphoma.",
+   "reason": "Cervical and supraclavicular lymphadenopathy can be a sign of lymphoma, but it does not diagnose lymphoma.",
    "cost_input_tokens": 154
   },
   {
@@ -124,7 +124,7 @@
     "Gross hematuria (initial-stream hematuria) (R31.0)"
    ],
    "verdict": "related",
-   "reason": "Initial-stream hematuria may result from a urethral stricture, but it is a symptom rather than the diagnosis.",
+   "reason": "Initial-stream gross hematuria can result from a urethral stricture, but it is a symptom rather than the diagnosis.",
    "cost_input_tokens": 138
   },
   {
@@ -137,7 +137,7 @@
     "Osmotic diarrhea due to magnesium-containing laxative use (K52.1)"
    ],
    "verdict": "related",
-   "reason": "Magnesium-containing laxatives can cause factitious diarrhea, but the answer does not establish intentional laxative use.",
+   "reason": "Laxative-induced osmotic diarrhea describes a possible mechanism, but does not establish intentional self-induction required for factitious diarrhea.",
    "cost_input_tokens": 135
   },
   {
@@ -163,7 +163,7 @@
     "Hyperprolactinemia (E22.1)"
    ],
    "verdict": "related",
-   "reason": "Hyperprolactinemia can result from a prolactinoma but does not specify the tumor.",
+   "reason": "Hyperprolactinemia can result from a prolactinoma but does not specifically identify the tumor.",
    "cost_input_tokens": 132
   },
   {
@@ -176,7 +176,7 @@
     "Left S1 lumbosacral radiculopathy (M54.17)"
    ],
    "verdict": "related",
-   "reason": "S1 radiculopathy can result from an L5-S1 disc herniation, but it does not identify the herniated disc itself.",
+   "reason": "S1 radiculopathy can result from an L5-S1 disc herniation but does not identify the herniation itself.",
    "cost_input_tokens": 144
   },
   {
@@ -189,7 +189,7 @@
     "Exertional heatstroke (T67.01XA)"
    ],
    "verdict": "related",
-   "reason": "Exertional heatstroke can cause acute liver failure, but it is a distinct diagnosis.",
+   "reason": "Exertional heatstroke can cause acute liver failure, but it does not name acute liver failure.",
    "cost_input_tokens": 131
   },
   {
@@ -202,8 +202,606 @@
     "Viral meningitis, unspecified (A87.9)"
    ],
    "verdict": "related",
-   "reason": "Viral meningitis is a related but distinct diagnosis from herpes simplex encephalitis.",
+   "reason": "Viral meningitis is a related CNS infection but does not identify herpes simplex encephalitis.",
    "cost_input_tokens": 133
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77919,
+   "reference": [
+    "Neurogenic bladder due to sacral nerve root injury"
+   ],
+   "answer": [
+    "Diabetic autonomic neuropathy causing neurogenic bladder (E11.43)"
+   ],
+   "verdict": "related",
+   "reason": "Both name neurogenic bladder, but the model attributes it to diabetic autonomic neuropathy rather than sacral nerve root injury.",
+   "cost_input_tokens": 142
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77713,
+   "reference": [
+    "Tubular adenoma of descending colon with high-grade dysplasia"
+   ],
+   "answer": [
+    "Sessile polyp of descending colon (K63.5)"
+   ],
+   "verdict": "related",
+   "reason": "A sessile descending-colon polyp is a less specific finding that does not identify tubular adenoma or high-grade dysplasia.",
+   "cost_input_tokens": 141
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77328,
+   "reference": [
+    "Helicobacter pylori infection"
+   ],
+   "answer": [
+    "Duodenal ulcer without hemorrhage or perforation (K26.9)"
+   ],
+   "verdict": "related",
+   "reason": "A duodenal ulcer can be caused by H. pylori, but it does not establish H. pylori infection.",
+   "cost_input_tokens": 137
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78026,
+   "reference": [
+    "Cerebellar hemangioblastoma"
+   ],
+   "answer": [
+    "Neoplasm of uncertain behavior of brain, fourth ventricle (D43.2)"
+   ],
+   "verdict": "related",
+   "reason": "A fourth-ventricle brain neoplasm is anatomically related but does not specifically identify a cerebellar hemangioblastoma.",
+   "cost_input_tokens": 141
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77690,
+   "reference": [
+    "Acute Decompensated Heart Failure with Pulmonary Edema"
+   ],
+   "answer": [
+    "Acute pulmonary edema (J81.0)"
+   ],
+   "verdict": "related",
+   "reason": "Acute pulmonary edema is a manifestation of decompensated heart failure, but the answer does not identify heart failure as the cause.",
+   "cost_input_tokens": 137
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78161,
+   "reference": [
+    "Urolithiasis (Renal Colic)"
+   ],
+   "answer": [
+    "Renal angiomyolipoma (D17.71)"
+   ],
+   "verdict": "different",
+   "reason": "Renal angiomyolipoma is a kidney tumor, not urolithiasis or renal colic.",
+   "cost_input_tokens": 138
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77629,
+   "reference": [
+    "Porphyria cutanea tarda"
+   ],
+   "answer": [
+    "Hereditary hemochromatosis (E83.110)"
+   ],
+   "verdict": "related",
+   "reason": "Hereditary hemochromatosis can be associated with porphyria cutanea tarda, but it is a distinct diagnosis.",
+   "cost_input_tokens": 136
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78004,
+   "reference": [
+    "Mitochondrial complex II deficiency (Succinate dehydrogenase deficiency)"
+   ],
+   "answer": [
+    "Mitochondrial myopathy (G71.3)"
+   ],
+   "verdict": "related",
+   "reason": "Mitochondrial myopathy is broader and does not specifically identify complex II (succinate dehydrogenase) deficiency.",
+   "cost_input_tokens": 145
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78694,
+   "reference": [
+    "Cerebral amyloid angiopathy"
+   ],
+   "answer": [
+    "Nontraumatic intracerebral hemorrhage in hemisphere, cortical (left parietal lobar intracerebral hemorrhage) (I61.1)"
+   ],
+   "verdict": "related",
+   "reason": "A lobar intracerebral hemorrhage can result from cerebral amyloid angiopathy, but it does not name the underlying diagnosis.",
+   "cost_input_tokens": 153
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78000,
+   "reference": [
+    "Neonatal sepsis"
+   ],
+   "answer": [
+    "Urinary tract infection (N39.0)"
+   ],
+   "verdict": "related",
+   "reason": "A urinary tract infection is an infection but does not establish neonatal sepsis.",
+   "cost_input_tokens": 130
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77345,
+   "reference": [
+    "Secondary hyperaldosteronism"
+   ],
+   "answer": [
+    "Hypertension secondary to renal disease (I15.1)"
+   ],
+   "verdict": "related",
+   "reason": "Renal disease can cause secondary hyperaldosteronism, but renal hypertension does not specifically name that hormonal diagnosis.",
+   "cost_input_tokens": 134
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77885,
+   "reference": [
+    "Primary myelofibrosis"
+   ],
+   "answer": [
+    "Myelofibrosis (D75.81)"
+   ],
+   "verdict": "related",
+   "reason": "Myelofibrosis is less specific and does not establish that it is primary.",
+   "cost_input_tokens": 133
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 76894,
+   "reference": [
+    "Acute fetal distress requiring emergent delivery"
+   ],
+   "answer": [
+    "Preterm premature rupture of membranes, unspecified as to length of time between rupture and onset of labor, third trimester (O42.913)"
+   ],
+   "verdict": "related",
+   "reason": "Preterm premature rupture of membranes is a distinct obstetric condition and does not name acute fetal distress requiring emergent delivery.",
+   "cost_input_tokens": 151
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78562,
+   "reference": [
+    "Adrenal metastasis from breast cancer"
+   ],
+   "answer": [
+    "Primary adrenal insufficiency (Addison disease) (E27.1)"
+   ],
+   "verdict": "different",
+   "reason": "Addison disease is adrenal insufficiency, not breast cancer metastasis to the adrenal gland.",
+   "cost_input_tokens": 138
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77470,
+   "reference": [
+    "Wernicke-Korsakoff syndrome"
+   ],
+   "answer": [
+    "Korsakoff syndrome (F04)"
+   ],
+   "verdict": "related",
+   "reason": "Korsakoff syndrome is the chronic amnestic component of Wernicke-Korsakoff syndrome, but does not name the full syndrome.",
+   "cost_input_tokens": 132
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77076,
+   "reference": [
+    "Cerebral arteriovenous malformation"
+   ],
+   "answer": [
+    "Nontraumatic intracerebral hemorrhage in hemisphere, cortical (left occipital lobe) (I61.1)"
+   ],
+   "verdict": "related",
+   "reason": "A cortical intracerebral hemorrhage can result from a cerebral arteriovenous malformation, but it does not identify the malformation itself.",
+   "cost_input_tokens": 150
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78406,
+   "reference": [
+    "Streptococcal pharyngitis"
+   ],
+   "answer": [
+    "Plaque psoriasis (psoriasis vulgaris) (L40.0)"
+   ],
+   "verdict": "different",
+   "reason": "Plaque psoriasis is a skin disorder, not streptococcal pharyngitis.",
+   "cost_input_tokens": 139
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 76864,
+   "reference": [
+    "Severe Fetal Anemia due to Fetomaternal Hemorrhage"
+   ],
+   "answer": [
+    "Polyhydramnios, unspecified trimester (O40.9XX0)"
+   ],
+   "verdict": "different",
+   "reason": "Polyhydramnios is excess amniotic fluid, not severe fetal anemia due to fetomaternal hemorrhage.",
+   "cost_input_tokens": 145
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78450,
+   "reference": [
+    "Pancreatic neuroendocrine tumor localization"
+   ],
+   "answer": [
+    "Glucagonoma syndrome with necrolytic migratory erythema (E16.3)"
+   ],
+   "verdict": "related",
+   "reason": "Glucagonoma is a type of pancreatic neuroendocrine tumor, but the answer names a specific syndrome rather than tumor localization.",
+   "cost_input_tokens": 146
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78716,
+   "reference": [
+    "Multiple myeloma or metastatic bone disease requiring intravenous bisphosphonates"
+   ],
+   "answer": [
+    "Secondary malignant neoplasm of bone (breast cancer metastasis to right humerus) (C79.51)"
+   ],
+   "verdict": "same",
+   "reason": "Bone metastasis from breast cancer is metastatic bone disease, one of the reference diagnoses.",
+   "cost_input_tokens": 154
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 76994,
+   "reference": [
+    "Uncomplicated cystitis"
+   ],
+   "answer": [
+    "Urinary tract infection, site not specified (N39.0)"
+   ],
+   "verdict": "related",
+   "reason": "Unspecified urinary tract infection is less specific than uncomplicated cystitis.",
+   "cost_input_tokens": 135
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78446,
+   "reference": [
+    "Secondary hyperparathyroidism due to vitamin D deficiency"
+   ],
+   "answer": [
+    "Renal osteodystrophy due to secondary hyperparathyroidism (N25.0)"
+   ],
+   "verdict": "related",
+   "reason": "Both involve secondary hyperparathyroidism, but the model attributes it to renal disease rather than vitamin D deficiency.",
+   "cost_input_tokens": 145
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77715,
+   "reference": [
+    "Cholesterol embolism"
+   ],
+   "answer": [
+    "Hollenhorst plaque, right eye (H34.211)"
+   ],
+   "verdict": "same",
+   "reason": "A Hollenhorst plaque is a cholesterol embolus in a retinal arteriole.",
+   "cost_input_tokens": 134
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 76955,
+   "reference": [
+    "Acute cholangitis"
+   ],
+   "answer": [
+    "Acute calculous cholecystitis (K80.00)"
+   ],
+   "verdict": "different",
+   "reason": "Acute calculous cholecystitis is gallbladder inflammation, whereas acute cholangitis is bile duct infection.",
+   "cost_input_tokens": 134
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78027,
+   "reference": [
+    "Hydrocephalus"
+   ],
+   "answer": [
+    "Mechanical complication of ventricular intracranial shunt (ventriculoperitoneal shunt malfunction) (T85.09XA)"
+   ],
+   "verdict": "related",
+   "reason": "A ventriculoperitoneal shunt malfunction can cause hydrocephalus, but it is a distinct diagnosis.",
+   "cost_input_tokens": 147
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77886,
+   "reference": [
+    "Age-related cognitive decline"
+   ],
+   "answer": [
+    "Mild cognitive impairment (G31.84)"
+   ],
+   "verdict": "related",
+   "reason": "Mild cognitive impairment is a distinct clinical diagnosis from age-related cognitive decline, though both involve cognitive changes with aging.",
+   "cost_input_tokens": 129
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78039,
+   "reference": [
+    "DiGeorge syndrome"
+   ],
+   "answer": [
+    "Major histocompatibility complex class II deficiency (bare lymphocyte syndrome), causing severe combined immunodeficiency (D81.7)"
+   ],
+   "verdict": "different",
+   "reason": "MHC class II deficiency is a distinct immunodeficiency from DiGeorge syndrome.",
+   "cost_input_tokens": 146
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77920,
+   "reference": [
+    "Gastric adenocarcinoma"
+   ],
+   "answer": [
+    "Diabetic gastroparesis (E11.43)"
+   ],
+   "verdict": "different",
+   "reason": "Diabetic gastroparesis is a gastric motility disorder, not gastric adenocarcinoma.",
+   "cost_input_tokens": 134
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77854,
+   "reference": [
+    "Neurogenic bladder due to sacral nerve root injury"
+   ],
+   "answer": [
+    "Overflow incontinence due to chronic urinary retention from neurogenic bladder (N39.490)"
+   ],
+   "verdict": "related",
+   "reason": "The answer identifies neurogenic bladder but does not specify sacral nerve root injury as its cause.",
+   "cost_input_tokens": 144
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78283,
+   "reference": [
+    "Brain death"
+   ],
+   "answer": [
+    "Nontraumatic intracerebral hemorrhage with midline shift and uncal herniation (I61.9)"
+   ],
+   "verdict": "related",
+   "reason": "Intracerebral hemorrhage with herniation can cause brain death, but it does not itself establish brain death.",
+   "cost_input_tokens": 142
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78262,
+   "reference": [
+    "Hypermetabolic response to severe burn injury"
+   ],
+   "answer": [
+    "Systemic inflammatory response syndrome of non-infectious origin without acute organ dysfunction (R65.10)"
+   ],
+   "verdict": "related",
+   "reason": "Noninfectious SIRS can occur after a severe burn, but it does not specifically identify the burn-induced hypermetabolic response.",
+   "cost_input_tokens": 145
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77898,
+   "reference": [
+    "Hyperchloremic metabolic acidosis due to excess normal saline infusion"
+   ],
+   "answer": [
+    "Sepsis, unspecified organism (A41.9)"
+   ],
+   "verdict": "different",
+   "reason": "Sepsis does not identify the hyperchloremic metabolic acidosis caused by excess normal saline infusion.",
+   "cost_input_tokens": 140
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 76996,
+   "reference": [
+    "Severe Fetal Anemia due to Fetomaternal Hemorrhage"
+   ],
+   "answer": [
+    "Maternal care for anti-D (Rh) antibodies, third trimester, not applicable or unspecified (O36.0130)"
+   ],
+   "verdict": "related",
+   "reason": "Anti-D alloimmunization can cause fetal anemia, but it is distinct from fetomaternal hemorrhage and does not name severe fetal anemia.",
+   "cost_input_tokens": 155
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 76982,
+   "reference": [
+    "Munchausen syndrome (factitious disorder imposed on self)"
+   ],
+   "answer": [
+    "Sulfonylurea-induced hypoglycemia (T38.3X1A)"
+   ],
+   "verdict": "different",
+   "reason": "Sulfonylurea-induced hypoglycemia describes a drug effect, not factitious disorder imposed on self.",
+   "cost_input_tokens": 145
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77918,
+   "reference": [
+    "Chronic kidney disease"
+   ],
+   "answer": [
+    "Iron deficiency anemia, unspecified (D50.9)"
+   ],
+   "verdict": "different",
+   "reason": "Iron deficiency anemia is not the same diagnosis as chronic kidney disease.",
+   "cost_input_tokens": 130
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77217,
+   "reference": [
+    "Renal artery stenosis"
+   ],
+   "answer": [
+    "Fibromuscular dysplasia (I77.3)"
+   ],
+   "verdict": "related",
+   "reason": "Fibromuscular dysplasia can cause renal artery stenosis, but it does not specifically identify stenosis of the renal artery.",
+   "cost_input_tokens": 133
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77791,
+   "reference": [
+    "Obstructive Uropathy"
+   ],
+   "answer": [
+    "Acute kidney injury due to postrenal urinary obstruction from benign prostatic hyperplasia (N17.9)"
+   ],
+   "verdict": "same",
+   "reason": "Postrenal urinary obstruction from benign prostatic hyperplasia is a specific cause of obstructive uropathy.",
+   "cost_input_tokens": 143
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77792,
+   "reference": [
+    "Hyperkalemia"
+   ],
+   "answer": [
+    "Spironolactone-induced gynecomastia (N62)"
+   ],
+   "verdict": "different",
+   "reason": "Spironolactone-induced gynecomastia is a breast condition, not hyperkalemia.",
+   "cost_input_tokens": 133
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78080,
+   "reference": [
+    "Gram-negative rod infection"
+   ],
+   "answer": [
+    "Serratia marcescens bacteremia (R78.81)"
+   ],
+   "verdict": "same",
+   "reason": "Serratia marcescens is a gram-negative rod, and bacteremia specifies the infection site.",
+   "cost_input_tokens": 134
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78268,
+   "reference": [
+    "Traumatic hemothorax with hypovolemic shock"
+   ],
+   "answer": [
+    "Traumatic massive left hemothorax (J94.2)"
+   ],
+   "verdict": "related",
+   "reason": "The answer identifies traumatic hemothorax but omits the associated hypovolemic shock.",
+   "cost_input_tokens": 142
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78469,
+   "reference": [
+    "Proteus mirabilis urinary infection"
+   ],
+   "answer": [
+    "Xanthogranulomatous pyelonephritis (N11.8)"
+   ],
+   "verdict": "related",
+   "reason": "Xanthogranulomatous pyelonephritis is a urinary infection that can be caused by Proteus mirabilis, but the answer does not identify that organism.",
+   "cost_input_tokens": 140
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78040,
+   "reference": [
+    "Bare Lymphocyte Syndrome (MHC Class II Deficiency)"
+   ],
+   "answer": [
+    "Pneumocystis jirovecii pneumonia (B59)"
+   ],
+   "verdict": "different",
+   "reason": "Pneumocystis pneumonia is an opportunistic infection, not MHC class II deficiency.",
+   "cost_input_tokens": 141
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 77963,
+   "reference": [
+    "Hyperchloremic metabolic acidosis due to excess normal saline infusion"
+   ],
+   "answer": [
+    "Acute and chronic respiratory failure with hypercapnia (J96.22)"
+   ],
+   "verdict": "different",
+   "reason": "Hypercapnic respiratory failure is distinct from hyperchloremic metabolic acidosis caused by excess saline infusion.",
+   "cost_input_tokens": 144
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78277,
+   "reference": [
+    "Traumatic injury of right subclavian vessels"
+   ],
+   "answer": [
+    "Traumatic right pneumothorax, initial encounter (S27.0XXA)"
+   ],
+   "verdict": "different",
+   "reason": "A right pneumothorax is a lung injury, not an injury of the right subclavian vessels.",
+   "cost_input_tokens": 143
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 78607,
+   "reference": [
+    "Massive splenomegaly requiring elective splenectomy"
+   ],
+   "answer": [
+    "Immune thrombocytopenic purpura (ITP), recurrent after splenectomy (D69.3)"
+   ],
+   "verdict": "different",
+   "reason": "Recurrent ITP after splenectomy does not identify massive splenomegaly requiring elective splenectomy.",
+   "cost_input_tokens": 151
+  },
+  {
+   "unit": "test_selection",
+   "gt_id": 76943,
+   "reference": [
+    "Viral cervicitis"
+   ],
+   "answer": [
+    "Pelvic inflammatory disease (N73.9)"
+   ],
+   "verdict": "related",
+   "reason": "Pelvic inflammatory disease is related to cervicitis but is a distinct, more extensive inflammatory condition.",
+   "cost_input_tokens": 130
   }
  ]
 }

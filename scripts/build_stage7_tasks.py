@@ -92,7 +92,8 @@ def build(conn: sqlite3.Connection, parents: list[dict]) -> dict[str, list[tuple
         if len(triage) >= 3 and keys and background:
             urgent = max(keys, key=lambda f: (S7.EDGE_RANK.get(f["edge"], 0), -triage.index(f)))
             out["lab_triage"].append((p, {**base, "relevant": relevant, "background": background,
-                                          "most_urgent": urgent["name"] if S7.EDGE_RANK.get(urgent["edge"], 0) else None}, 1))
+                                          "most_urgent": urgent["name"] if S7.EDGE_RANK.get(urgent["edge"], 0) else None,
+                                          "results": triage_results(sections, relevant, background, triage)}, 1))
 
         # atypical variant
         allf = S7.encounter_findings(conn, eid, ("symptom", "sign", "lab_value", "imaging_finding", "procedure_result", "vital_sign", "history_item"), label_ids)
@@ -127,6 +128,44 @@ def widen_task_check(conn: sqlite3.Connection) -> bool:
         for ix in indexes:
             conn.execute(ix)
     return True
+
+
+def triage_results(sections, relevant: list[str], background: list[str], findings: list[dict]) -> list[list]:
+    """Compact lab_triage result rows (name, value, relevant, context) for the analyte matcher (Stage B1)."""
+    by = {f["name"]: f for f in findings}
+    rows = [{"name": n, "value": (by.get(n) or {}).get("value"), "relevant": int(n in relevant)} for n in relevant + background]
+    ctx = S7.order_context(sections, rows, S7.TRIAGE_SECTIONS, clauses=True)
+    return [[r["name"], r["value"], r["relevant"], ctx.get(r["name"], "")] for r in rows]
+
+
+def patch_triage_results(conn: sqlite3.Connection, ov: sqlite3.Connection | None) -> int:
+    """Add the result rows to every built lab_triage row (release public/train/heldout + overlay private)."""
+    n = 0
+    for db in (conn, ov):
+        if db is None:
+            continue
+        rows = db.execute("select gt_id, encounter_id, ground_truth from benchmark_ground_truth where task='lab_triage'").fetchall()
+        upd = []
+        for gt_id, eid, gt in rows:
+            gt = json.loads(gt)
+            if "relevant" not in gt:                       # a stripped private row: its labels live in the overlay
+                continue
+            parent = json.loads(conn.execute("select ground_truth from benchmark_ground_truth where gt_id=?", (gt["parent_gt_id"],)).fetchone()[0])
+            if parent.get(private_labels.REMOVED_FLAG) and ov is not None:
+                parent = json.loads(ov.execute("select ground_truth from benchmark_ground_truth where gt_id=?", (gt["parent_gt_id"],)).fetchone()[0])
+            labels = [d["diagnosis_id"] for d in parent.get("active_diagnoses", []) + parent.get("chronic_conditions", [])
+                      if not d.get("excluded_nondiagnostic")]
+            findings = S7.encounter_findings(conn, eid, S7.TRIAGE_TYPES, labels)
+            gt["results"] = triage_results(S7.index_sections(conn, eid), gt["relevant"], gt["background"], findings)
+            upd.append((json.dumps(gt), gt_id))
+        with db:
+            db.executemany("update benchmark_ground_truth set ground_truth=? where gt_id=?", upd)
+        n += len(upd)
+    with conn:
+        conn.execute("insert or replace into release_info (key, value) values ('stage7_triage_results', ?)",
+                     ("triage_v1: lab_triage rows carry their documented results (name, value, relevant, context tokens) for "
+                      "analyte matching and sensitivity/specificity scoring (scripts/build_stage7_tasks.py --patch-triage-results, Stage B1)",))
+    return n
 
 
 ORDER_CTX_MARK = "order_ctx_v1"
@@ -166,8 +205,15 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--cap-train", type=int, default=None, help="cap train-split instances per family")
     ap.add_argument("--patch-order-context", action="store_true")
+    ap.add_argument("--patch-triage-results", action="store_true")
     a = ap.parse_args()
     conn = sqlite3.connect(a.db)
+    if a.patch_triage_results:
+        ov = sqlite3.connect(a.overlay) if Path(a.overlay).exists() else None
+        n = patch_triage_results(conn, ov)
+        conn.execute("vacuum")
+        print(f"triage results: {n} lab_triage rows rewritten")
+        return 0
     if a.patch_order_context:
         ov = sqlite3.connect(a.overlay) if Path(a.overlay).exists() else None
         n = patch_order_context(conn, ov)

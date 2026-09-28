@@ -20,6 +20,9 @@ sample was the longest charts minus a ceiling filter, and the data generator sat
 - The **floor** of a (task, split) is the best zero-model degenerate policy in `eval/floors.json`
   (`eval/degenerate.py`: empty answer, copy the problem list, frequency prior, chart dump, order everything,
   majority class, …), recomputed by `python -m eval.floors --split <split> --write` and checked by CI.
+- Policies that read the label side of an instance (the rubric's finding names, the triage label names:
+  `eval.floors.PRIVILEGED_POLICIES`) stay CI gates and are recorded as `privileged_floor`, but do not set the floor:
+  no model is served that information.
 - The **ceiling** is the label oracle on the same instances (1.0 for every task by construction; 0.99+ for
   retrieval where a patient has fewer relevant sections than the cut-off).
 - Every raw score is also reported **normalized**: `(raw − floor) / (ceiling − floor)`, clipped to [−∞, 1].

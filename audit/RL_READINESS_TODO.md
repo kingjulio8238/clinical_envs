@@ -51,20 +51,51 @@ Ordered by dependency; items in the same group are independent. Costs are comput
 
 ## B. Task set (environment; no GPU)
 
-- [ ] **B1 Re-specify lab_triage.** Both models score below the flag-everything floor (0.63): recall of every
+- [x] **B1 Re-specify lab_triage.** Both models score below the flag-everything floor (0.63): recall of every
       key/supporting result dominates. Redesign the reward so over-flagging costs (e.g. precision-weighted F1 with
       background results as explicit negatives, or ranked top-k with the most-urgent weight), regenerate floors, and
       re-smoke both models. Gate: the flag-everything floor ≤ 0.3 and the oracle 1.0. Until then it stays out of RL.
       *Cost: re-smoke ≈ $0.1.*
-- [ ] **B2 error_detection saturation.** Qwen 0.89, GPT-6 Sol 1.00. Either harden it (multiple or subtler errors,
+      - done. Two faults, not one: (1) the labels name interpretations ("Thrombocytopenia", "Severe hypertension")
+        while clinicians name analytes ("Platelet count", "Blood pressure"), so correct answers missed; (2) F1 rewarded
+        flagging everything (70% of results are relevant). Each lab_triage row now carries its documented results
+        (name, value, relevant, context tokens of the lab/vitals clause documenting it; `build_stage7_tasks.py
+        --patch-triage-results`, 1,248 rows, release + overlay); a flagged name reaches a result by its label or its
+        analyte (`order_matches` + vital-sign analytes); `triage_score = 0.6 x Youden's J + 0.4 x urgent hit`, so
+        flagging everything, nothing or a random subset earns 0 on the flagging term; the prompt says so. The old
+        flag-all floor policy read the label names — it is now a privileged gate (≤ 0.12 J), and the floor is the best
+        chart-reading policy. Public floor 0.63 → **0.23**, oracle 1.00. Full re-run (new prompt): Qwen 0.551
+        (normalized 0.42), GPT-6 Sol 0.607; paired gap 0.035 [−0.05, 0.11] → valid reward with headroom, not an RL
+        target yet (gap rule). Old runs kept under results/superseded/b1_lab_triage_f1.
+- [x] **B2 error_detection saturation.** Qwen 0.89, GPT-6 Sol 1.00. Either harden it (multiple or subtler errors,
       localize the sentence, not just section and type) or retire it from RL targets and document why. Also cap its
       episodes by turns: 7 of 120 Qwen episodes looped until the deadline.
-- [ ] **B3 Summarization headroom.** Echoing the key finding names scores 0.487 (the floor), Qwen 0.525. Decide
+      - decided: **retired from RL targets, kept as an evaluation-only regression check.** Evidence: GPT-6 Sol 1.00,
+        Qwen 0.89 (normalized 0.79); both models already localize the injected error (37/40 descriptions quote the
+        changed text), so a localization term would not add headroom; the hardening that would (clean no-error
+        controls, subtler error types) risks label noise from the source charts' own inconsistencies and is recorded
+        as future work. Turn cap: `UNIT_MAX_TURNS["error_detection"] = 16` (Qwen median 5, p90 9; loops ran 14–42),
+        recorded in each manifest; the global deterministic limits come with C3.
+- [x] **B3 Summarization headroom.** Echoing the key finding names scores 0.487 (the floor), Qwen 0.525. Decide
       whether to raise the floor-to-ceiling spread (weight precision / grounding more) or to keep summarization as
       an evaluation-only unit. Document the decision.
-- [ ] **B4 test_selection as the agentic unit.** Its anchor gap (+0.09, interval above 0) just missed the 0.10 rule.
+      - decided: **evaluation-only for RL round 1.** The 0.487 floor came from a policy that echoes the rubric's
+        own finding names — information no model is served since Stage 2 — so floors now exclude such privileged
+        policies (`eval.floors.PRIVILEGED_POLICIES`, recorded as `privileged_floor`, still CI-gated ≤ 0.5). Real
+        floor 0.435 (chart dump); Qwen normalized 0.16, GPT-6 Sol 0.33, paired gap 0.073 [0.03, 0.12] < 0.10 → it
+        does not qualify. Widening its headroom would mean a new summarization reward (a separate project); it stays
+        a regression check.
+- [x] **B4 test_selection as the agentic unit.** Its anchor gap (+0.09, interval above 0) just missed the 0.10 rule.
       Re-measure it on the full public + heldout sets in the local baseline (C2) before deciding whether it joins the
       second RL round.
+      - done (full public split, 314 instances each; $1.64 OpenRouter, $10.4 OpenAI credits): Qwen 0.273,
+        GPT-6 Sol 0.402, paired gap **0.129 [0.090, 0.167]**, Qwen errors 1.3% → **qualifies; joins RL round 1** as the
+        agentic unit (tools vs no tools +0.15 for Qwen). The larger sample exposed more synonym misses; fixed in the
+        concept matcher (embolus/embolism, accents, qualifier-only specificity, the prediction's own gloss, reference
+        alternatives "A or B" and workup tails): judge-audited correct-but-0 Qwen 8.3% → 1.1% (n=91). GPT-6 Sol's
+        residual is 8% (4 of 50 zeros): all is-a cases — a specific answer to a generic reference (Serratia
+        bacteremia for "Gram-negative rod infection", Hollenhorst plaque for "Cholesterol embolism") that token rules
+        cannot see (see "Open decision" below).
 
 ## C. RL pipeline (needs a GPU)
 
@@ -104,6 +135,17 @@ Ordered by dependency; items in the same group are independent. Costs are comput
 - [x] A1–A4 done; floors current on all four splits; `pytest eval/tests etl/tests` and the simulator suite green;
       `scripts/verify_roadmap.py` 0 failures
       → 2026-09-28: `scripts/verify_roadmap.py` 87 pass / 0 fail / 1 deferred (Kimi row); 283 tests passed; CI green at the reward-v1 commit
-- [ ] B1–B4 decided and documented
+- [x] B1–B4 decided and documented → RL round-1 units: patient_diagnosis, atypical_diagnosis (evaluation-only transfer
+      test per §3.6 of RL_READINESS.md), differential_diagnosis, evidence_retrieval, test_selection; evaluation-only:
+      lab_triage, error_detection, context_summarization, specialty_conditioned, imaging_indication
+
+## Open decision (from B4)
+
+- [ ] **Is-a matches.** On test_selection, 4 of GPT-6 Sol's 50 zero-scored answers are more specific forms of a
+      generic reference (8% > the 5% A1 gate; Qwen 1.1%). Options: (a) an LLM-curated table of specific forms per
+      reference diagnosis, frozen into the reward like the CMS/SNOMED aliases (~155 judge calls over every surviving
+      node so private references are not singled out; ≈ $10 of OpenAI credits; adds an LLM-built reward component that
+      must itself be audited); (b) accept, monitor with the reward-noise judge at every checkpoint (C6), and revisit if
+      the trained policy produces more specific answers.
 - [ ] C1–C6 done on the target hardware, with the cost projection inside the available budget
 - [ ] D1–D2 written down before training starts

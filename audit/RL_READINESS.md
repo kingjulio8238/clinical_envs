@@ -104,3 +104,17 @@ correctly* (name credit or the LLM judge) and *coded it exactly*.
   fixed (retrieval counted a duplicated passage at every rank).
 - **Frozen reward:** `reward-v1` (`eval/reward_lock.json`, git tag), recorded in every manifest; the runner refuses a
   drifted scorer; CI fails on an un-locked scorer change.
+
+## 7. Update after the task-set items (B1–B4)
+
+- **RL round 1 trains on** patient_diagnosis, differential_diagnosis, evidence_retrieval and **test_selection**
+  (re-measured on all 314 public instances: GPT-6 Sol − Qwen +0.129 [0.090, 0.167]); atypical_diagnosis stays the
+  evaluation-only transfer test. Evaluation-only regression checks: lab_triage, error_detection, summarization,
+  specialty, imaging.
+- **lab_triage is now a valid reward** (analyte matching + Youden's J: floor 0.63 → 0.23, oracle 1.0; Qwen 0.551,
+  Sol 0.607) but its anchor gap is not significant, so it is not a round-1 target.
+- **Floors no longer count policies that read the labels** (`PRIVILEGED_POLICIES`): summarization's floor is 0.435,
+  lab_triage's 0.23; the privileged policies remain CI gates.
+- **Reward re-frozen as `reward-v2`** (lab_triage scorer, triage rows, concept-matcher fixes from the B4 audit).
+- **Open:** is-a matches (a specific answer to a generic reference) are 8% of GPT-6 Sol's zero-scored test_selection
+  answers — see "Open decision" in `audit/RL_READINESS_TODO.md`.

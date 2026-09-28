@@ -203,7 +203,7 @@ Five encounter-level tasks derived from the index-encounter diagnosis instances,
 | `differential_diagnosis` | `submit_differential` | ranked list (≤5) vs. the visit's correct diagnosis (gain 1) and its distractors (gain 0.5), graded ICD credit | `differential_ndcg_5` |
 | `test_selection` | `order_test` … `submit_workup` | the index visit's result sections are hidden; `order_test(name)` returns the result as documented (or "not performed") and costs a step; the reward counts the episode's orders, never the submission's claims | `workup_score` = ICD credit × evidence (a discriminating test ordered, else 0.25) × parsimony (needed / ordered) |
 | `error_detection` | `submit_error` | one injected error (implausible value, laterality swap, age or sex contradiction) served through a section override | 0.5 × section hit + 0.5 × type hit |
-| `lab_triage` | `submit_triage` | which of the visit's lab / vital results bear on the diagnosis (key/supporting vs. background) and the most urgent one | 0.6 × F1 + 0.4 × urgent hit |
+| `lab_triage` | `submit_triage` | which of the visit's lab / vital results bear on the diagnosis (key/supporting vs. background) and the most urgent one; a result is reached by its label name or the analyte a clinician names ("Platelet count" for "Thrombocytopenia") | 0.6 × Youden's J (sensitivity + specificity − 1, floored at 0: flagging everything earns 0) + 0.4 × urgent hit |
 | `atypical_diagnosis` | `submit_diagnosis` | the patient-diagnosis task on a chart whose sentences stating a pathognomonic / highly-suggestive finding are masked | patient-diagnosis reward; robustness = atypical − original |
 
 Locked prompting strategies used in the paper: CoT (patient diagnosis), ontology-grounded structured (whole-patient summarization), zero-shot (retrieval, specialty-conditioned summarization), few-shot (imaging). `eval.cli score` reports the primary metrics as **redefined in this fork** (see [SCORING_CHANGES.md](SCORING_CHANGES.md); names unchanged, semantics hardened): patient diagnosis by graded-ICD, acuity-aware, severity-weighted F1 under the chart-neutral rule (`weighted_problem_list_f1_neutral`), retrieval by `ndcg_10` over content-graded chart sections (`precision_5` also returned), summarization by HM(negation-aware finding recall, chart-grounded concept precision) × length factor (`clinical_f1`), and the imaging clinical question by concept F1 against graph-derived reference terms (`clinical_question_concept_f1`; extractor in `eval/imaging_concepts.py`, built from the loaded database with no external ontology files).
@@ -226,20 +226,21 @@ paired comparisons, failures scored 0, random seeded samples); the paper's Table
 | unit | floor | Qwen3.5-9B, tools (n=120) | Qwen3.5-9B, no tools | GPT-6 Sol, tools (n=40) |
 |---|---|---|---|---|
 | patient_diagnosis | 0.036 | 0.332 | 0.246 | 0.520 |
-| atypical_diagnosis | 0.035 | 0.347 (n=77) | — | 0.647 (n=23) |
-| differential_diagnosis | 0.027 | 0.408 | 0.340 | 0.526 |
-| test_selection | 0.001 | 0.273 | 0.106 | 0.325 |
+| atypical_diagnosis | 0.035 | 0.351 (n=77) | — | 0.647 (n=23) |
+| differential_diagnosis | 0.027 | 0.410 | 0.340 | 0.526 |
+| test_selection | 0.001 | 0.273 (n=314) | 0.107 | 0.402 (n=314) |
 | evidence_retrieval | 0.420 | 0.563 | — | 0.700 |
-| context_summarization | 0.487 | 0.525 | — | 0.619 |
+| context_summarization | 0.435 | 0.525 | — | 0.619 |
 | specialty_conditioned | 0.407 | 0.595 | — | 0.589 |
 | imaging_indication | 0.219 | 0.249 | — | 0.289 |
 | error_detection | 0.494 | 0.892 | — | 1.000 |
-| lab_triage | 0.631 | 0.425 | — | 0.487 |
+| lab_triage | 0.230 | 0.551 | — | 0.607 |
 
-Tools help the RL candidate on all three ablated units (paired, intervals above 0). Four units show learnable
+Tools help the RL candidate on all three ablated units (paired, intervals above 0). Five units show learnable
 headroom for RL (above the floor, below saturation, a significant gap to the anchor): patient_diagnosis,
-atypical_diagnosis, evidence_retrieval, differential_diagnosis. lab_triage is below its flag-everything floor for
-both models and error_detection is saturated. Reproduce with `bash scripts/run_stage8_panel.sh results/logs`, then
+atypical_diagnosis, evidence_retrieval, differential_diagnosis and test_selection (re-measured on all 314 public
+instances). lab_triage was redesigned (Stage B1: analyte matching, Youden's J) and both models are now well above
+its floor, but the anchor gap is not significant; error_detection is saturated; summarization is evaluation-only. Reproduce with `bash scripts/run_stage8_panel.sh results/logs`, then
 `python scripts/rescore_protocol_runs.py && python -m eval.protocol report && python scripts/stage8_rl_decision.py`.
 
 ## Floors, ceilings and the reward-hacking suite

@@ -293,7 +293,10 @@ TASK_GOALS = {
         "goal": (
             "Review the index visit (encounter_id = {encounter_id}). From its laboratory and vital-sign results, "
             "list the findings that bear on the diagnosis of this presentation (key or supporting), leaving out "
-            "the incidental ones, and name the single most urgent finding. Use the finding names as documented."
+            "the incidental ones, and name the single most urgent finding. Name each result as documented (the test or "
+            "measurement, e.g. \"Platelet count\", or its interpretation, e.g. \"Thrombocytopenia\"). Scoring: every "
+            "incidental result you flag counts against you as much as a relevant one you leave out, so flagging "
+            "everything scores no better than flagging nothing."
         ),
         "schema": """{
   "relevant": ["Serum lipase", "Serum calcium", "Heart rate"],

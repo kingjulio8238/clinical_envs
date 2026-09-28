@@ -128,7 +128,7 @@ def test_single_turn_workup_is_matched_like_order_test(db):
      "Z99.9", "R65.21", 0.0),
     ("Shock (septic shock pneumonia heart failure kidney injury stroke sepsis asthma cirrhosis lupus gout)", "Septic shock",
      "Z99.9", "R65.21", 0.0),
-    ("Mucolipidosis type II (I-cell disease)", "Mucolipidosis II (I-cell disease)", "Q77.1", "E77.0", 0.5),   # "I-cell" is no digit
+    ("Mucolipidosis type II (I-cell disease)", "Mucolipidosis II (I-cell disease)", "Q77.1", "E77.0", 0.75),  # "I-cell" is no digit; the shared gloss "I-cell disease" names it
     ("Chronic kidney disease stage 3", "Acute kidney injury", "N18.3", "N17.9", 0.0),
     ("Traumatic compartment syndrome of left lower extremity", "Compartment syndrome of hand", "T79.A22A", "T79.A12A", 0.0),
 ])

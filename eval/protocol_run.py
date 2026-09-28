@@ -47,6 +47,9 @@ RUN_UNITS = ("patient_diagnosis", "evidence_retrieval", "context_summarization",
              "atypical_diagnosis")
 """The units a panel run plays. The specialty task is played as served, the involved/absent mixture;
 its two halves are recoverable from the predictions (`involvement`)."""
+UNIT_MAX_TURNS = {"error_detection": 16}
+"""Per-unit turn caps (Stage B2): Qwen looped 14–42 turns on error_detection (median 5, p90 9), and the loops ended in
+the wall-clock deadline; 16 turns bounds them deterministically. Other units: budget + 3."""
 SECONDARY_METRICS = ("diagnosis_named", "diagnosis_coded")
 """Recorded per episode beside the reward (RL readiness A2: a gain splits into naming vs coding)."""
 EPISODE_DEADLINE_S = int(os.environ.get("SH_EPISODE_DEADLINE_S", "900"))
@@ -287,7 +290,7 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
     adapter = adapter or create_adapter(cfg)
     prices = prices or live_prices(model)
     db = shared_db()
-    max_turns = max_turns or (budget + 3)
+    turn_cap = {t: max_turns or UNIT_MAX_TURNS.get(t, budget + 3) for t in tasks}
     units: dict[str, dict] = {}
     todo: list[tuple[str, D.Instance]] = []
     for task in tasks:
@@ -313,7 +316,7 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
         for _ in range(workers):
             nxt = next(it, None)
             if nxt is not None:
-                futures[ex.submit(run_episode, adapter, nxt[1], arm, budget, prices, max_turns)] = nxt[0]
+                futures[ex.submit(run_episode, adapter, nxt[1], arm, budget, prices, turn_cap[nxt[0]])] = nxt[0]
         while futures:
             finished, _ = wait(futures, return_when=FIRST_COMPLETED)
             for fut in finished:
@@ -339,7 +342,7 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
                     continue
                 nxt = next(it, None)
                 if nxt is not None:
-                    futures[ex.submit(run_episode, adapter, nxt[1], arm, budget, prices, max_turns)] = nxt[0]
+                    futures[ex.submit(run_episode, adapter, nxt[1], arm, budget, prices, turn_cap[nxt[0]])] = nxt[0]
     if stop_reason and not quiet:
         print(f"[{model} {arm}] STOPPED: {stop_reason}; completed episodes are kept and a rerun resumes", flush=True)
     prompt_hash = None
@@ -350,7 +353,7 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
         manifest = {
             "run_id": u["out"].name, "model": model, "provider_base_url": cfg.base_url, "model_id": cfg.model_id, "task": task,
             "arm": arm, "split": split, "seed": seed, "n_requested": n, "n_sampled": len(u["insts"]), "n_recorded": u["n_done"],
-            "budget": budget, "prices_per_million": {"input": prices[0], "output": prices[1]},
+            "budget": budget, "max_turns": turn_cap[task], "prices_per_million": {"input": prices[0], "output": prices[1]},
             "temperature": None if "api.openai.com" in cfg.base_url and cfg.extra.get("no_temperature", True) else cfg.temperature,
             "extra": dict(cfg.extra), "max_output_tokens_per_turn": cfg.max_tokens, "episode_deadline_s": EPISODE_DEADLINE_S,
             "prompt_hash": prompt_hash, "git_commit": _git(), "floors_file": "eval/floors.json",

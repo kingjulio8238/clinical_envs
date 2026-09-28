@@ -16,6 +16,7 @@ import json
 import logging
 import math
 import re
+import unicodedata
 from pathlib import Path
 from collections import defaultdict
 
@@ -458,18 +459,26 @@ _DX_SYN = {"mi": "myocardial infarction", "stemi": "st elevation myocardial infa
            "ii": "2", "iii": "3", "iv": "4",
            "synechiae": "adhesion", "synechia": "adhesion", "toxicity": "poisoning", "intoxication": "poisoning",
            "overdose": "poisoning", "csf": "cerebrospinal fluid", "arterial": "artery", "testosterone": "androgen",
-           "administration": "use", "related": "", "periprosthetic": "prosthetic"}      # not "i": "I-cell disease" is no type 1
+           "administration": "use", "related": "", "periprosthetic": "prosthetic",
+           "embolus": "embolism", "emboli": "embolism", "embolization": "embolism", "embolic": "embolism",
+           "adrenocortical": "adrenal"}      # not "i": "I-cell disease" is no type 1
 _DX_POLAR = ({"left", "right"}, {"acute", "chronic"}, {"benign", "malignant"}, {"primary", "secondary"}, {"upper", "lower"},
              {"anterior", "posterior"}, {"inferior", "superior"}, {"with", "without"}, {"congenital", "acquired"},
              {"early", "late"}, {"unilateral", "bilateral"}, {"proximal", "distal"}, {"central", "peripheral"})
 
 
-_DX_PHRASES = ((re.compile(r"\bimmunoglobulin ([agmde])\b"), r"ig\1"),)    # "Immunoglobulin A vasculitis" = "IgA vasculitis"
+_DX_PHRASES = ((re.compile(r"\bimmunoglobulin ([agmde])\b"), r"ig\1"),     # "Immunoglobulin A vasculitis" = "IgA vasculitis"
+               (re.compile(r"\baddison'?s?(?: disease)?\b"), "primary adrenal insufficiency"))
+_DX_QUALIFIERS = frozenset("""disseminated severe mild moderate recurrent persistent localized generalized progressive
+    complicated uncomplicated active suspected probable possible stage grade initial encounter subsequent sequela
+    confirmed documented new onset worsening exacerbation""".split())
+"""Words that make a name more specific without making it another disease ("Disseminated histoplasmosis" is
+histoplasmosis); anatomy and aetiology words are deliberately absent (Stage B4 audit)."""
 
 
 @functools.lru_cache(maxsize=200_000)
 def _dx_tokens(name: str, keep_parentheticals: bool = False) -> frozenset[str]:
-    t = (name or "").lower()
+    t = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode().lower()   # Séquard -> sequard
     if not keep_parentheticals:
         t = re.sub(r"\([^)]*\)", " ", t)                            # parentheticals are glosses ("(PPROM)")
     for pat, rep in _DX_PHRASES:
@@ -501,7 +510,7 @@ def name_credit(pred_name: str, gt_name: str, pred_code: str = "", gt_code: str 
     pa, ga = _dx_tokens(pred_name), _dx_tokens(gt_name)
     if not pa or not ga or _dx_conflict(pa, ga):
         return 0.0
-    if pa == ga:
+    if pa == ga or (ga <= pa and (pa - ga) <= _DX_QUALIFIERS):
         return NAME_CREDIT["equivalent"]
     # the prediction names the reference in full inside a more specific name ("Sepsis due to pneumonia with septic
     # shock" for "Septic shock", "Acute GVHD following allogeneic HSCT" for "Acute graft-versus-host disease"):
@@ -550,7 +559,7 @@ def _alias_credit(pred_name: str, alias: str, pred_code: str, gt_code: str) -> f
     pa, ga = _dx_tokens(pred_name), _dx_tokens(alias)
     if not pa or not ga or _dx_conflict(pa, ga):
         return 0.0
-    if pa == ga:
+    if pa == ga or (ga <= pa and (pa - ga) <= _DX_QUALIFIERS):
         return NAME_CREDIT["equivalent"]
     pf = _dx_tokens(pred_name, keep_parentheticals=True)
     cap = _specific_cap(len(ga))
@@ -567,20 +576,36 @@ def concept_name_credit(pred_name: str, gt_name: str, pred_code: str = "", gt_co
     in-block rules)."""
     if not pred_name:
         return 0.0
-    best = name_credit(pred_name, gt_name, pred_code, gt_code) if gt_name else 0.0
-    for alias in diagnosis_aliases(gt_diagnosis_id) + _gloss_aliases(gt_name):
-        if best >= NAME_CREDIT["equivalent"]:
-            break
-        best = max(best, _alias_credit(pred_name, alias, pred_code, gt_code))
+    best = 0.0
+    # the prediction's own parenthetical gloss is a candidate name too ("Other incomplete lesion of thoracic spinal
+    # cord (right-sided Brown-Sequard syndrome at T10)"); each candidate still faces the specificity cap
+    for cand in [pred_name] + _gloss_aliases(pred_name):
+        if gt_name:
+            best = max(best, name_credit(cand, gt_name, pred_code, gt_code))
+        for alias in diagnosis_aliases(gt_diagnosis_id) + _gloss_aliases(gt_name):
+            if best >= NAME_CREDIT["equivalent"]:
+                return best
+            best = max(best, _alias_credit(cand, alias, pred_code, gt_code))
     return best
+
+
+_WORKUP_TAIL = re.compile(r"\s+(?:requiring|needing|for|with need for)\s+.*$|\s+(?:localization|workup|evaluation)\s*$", re.I)
 
 
 def _gloss_aliases(name: str) -> list[str]:
     """The parenthetical gloss of a reference name lists its synonyms: "Chronic vasospastic disorder (Raynaud's
-    phenomenon/Buerger's disease)" -> "Raynaud's phenomenon", "Buerger's disease"."""
+    phenomenon/Buerger's disease)" -> "Raynaud's phenomenon", "Buerger's disease". A reference of alternatives or with
+    a workup clause names each alternative on its own: "Multiple myeloma or metastatic bone disease requiring
+    intravenous bisphosphonates" -> "Multiple myeloma", "metastatic bone disease" (Stage B4 audit)."""
     out = []
     for g in re.findall(r"\(([^)]*)\)", name or ""):
         out += [x.strip() for x in re.split(r"/|;|,|\bor\b", g) if x.strip()]
+    bare = re.sub(r"\([^)]*\)", " ", name or "").strip()
+    parts = [x.strip() for x in re.split(r"\s+or\s+", bare) if x.strip()]
+    for part in parts:
+        trimmed = _WORKUP_TAIL.sub("", part).strip()
+        if trimmed and trimmed != bare:
+            out.append(trimmed)
     return out
 
 

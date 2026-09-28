@@ -768,8 +768,44 @@ def error_labs_value(db: ReleaseDB, inst: Instance) -> dict:
 
 
 def triage_all_results(db: ReleaseDB, inst: Instance) -> dict:
-    """Flag every documented result and pick the first as most urgent (what an agent that reads the labs section and copies it does)."""
+    """PRIVILEGED (reads the label names): flag every labelled result, urgent = a seeded random one. A CI gate, not the
+    floor (eval.floors.PRIVILEGED_POLICIES)."""
     names = list(inst["gt"].get("relevant", [])) + list(inst["gt"].get("background", []))
+    random.Random(inst["gt_id"]).shuffle(names)
+    return {"relevant": names, "most_urgent": names[0] if names else ""}
+
+
+_TRIAGE_NAME = re.compile(r"^[\s\-•*]*(?:the\s+|her\s+|his\s+)?([A-Za-z][A-Za-z0-9 ()/\-]{1,48}?)\s*(?::|\bof\b|\bis\b|\bwas\b|\s(?=[<>]?\d))", re.I)
+
+
+def _documented_result_names(db: ReleaseDB, inst: Instance) -> list[str]:
+    """The result names a reader of the index visit's labs / vitals sections sees ("Platelet count: 95,000" ->
+    "Platelet count"; "heart rate 88/min" -> "heart rate"), in chart order."""
+    from eval import stage7 as S7
+    eid = (inst["gt"].get("index_encounter") or {}).get("encounter_id") or inst.get("encounter_id")
+    names = []
+    for _, st, txt in S7.index_sections(db.conn, eid):
+        if st not in S7.TRIAGE_SECTIONS or not txt:
+            continue
+        for u in S7._result_units(txt):
+            for c in S7._CLAUSE_SPLIT.split(u):
+                m = _TRIAGE_NAME.match(c or "")
+                if m and re.search(r"\d", c):
+                    n = m.group(1).strip()
+                    if n.lower() not in {x.lower() for x in names}:
+                        names.append(n)
+    return names
+
+
+def triage_all_documented(db: ReleaseDB, inst: Instance) -> dict:
+    """Flag every result documented at the visit (read from the chart, not the labels); urgent = the first one."""
+    names = _documented_result_names(db, inst)
+    return {"relevant": names, "most_urgent": names[0] if names else ""}
+
+
+def triage_first_three(db: ReleaseDB, inst: Instance) -> dict:
+    """Flag the first three documented results; urgent = the first."""
+    names = _documented_result_names(db, inst)[:3]
     return {"relevant": names, "most_urgent": names[0] if names else ""}
 
 
@@ -802,6 +838,8 @@ POLICIES: dict[str, dict[str, Policy]] = {
     "lab_triage": {
         "empty": empty,
         "all_results": triage_all_results,
+        "all_documented": triage_all_documented,
+        "first_three_documented": triage_first_three,
     },
     "atypical_diagnosis": {
         "empty": empty,

@@ -394,12 +394,30 @@ def _content_tokens(text: str) -> set[str]:
     return {t for t in norm_tokens(text) if t not in _NARRATIVE and len(t) >= 3 and not t.replace(".", "").isdigit()}
 
 
-def order_context(sections: list[tuple[int, str, str]], orderable: list[dict]) -> dict[str, str]:
+TRIAGE_SECTIONS = RESULT_SECTIONS | {"vitals"}
+TRIAGE_FIELDS = ("name", "value", "relevant", "context")
+"""lab_triage result rows (Stage B1): the visit's documented results, whether each bears on the diagnosis, and the
+context tokens of the text documenting it, so a result is matched by the analyte a clinician names ("Platelet
+count") as well as by the label's interpretation name ("Thrombocytopenia")."""
+
+
+def triage_rows(gt: dict) -> list[dict]:
+    return [dict(zip(TRIAGE_FIELDS, r)) if isinstance(r, list) else r for r in (gt.get("results") or [])]
+
+
+_CLAUSE_SPLIT = re.compile(r"\s*;\s*|,\s+(?=(?:and\s+)?[A-Za-z])")
+
+
+def order_context(sections: list[tuple[int, str, str]], orderable: list[dict],
+                  section_types: frozenset[str] = RESULT_SECTIONS, clauses: bool = False) -> dict[str, str]:
     """Finding name -> its context tokens: the index encounter's result-section units that mention the finding by
     name, or that carry its documented numeric value (a lab interpretation such as "Thrombocytopenia" documented as
-    "Platelet count: 95,000/uL")."""
+    "Platelet count: 95,000/uL"). `clauses` splits a unit further at semicolons and commas, so each measurement of a
+    one-line vitals or lab list ("BP 168/112 mmHg, heart rate 88 ...") has its own context (lab_triage)."""
     from eval.concept_match import Phrase, TextIndex, lexical_hit
-    units = [u for _, st, txt in sections if st in RESULT_SECTIONS and txt for u in _result_units(txt)]
+    units = [u for _, st, txt in sections if st in section_types and txt for u in _result_units(txt)]
+    if clauses:
+        units = [c for u in units for c in _CLAUSE_SPLIT.split(u) if c and c.strip()]
     idx = [TextIndex(u) for u in units]
     utoks = [set(norm_tokens(u)) for u in units]
     out: dict[str, str] = {}
@@ -441,12 +459,17 @@ _ANALYTE = {
     "hyperuricemia": "uric", "anemia": "hemoglobin hematocrit", "thrombocytopenia": "platelet", "thrombocytosis": "platelet",
     "leukocytosis": "white leukocyte", "leukopenia": "white leukocyte", "neutropenia": "neutrophil", "neutrophilia": "neutrophil",
     "lymphocytosis": "lymphocyte", "lymphopenia": "lymphocyte", "eosinophilia": "eosinophil", "pancytopenia": "white hemoglobin platelet",
-    "hypercapnia": "pco2 arterial", "hypoxemia": "po2 oxygen arterial", "acidemia": "ph arterial", "alkalemia": "ph arterial",
+    "hypercapnia": "pco2 arterial", "acidemia": "ph arterial", "alkalemia": "ph arterial",
     "acidosis": "ph bicarbonate", "alkalosis": "ph bicarbonate", "hyperbilirubinemia": "bilirubin", "azotemia": "urea creatinine",
     "hypoalbuminemia": "albumin", "transaminitis": "ast alt aminotransferase", "hyperammonemia": "ammonia",
     "hyperlactatemia": "lactate", "proteinuria": "protein urinalysis", "hematuria": "urinalysis", "pyuria": "urinalysis",
     "glycosuria": "glucose urinalysis", "ketonuria": "ketone urinalysis", "hypothyroidism": "thyroid", "hyperthyroidism": "thyroid",
     "hyperlipidemia": "cholesterol lipid", "hypertriglyceridemia": "triglyceride",
+    # vital signs (lab_triage, Stage B1)
+    "hypertension": "pressure", "hypotension": "pressure", "tachycardia": "heart rate pulse", "bradycardia": "heart rate pulse",
+    "fever": "temperature", "pyrexia": "temperature", "hypothermia": "temperature", "febrile": "temperature",
+    "tachypnea": "respiratory rate", "bradypnea": "respiratory rate", "hypoxemia": "po2 oxygen arterial saturation", "hypoxia": "oxygen saturation",
+    "desaturation": "oxygen saturation",
 }
 """Interpretation word -> the analyte a clinician orders to see it ("serum sodium" / a BMP reveals "Hyponatremia")."""
 

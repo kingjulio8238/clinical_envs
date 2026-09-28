@@ -11,6 +11,7 @@
   "n_sampled": 40,
   "n_recorded": 40,
   "budget": 40,
+  "max_turns": 43,
   "prices_per_million": {
     "input": 2.0,
     "output": 10.0
@@ -21,13 +22,18 @@
   },
   "max_output_tokens_per_turn": 16384,
   "episode_deadline_s": 900,
-  "prompt_hash": "db3bf41522aa17da",
-  "git_commit": "7bf2f6d4e9bb746a7857fc8c5cbfa03dd34642b8",
+  "prompt_hash": "b0523730b5affbaa",
+  "git_commit": "5c4d4214bec0bedd5621e0d5a25bb6b05a0eb779",
   "floors_file": "eval/floors.json",
-  "started": "2026-09-27T19:07:21",
-  "duration_s": 396.3,
-  "cost_usd": 0.499,
-  "max_usd": 12.0,
+  "started": "2026-09-28T07:44:40",
+  "duration_s": 75.7,
+  "cost_usd": 0.4655,
+  "max_usd": 1.5,
   "stopped": null,
-  "protocol": "EVAL_PROTOCOL.md"
+  "protocol": "EVAL_PROTOCOL.md",
+  "reward_version": "reward-v2",
+  "reward_fingerprint": "e99f41d7a53bf5e0",
+  "reward_locked_fingerprint": "e99f41d7a53bf5e0",
+  "reward_drift": [],
+  "reward_drift_allowed": false
 }

@@ -166,6 +166,16 @@ optional P8.
 - [x] **Trajectory tokenization:** ART trains on vLLM's own token ids per turn; turns are separate sequences in our
       episodes (thinking is not sent back), ~2.0M training tokens per step → the training plan's budget basis.
 
+## C3. Write-up
+
+- [x] **P14 Project entry on the personal site (draft, local):** "Copying the Chart Beat Every Model", written for an
+      outside reader (kjv2 branch `draft/clinical-rl`, not pushed; dev-only, a production build leaves it out). Covers
+      the reward audit, the rebuild, the made-up-name attack, reward noise, the baseline and gap, naming vs coding,
+      tools and speed, the pre-registered bar, and what I had wrong; the RL section reads "Results: pending".
+      Numbers come from `scripts/export_site.py` (runs, audits, floors, benchmarks → `numbers.json`).
+- [ ] **After the RL run:** add the before/after section and charts (export the `rl_before_after` result into
+      `numbers.json`), update the tiles and the closing note, then publish once the gains clear the criteria.
+
 ## D. Needs you
 
 - [ ] **U1** Set each Modal workspace's usage limit to $30 at `modal.com/settings/<workspace>/usage` (dashboard only;

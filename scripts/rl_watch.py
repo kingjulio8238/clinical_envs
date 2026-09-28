@@ -202,7 +202,7 @@ def budget(height: int | None) -> dict:
     """Rows per section so the dashboard fits the terminal (Rich's Live cuts off whatever does not)."""
     if not height:
         return {"steps": 8, "devs": 6, "issues": 5, "logs": 8, "stats": 40}
-    extra = max(height - 36, 0)
+    extra = max(height - 43, 0)            # frame, rules between sections, header, summary, stats
     clamp = lambda x, lo, hi: int(max(lo, min(hi, x)))
     return {"steps": clamp(extra * 0.35, 3, 8), "devs": clamp(extra * 0.2, 2, 6), "issues": clamp(extra * 0.15, 2, 5),
             "logs": clamp(extra * 0.3, 0, 8), "stats": 40 if height >= 60 else 24}
@@ -236,7 +236,9 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
     g = (tele.get("gpus") or [{}])[0]
     v = tele.get("vllm") or {}
 
-    dashboard = Table(box=rich.box.ROUNDED, expand=True, show_header=False, border_style="red" if bad else "bright_cyan")
+    # PufferLib's frame (rounded, bright cyan, no header) with a rule between sections (show_lines)
+    dashboard = Table(box=rich.box.ROUNDED, expand=True, show_header=False, show_lines=True,
+                      border_style="red" if bad else "bright_cyan")
     head = Table(box=None, expand=True, show_header=False)
     head.add_column(justify="left", ratio=3)
     for _ in range(4):
@@ -334,7 +336,6 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
     monitor.add_row(s, p, lt)
     dashboard.add_row(monitor)
 
-    dashboard.add_row("")
     # -- user stats (two columns, as PufferLib) --------------------------------------------------------------------
     left, right = Table(box=None, expand=True), Table(box=None, expand=True)
     for t in (left, right):
@@ -371,7 +372,6 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
         stats.add_row(left, right)
         dashboard.add_row(stats)
 
-    dashboard.add_row("")
     # -- history: recent steps and dev evaluations (same palette) --------------------------------------------------
     if kind == "train" and steps:
         h = Table(box=None, expand=True, title=None)
@@ -393,9 +393,7 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
         trend.add_row(f"{C1}Trend  reward  {B2}{spark([e.get('train_reward') for e in steps][-40:])}",
                       f"{C1}entropy {B2}{sp('loss/entropy')}")
         trend.add_row(f"{C1}       dev     {B2}{spark([d.get('dev_score') for d in devs])}", f"{C1}kl      {B2}{sp('loss/kl_div')}")
-        dashboard.add_row(h)
-        dashboard.add_row("")
-        dashboard.add_row(trend)
+        dashboard.add_row(Group(h, trend))
     if kind == "train" and devs:
         dv = Table(box=None, expand=True)
         units = list((devs[-1].get("dev_by_unit") or {}).keys())
@@ -408,7 +406,6 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
             dv.add_row(f"{B2}{d['step']}{star}", num(d.get("dev_score")), *[num((d.get("dev_by_unit") or {}).get(u)) for u in units],
                        num(dd.get("diagnosis_named"), 2), pct(100 * probes),
                        ("[red]" + "; ".join(d["alerts"])) if d.get("alerts") else f"{C2}none")
-        dashboard.add_row("")
         dashboard.add_row(dv)
     if kind != "train" and st["units"]:
         ut = Table(box=None, expand=True)
@@ -422,7 +419,6 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
                        f"{B2}{c['truncated']}", num(c["turns"] / nn, 1), abbreviate(c["tokens"] / nn))
         dashboard.add_row(ut)
 
-    dashboard.add_row("")
     # -- problems, then the live log tail --------------------------------------------------------------------------
     issues = [f"{time.strftime('%H:%M:%S', time.localtime(e['ts']))}  gt={e.get('gt_id')}  {e.get('task')}  {str(e.get('error'))[:140]}"
               for e in st["errors"][-rows["issues"]:]] + [f"ALERT step {a.get('step')}: {a.get('alert')}" for a in st["alerts"][-2:]]

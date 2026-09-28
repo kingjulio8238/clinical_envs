@@ -17,10 +17,19 @@ from pathlib import Path
 
 import modal
 
-from common import HF_CACHE, RESULTS, committer, repo_image, start_vllm, tee
+from common import HF_CACHE, MODEL, RESULTS, committer, repo_image, start_vllm, tee
 
 app = modal.App("clinical-envs-vllm-eval")
 image = repo_image(modal.Image.debian_slim(python_version="3.12").pip_install("vllm==0.30.0", "hf_transfer"))
+
+
+@app.function(image=image, volumes={"/hf": HF_CACHE}, timeout=30 * 60, cpu=4)
+def download() -> str:
+    """Fetch the weights into the HF cache volume on a CPU container (no GPU billed for the download)."""
+    from huggingface_hub import snapshot_download
+    path = snapshot_download(MODEL, allow_patterns=["*.json", "*.safetensors", "*.jinja", "*.txt", "*.model", "tokenizer*"])
+    HF_CACHE.commit()
+    return path
 
 
 @app.function(image=image, gpu="H100", volumes={"/hf": HF_CACHE, "/results": RESULTS}, timeout=60 * 60, max_containers=1)
@@ -34,8 +43,15 @@ def run(run_name: str, cmd: str) -> dict:
     proc = start_vllm(out / "vllm.log")
     ready = time.time() - t0
     HF_CACHE.commit()
-    args = shlex.split(cmd)
-    rc = tee(["python", "-u", *args, "--out", str(out)], out / "client.log", env={"SH_VLLM_URL": "http://127.0.0.1:8000/v1"})
+    rc = 0
+    for i, part in enumerate(c.strip() for c in cmd.split("&&")):   # several client commands share one server start
+        t1 = time.time()
+        sub = out / f"part{i}"
+        rc = tee(["python", "-u", *shlex.split(part), "--out", str(sub)], out / "client.log", env={"SH_VLLM_URL": "http://127.0.0.1:8000/v1"})
+        (out / f"part{i}.json").write_text(json.dumps({"cmd": part, "rc": rc, "seconds": round(time.time() - t1, 1)}))
+        RESULTS.commit()
+        if rc:
+            break
     proc.terminate()
     info = {"rc": rc, "vllm_ready_s": round(ready, 1), "total_s": round(time.time() - t0, 1), "cmd": cmd}
     (out / "job.json").write_text(json.dumps(info, indent=1))
@@ -45,5 +61,8 @@ def run(run_name: str, cmd: str) -> dict:
 
 
 @app.local_entrypoint()
-def main(run_name: str, cmd: str, minutes: int = 40):
-    print(run.with_options(timeout=minutes * 60).remote(run_name, cmd))
+def main(run_name: str = "", cmd: str = "", minutes: int = 40, gpu: str = "H100", download_only: bool = False):
+    if download_only:
+        print(download.remote())
+        return
+    print(run.with_options(timeout=minutes * 60, gpu=gpu).remote(run_name, cmd))

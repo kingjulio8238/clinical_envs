@@ -49,6 +49,10 @@ workspace headroom checked, and the full run launched only after the resources a
 - [x] G0 Modal: list profiles / workspaces, month-to-date spend per workspace, pick one with headroom
       → 2026-09-28: every workspace is at or past its $30 September credit (highest headroom $2.62, founders-78536, at
       $27.38 MTD — above the $25 stop rule). No GPU run can start before the credits reset on Oct 1 or another source is chosen.
+      → The approved smoke ("smoke now on an account with headroom, the rest on Oct 1") was attempted on the two
+      workspaces with headroom left: founders-78536 ($2.62) and sales-32662 ($0.94) both refused the job with
+      "Workspace ... has exceeded its spend limit" before anything started (no spend; kill sweep: 0 apps running).
+      The smoke moves to Oct 1 with the rest of the GPU work.
 - [ ] G1 smoke: vLLM serves Qwen3.5-9B on Modal; 3 episodes per unit through the protocol runner (tool calls parse,
       rewards score, monitors fill); measure tokens/s and $/episode
 - [ ] G2 projection for C2 (all public + heldout instances), C4 (k = 8 on train prompts) and C5; resource ask

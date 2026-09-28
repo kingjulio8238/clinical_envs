@@ -208,6 +208,24 @@ def budget(height: int | None) -> dict:
             "logs": clamp(extra * 0.3, 0, 8), "stats": 40 if height >= 60 else 24}
 
 
+def _boxes():
+    from rich.box import Box
+    # vertical dividers between columns only (no outer edge), and the same with a rule under the header row
+    vdiv = Box("    \n  │ \n    \n  │ \n    \n    \n  │ \n    \n")
+    vgrid = Box("    \n  │ \n ─┼ \n  │ \n    \n    \n  │ \n    \n")
+    return vdiv, vgrid
+
+
+def kv_table(key: str, *vals: str, key_w: int = 14, val_w: int = 12) -> "Table":
+    """A PufferLib key / value table: fixed widths (not stretched), so each value sits next to its key."""
+    from rich.table import Table
+    t = Table(box=None, expand=False, pad_edge=False)
+    t.add_column(f"{C1}{key}", justify="left", width=key_w, no_wrap=True, overflow="ellipsis")
+    for v in vals:
+        t.add_column(f"{C1}{v}", justify="right", width=val_w if v != "%" else 4, no_wrap=True)
+    return t
+
+
 def render(data: dict, title: str, stale_s: float, logs=None, height: int | None = None):
     import rich.box
     from rich.console import Group
@@ -257,22 +275,15 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
     base_dev = next((d.get("dev_score") for d in devs if d.get("step") == 0), None)
 
     # -- summary | performance | losses ----------------------------------------------------------------------------
-    s = Table(box=None, expand=True)
-    s.add_column(f"{C1}Summary", justify="left", vertical="top", ratio=5)
-    s.add_column(f"{C1}Value", justify="right", vertical="top", ratio=6)
-    p = Table(box=None, expand=True)
-    p.add_column(f"{C1}Performance", justify="left", ratio=5)
-    p.add_column(f"{C1}Time", justify="right", ratio=5)
-    p.add_column(f"{C1}%", justify="right", ratio=2)
-    lt = Table(box=None, expand=True)
-    lt.add_column(f"{C1}Losses", justify="left", ratio=5)
-    lt.add_column(f"{C1}Value", justify="right", ratio=4)
+    VDIV, VGRID = _boxes()
+    s = kv_table("Summary", "Value", key_w=11, val_w=13)
+    p = kv_table("Performance", "Time", "%", key_w=12, val_w=11)
+    lt = kv_table("Losses", "Value", key_w=17, val_w=10)
     if kind == "train":
         max_steps = start.get("max_steps")
         gen = sum(e.get("output_tokens") or 0 for e in steps)
         roll = sum(e.get("rollout_s") or 0 for e in steps)
         prog = st["progress"]
-        s.add_row(f"{B2}Run", f"{B2}{title}")
         s.add_row(f"{B2}Step", f"{B2}{last.get('step', 0)}{C2}/{B2}{max_steps or '?'}")
         s.add_row(f"{B2}Episodes", abbreviate(st["episodes"]))
         s.add_row(f"{B2}Gen tokens", abbreviate(gen))
@@ -306,7 +317,6 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
         totals = eval_totals(data["events"])
         done, total = st["episodes"], sum(totals.values())
         rate = done / up if up else None
-        s.add_row(f"{B2}Job", f"{B2}{title}")
         s.add_row(f"{B2}Episodes", f"{abbreviate(done)}{C2}/{abbreviate(total)}")
         s.add_row(f"{B2}Done", pct(100 * done / total if total else None))
         s.add_row(f"{B2}Episodes/h", abbreviate(rate * 3600) if rate else f"{C2}—")
@@ -331,16 +341,13 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
         lt.add_row(f"{B2}truncated turns", pct(100 * lim["truncated"] / n))
         lt.add_row(f"{B2}turns / episode", num(lim["turns"] / n, 1))
         lt.add_row(f"{B2}tokens / episode", abbreviate(lim["tokens"] / n))
-    monitor = Table(box=None, expand=True, pad_edge=False, show_header=False)
-    monitor.add_column(ratio=4); monitor.add_column(ratio=3); monitor.add_column(ratio=3)
+    monitor = Table(box=VDIV, expand=True, show_header=False, show_edge=False, padding=(0, 2), border_style="bright_cyan")
+    monitor.add_column(ratio=1); monitor.add_column(ratio=1); monitor.add_column(ratio=1)
     monitor.add_row(s, p, lt)
     dashboard.add_row(monitor)
 
     # -- user stats (two columns, as PufferLib) --------------------------------------------------------------------
-    left, right = Table(box=None, expand=True), Table(box=None, expand=True)
-    for t in (left, right):
-        t.add_column(f"{C1}User Stats", justify="left", ratio=3)
-        t.add_column(f"{C1}Value", justify="right", ratio=2)
+    stat_cols = [kv_table("User Stats", "Value", key_w=28, val_w=11) for _ in range(3)]
     pairs: list[tuple[str, str]] = []
     if kind == "train":
         tr = last.get("train") or {}
@@ -366,15 +373,17 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
             pairs.append((f"{u}/reward", num(st["unit_reward"][u] / nn)))
             pairs.append((f"{u}/done", f"{B2}{c['done']}{C2}/{B2}{totals.get(u, '?')}"))
     if kind == "train":                    # an evaluation's per-unit stats are the unit table below
-        _stats_pairs([left, right], pairs[:rows["stats"]])
-        stats = Table(box=None, expand=True, pad_edge=False, show_header=False)
-        stats.add_column(ratio=1); stats.add_column(ratio=1)
-        stats.add_row(left, right)
+        # PufferLib fills its user-stat tables side by side; three here, so the section stays short
+        _stats_pairs(stat_cols, pairs[:rows["stats"]])
+        stats = Table(box=VDIV, expand=True, show_header=False, show_edge=False, padding=(0, 2), border_style="bright_cyan")
+        for _ in stat_cols:
+            stats.add_column(ratio=1)
+        stats.add_row(*stat_cols)
         dashboard.add_row(stats)
 
     # -- history: recent steps and dev evaluations (same palette) --------------------------------------------------
     if kind == "train" and steps:
-        h = Table(box=None, expand=True, title=None)
+        h = Table(box=VGRID, expand=False, show_edge=False, padding=(0, 1), border_style="bright_cyan")
         cols = [("Step", "right"), ("Reward", "right"), ("±sd", "right"), ("No-signal", "right"), ("Loss", "right"),
                 ("Entropy", "right"), ("KL", "right"), ("Grad norm", "right"), ("Ratio p95", "right"), ("Clip", "right"),
                 ("Tokens", "right"), ("Rollout", "right"), ("Learn", "right")]
@@ -395,7 +404,7 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
         trend.add_row(f"{C1}       dev     {B2}{spark([d.get('dev_score') for d in devs])}", f"{C1}kl      {B2}{sp('loss/kl_div')}")
         dashboard.add_row(Group(h, trend))
     if kind == "train" and devs:
-        dv = Table(box=None, expand=True)
+        dv = Table(box=VGRID, expand=False, show_edge=False, padding=(0, 1), border_style="bright_cyan")
         units = list((devs[-1].get("dev_by_unit") or {}).keys())
         for c in ["Dev step", "Score", *[UNIT_LABEL.get(u, u) for u in units], "Named", "Probes", "Alerts"]:
             dv.add_column(f"{C1}{c}", justify="left" if c == "Alerts" else "right")
@@ -408,7 +417,7 @@ def render(data: dict, title: str, stale_s: float, logs=None, height: int | None
                        ("[red]" + "; ".join(d["alerts"])) if d.get("alerts") else f"{C2}none")
         dashboard.add_row(dv)
     if kind != "train" and st["units"]:
-        ut = Table(box=None, expand=True)
+        ut = Table(box=VGRID, expand=False, show_edge=False, padding=(0, 1), border_style="bright_cyan")
         for c in ("Unit", "Done", "Of", "Reward", "Errors", "Forced", "At limit", "Truncated", "Turns", "Tok/ep"):
             ut.add_column(f"{C1}{c}", justify="left" if c == "Unit" else "right")
         totals = eval_totals(data["events"])

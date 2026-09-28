@@ -6,6 +6,9 @@
     # then the same command reruns there and skips every recorded gt_id
     python scripts/sync_runs.py push --profile founders-78536 --run c2-public --part 0 \
         --src results/modal/sales-32662/c2-public/part0/qwen3.5-9b-local__patient_diagnosis__agent__public__s0
+    # move a training run (checkpoints, steps.jsonl, best.json) to another workspace to continue it there
+    python scripts/sync_runs.py pull --profile sales-32662 --run rl/c5-main
+    python scripts/sync_runs.py push-dir --profile founders-78536 --src results/modal/sales-32662/rl/c5-main --remote rl/c5-main
     # merge every copy / shard of each protocol run found under the inputs into one directory per run
     python scripts/sync_runs.py merge --out results/local/base results/modal/*/c2-*
     # merge C4 (group variance) shards and recompute the prompt filter
@@ -51,6 +54,9 @@ def pull(profile: str, run: str, dest: Path) -> Path:
     if not out.exists():
         raise SystemExit(f"pulled nothing: {out} does not exist")
     runs = find_runs([out])
+    if not runs:
+        print(f"{out}: no protocol runs (a training or C4 directory)")
+        return out
     print(f"{out}: {len(runs)} protocol run(s)" + "".join(f"\n  {d.relative_to(out)}: {_count(d)} records" for d in runs))
     return out
 
@@ -59,6 +65,12 @@ def push(profile: str, src: Path, run: str, part: int) -> None:
     if not (src / "predictions.jsonl").exists():
         raise SystemExit(f"{src} is not a protocol-run directory (no predictions.jsonl)")
     _modal(profile, "volume", "put", "--force", VOLUME, str(src), f"{run}/part{part}/{src.name}")
+
+
+def push_dir(profile: str, src: Path, remote: str) -> None:
+    if not src.is_dir():
+        raise SystemExit(f"{src} is not a directory")
+    _modal(profile, "volume", "put", "--force", VOLUME, str(src), remote)
 
 
 def _count(d: Path) -> int:
@@ -170,6 +182,8 @@ def main(argv=None) -> int:
     p.add_argument("--dest", default=str(ROOT / "results" / "modal"))
     p = sub.add_parser("push"); p.add_argument("--profile", required=True); p.add_argument("--run", required=True)
     p.add_argument("--part", type=int, default=0); p.add_argument("--src", required=True)
+    p = sub.add_parser("push-dir"); p.add_argument("--profile", required=True); p.add_argument("--src", required=True)
+    p.add_argument("--remote", required=True)
     p = sub.add_parser("merge"); p.add_argument("--out", required=True); p.add_argument("roots", nargs="+")
     p = sub.add_parser("merge-gv"); p.add_argument("--out", required=True); p.add_argument("roots", nargs="+")
     a = ap.parse_args(argv)
@@ -178,6 +192,9 @@ def main(argv=None) -> int:
         return 0
     if a.cmd == "push":
         push(a.profile, Path(a.src), a.run, a.part)
+        return 0
+    if a.cmd == "push-dir":
+        push_dir(a.profile, Path(a.src), a.remote)
         return 0
     if a.cmd == "merge":
         return merge([Path(r) for r in a.roots], Path(a.out))

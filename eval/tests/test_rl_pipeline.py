@@ -110,9 +110,12 @@ def test_training_loop_dry_run(tmp_path, monkeypatch, db):
                  "--val-every", "2", "--val-per-unit", "2"])
     assert rc == 0
     steps = [json.loads(l) for l in (tmp_path / "results" / "rl" / "dry" / "steps.jsonl").read_text().splitlines()]
-    assert [s["step"] for s in steps] == [1, 2] and all(s["episodes"] == 6 and s["exceptions"] == 0 for s in steps)
-    assert steps[0]["train_reward"] >= 1 - 1e-9 and steps[1]["dev_reward"] >= 1 - 1e-9
-    assert set(steps[1]["dev_by_unit"]) == set(TRAIN_UNITS) | {"atypical_diagnosis"}
+    assert [s["step"] for s in steps] == [0, 1, 2]                   # step 0: the base policy's dev evaluation
+    assert all(s["episodes"] == 6 and s["exceptions"] == 0 for s in steps[1:])
+    assert steps[1]["train_reward"] >= 1 - 1e-9 and steps[2]["dev_reward"] >= 1 - 1e-9 and steps[0]["dev_score"] >= 1 - 1e-9
+    assert set(steps[2]["dev_by_unit"]) == set(TRAIN_UNITS) | {"atypical_diagnosis"}
+    best = json.loads((tmp_path / "results" / "rl" / "dry" / "best.json").read_text())
+    assert best["step"] == 2 and best["base_dev_score"] == steps[0]["dev_score"]
     cfg = json.loads((tmp_path / "results" / "rl" / "dry" / "config.json").read_text())
     assert cfg["reward_version"] and cfg["reward_drift"] == []
 
@@ -150,6 +153,15 @@ def test_group_variance_summary_and_prompt_filter(tmp_path, db):
     keep = json.loads((tmp_path / "glm-5.3-flash" / "prompts.json").read_text())["keep"]
     assert summ["complete"] == 3 and summ["zero_variance"] == 1 and summ["all_zero"] == 1
     assert ad.always_zero not in keep and len(keep) == 2
+    pf = tmp_path / "glm-5.3-flash" / "prompts.json"
+    assert json.loads(pf.read_text())["drop"] == [ad.always_zero]
+    # the training pool: the keep-list when it is large enough, else everything but the drop-list
+    import scripts.train_rl as T
+    kept, mode = T.load_prompts(db, ["patient_diagnosis"], str(pf), 0, min_keep=2)
+    assert mode == "keep" and sorted(i["gt_id"] for i in kept) == sorted(keep)
+    pool, mode = T.load_prompts(db, ["patient_diagnosis"], str(pf), 0, min_keep=400)
+    allp, _ = T.load_prompts(db, ["patient_diagnosis"], None, 0)
+    assert mode == "drop" and len(pool) == len(allp) - 1 and ad.always_zero not in {i["gt_id"] for i in pool}
 
 
 def test_local_model_payload_carries_sampling_and_seed(monkeypatch):
@@ -247,3 +259,22 @@ def test_trained_checkpoint_serving_configuration():
     assert C.MODEL_REGISTRY["qwen3.5-9b-local"].model_id == S.MODEL
     rl, local = C.MODEL_REGISTRY["qwen3.5-9b-rl"], C.MODEL_REGISTRY["qwen3.5-9b-local"]
     assert (rl.max_tokens, rl.temperature, rl.extra, rl.base_url) == (local.max_tokens, local.temperature, local.extra, local.base_url)
+
+
+def test_checkpoint_selection_and_stopping_rules():
+    """P7: selection on the training units' macro dev reward (the transfer unit is not selected on); stop on a dev
+    plateau or on one monitor alert repeated across evaluations."""
+    import scripts.train_rl as T
+    units = list(TRAIN_UNITS)
+    assert T.selection_score({**{u: 0.5 for u in units}, "atypical_diagnosis": 0.0}, units) == 0.5
+    ev = lambda *xs: [{"step": i, "score": x, "alerts": []} for i, x in enumerate(xs)]
+    assert T.should_stop(ev(0.40, 0.45, 0.47), 3, 2) is None
+    assert T.should_stop(ev(0.40, 0.45, 0.44, 0.45, 0.43), 3, 2).startswith("dev plateau")
+    assert T.should_stop(ev(0.40, 0.45, 0.44, 0.45, 0.46), 3, 2) is None
+    alerts = [{"step": 1, "score": 0.5, "alerts": ["probe_long_name 9.0% of answers (> 5%)"]},
+              {"step": 2, "score": 0.6, "alerts": ["probe_long_name 12.0% of answers (> 5%)", "entries 9.0 vs baseline 3.0"]}]
+    assert "probe_long_name" in T.should_stop(alerts, 0, 2)
+    assert T.should_stop(alerts[:1] + [{"step": 2, "score": 0.6, "alerts": ["entries 9.0 vs baseline 3.0"]}], 0, 2) is None
+    import argparse
+    kw = T.train_kwargs(argparse.Namespace(lr=1e-5, loss_fn="cispo", kl_coef=0.0, epsilon=None))
+    assert kw == {"learning_rate": 1e-5, "loss_fn": "cispo", "scale_rewards": True, "kl_penalty_coef": 0.0}

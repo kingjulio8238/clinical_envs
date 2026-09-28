@@ -34,11 +34,13 @@ def is_dev_patient(patient_id) -> bool:
     return int(hashlib.sha256(f"rl-dev:{patient_id}".encode()).hexdigest(), 16) % DEV_MODULUS == 0
 
 
-def train_prompts(db, units, seed: int = 0, keep: set | None = None) -> list[dict]:
-    """Training prompts: train-split instances of non-dev patients (optionally restricted to a C4 keep-list)."""
+def train_prompts(db, units, seed: int = 0, keep: set | None = None, drop: set | None = None) -> list[dict]:
+    """Training prompts: train-split instances of non-dev patients — only a C4 keep-list when given, or all but a C4
+    drop-list (prompts measured to have no reward spread)."""
     import random
     out = [{**i, "task": u} for u in units for i in db.instances(u, "train")
-           if not is_dev_patient(i["patient_id"]) and (keep is None or i["gt_id"] in keep)]
+           if not is_dev_patient(i["patient_id"]) and (keep is None or i["gt_id"] in keep)
+           and (drop is None or i["gt_id"] not in drop)]
     random.Random(seed).shuffle(out)
     return out
 

@@ -45,8 +45,9 @@ def write_summary(out: Path, samples: list[dict], k: int, model: str, reward_ver
     samples = dedupe(samples)
     summ = summarize([s for s in samples if not s.get("error")], k)
     summ.update(model=model, reward_version=reward_version, errors=sum(1 for s in samples if s.get("error")))
-    (out / "summary.json").write_text(json.dumps({k_: v for k_, v in summ.items() if k_ != "keep"}, indent=1))
-    (out / "prompts.json").write_text(json.dumps({"keep": summ["keep"], "k": k, "rule": f"reward std > {SPREAD}"}, indent=1))
+    (out / "summary.json").write_text(json.dumps({k_: v for k_, v in summ.items() if k_ not in ("keep", "drop")}, indent=1))
+    (out / "prompts.json").write_text(json.dumps({"keep": summ["keep"], "drop": summ["drop"], "k": k,
+                                                  "rule": f"keep: reward std > {SPREAD}; drop: the measured rest"}, indent=1))
     return summ
 
 
@@ -55,7 +56,7 @@ def summarize(samples: list[dict], k: int) -> dict:
     for s in samples:
         by[(s["task"], s["gt_id"])].append(float(s["reward"]))
     per_unit = defaultdict(lambda: {"prompts": 0, "complete": 0, "zero_variance": 0, "all_zero": 0, "all_high": 0, "mean": 0.0})
-    keep = []
+    keep, drop = [], []
     for (task, gid), rs in by.items():
         u = per_unit[task]
         u["prompts"] += 1
@@ -66,6 +67,7 @@ def summarize(samples: list[dict], k: int) -> dict:
         sd = math.sqrt(sum((r - mu) ** 2 for r in rs) / len(rs))
         u["mean"] += mu
         if sd <= SPREAD:
+            drop.append(gid)
             u["zero_variance"] += 1
             u["all_zero"] += mu <= SPREAD
             u["all_high"] += mu >= 1 - SPREAD
@@ -75,7 +77,7 @@ def summarize(samples: list[dict], k: int) -> dict:
         c = max(u["complete"], 1)
         u["mean"] /= c
         u["zero_variance_share"] = u["zero_variance"] / c
-    return {"k": k, "per_unit": dict(per_unit), "keep": sorted(keep), "n_keep": len(keep)}
+    return {"k": k, "per_unit": dict(per_unit), "keep": sorted(keep), "n_keep": len(keep), "drop": sorted(drop)}
 
 
 def main(argv=None) -> int:
@@ -129,7 +131,7 @@ def main(argv=None) -> int:
                     print(f"{n}/{len(jobs)} episodes ({100 * n // max(len(jobs), 1)}%), {el / 60:.1f} min, ETA {(len(jobs) - n) * el / n / 60:.1f} min", flush=True)
     samples = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
     summ = write_summary(out, samples, a.k, a.model, reward["reward_version"])
-    print(json.dumps({k: v for k, v in summ.items() if k != "keep"}, indent=1))
+    print(json.dumps({k: v for k, v in summ.items() if k not in ("keep", "drop")}, indent=1))
     return 0
 
 

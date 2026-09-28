@@ -68,18 +68,37 @@ optional P8.
         vision off. ART runs its own pinned vLLM (0.25.1, installed with uv on first use); the before/after evaluation
         uses `gpu/vllm_eval.py` for both sides. Fallbacks (Qwen3.5-4B; TRL) are in the training plan (P7). Test:
         `test_art_configuration_for_qwen35_9b`.
-- [ ] **P7 Training plan** (`audit/RL_TRAINING_PLAN.md`): hyperparameters (rollouts per group 8, groups per step,
+- [x] **P7 Training plan** (`audit/RL_TRAINING_PLAN.md`): hyperparameters (rollouts per group 8, groups per step,
       learning rate, KL / clipping), steps and epochs, dev-evaluation cadence, checkpoint retention, stopping rules
       (monitor alerts, dev reward plateau), and the budget per phase.
+      → done: `audit/RL_TRAINING_PLAN.md` (setup, data and the C4 pool rule, C5-smoke / C5-main schedule, the order to
+        change hyperparameters, stopping rules, checkpoints, budget per phase, the five risks the C5-smoke checks —
+        incl. the thinking / tokenization mismatch —, fallbacks with their costs). Implemented in `scripts/train_rl.py`:
+        a step-0 dev evaluation of the base (the monitor baseline and the reference score), selection on the training
+        units' macro dev reward with `best.json`, stopping on a dev plateau (`--patience 3`) or a repeated monitor alert
+        (`--alert-repeats 2`), checkpoint pruning to the evaluated steps, resume with the logged history, ART loss
+        settings (`--loss-fn cispo`, `--kl-coef`, `--epsilon`), the C4 keep / drop pool (`--min-keep 400`). Tests:
+        `test_checkpoint_selection_and_stopping_rules`, the dry run (step 0 + best.json), the prompt-pool modes.
 - [ ] **P8 (optional, ≈ $2–3 of OpenRouter)** early group-variance estimate on hosted Qwen at the training temperature
       (8 samples × 20 train prompts per unit) to size C4 and the prompts per step before the GPU run.
 
 ## C. October operations
 
-- [ ] **P9 Budget and workspace plan:** map G1, C2 (split by unit), C4 and C5 onto workspaces so each stays under $25
+- [x] **P9 Budget and workspace plan:** map G1, C2 (split by unit), C4 and C5 onto workspaces so each stays under $25
       month-to-date, including each workspace's one-time costs (image build, 19 GB weight download to its own volume);
       `gpu/mtd.sh` prints month-to-date per profile and treats any billing error as UNKNOWN (never $0); a pre-launch
       check refuses a job whose projection exceeds the workspace's headroom.
+      → done: the plan is `audit/OCT1_RUNBOOK.md` §1 (9 workspaces, $25 usable each; G1 + C5-smoke on W1, C2 in two
+        shards on W2/W3, C4 on W4, C5-main in segments on W5–W7, the after-evaluation on W7/W8, W9 in reserve; ≈ $95–150
+        of $225 projected, ≈ $0.5 one-time per workspace). `gpu/budget.py` (in Python rather than a shell script):
+        `mtd` = daily report of the complete days + hourly report of today (a daily report omits today; hourly reports
+        cannot span > 7 days — both found by querying), per workspace; any failed or unreadable query is UNKNOWN.
+        `check` refuses when MTD is UNKNOWN, when MTD + projection > $25, or when MTD + the worst case (the `--minutes`
+        timeout at the GPU's rate) > $30. `gpu/launch.sh` is the launch path: refuses a command without `--minutes`,
+        runs the check, pins the profile, prints `modal profile current`, launches detached. `gpu/project.py` turns a
+        measured job (G1) into the dollars and timeout for the next one. Verified live today: every workspace reads
+        MTD ≥ $27 (all STOP) and `launch.sh` refused. Tests: `eval/tests/test_gpu_budget.py` (MTD sums days + today's
+        hours, the 1st of the month, a failing billing CLI → UNKNOWN → refused, the decision rules, the projection).
 - [x] **P10 Results sync and resume:** pull outputs from each workspace's results volume, merge runs of one unit that
       were split across workspaces (resume by `gt_id`), tested locally on protocol-run directories.
       → done: `scripts/sync_runs.py` — `pull` (a job's outputs from one workspace's volume → `results/modal/<profile>/`),
@@ -92,8 +111,13 @@ optional P8.
         (deduplicated summaries). The `modal volume get/put` path semantics were checked on a throwaway volume (created
         and deleted; no compute). Tests: `eval/tests/test_sync_runs.py` (shards merge to the unsharded run's rewards;
         an errored run resumed elsewhere; mismatched limits refused; a half sample flagged; C4 shards).
-- [ ] **P11 Oct 1 runbook** (`audit/OCT1_RUNBOOK.md`): the ordered commands (G1 → projection → C2 / C4 → C5) with pinned
+- [x] **P11 Oct 1 runbook** (`audit/OCT1_RUNBOOK.md`): the ordered commands (G1 → projection → C2 / C4 → C5) with pinned
       profiles, month-to-date checks before / during / after, timeouts, kill sweep, and the go / no-go after the smoke.
+      → done: rules in force; workspace plan; pre-launch sweep; G1 (weights download on CPU, 3 episodes per unit + 16
+        per training unit, the go / no-go list incl. "within ±0.15 of hosted Qwen"); C2 + no-tools arms in shards and
+        C4 in parallel, monitoring, resume-elsewhere, merge; C5-smoke with the plan's five risks and the P3 adapter
+        check on its step-3 checkpoint; C5-main in segments moved between workspaces; the after-evaluation on the
+        `best.json` step; the verdict command; clean-up.
 - [ ] **P12 Verification:** `scripts/verify_roadmap.py` gains checks for the stage-C / D artifacts; tests, CI green;
       committed and pushed.
 

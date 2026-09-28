@@ -8,9 +8,11 @@ Training prompts come from train-split patients outside the dev set; checkpoints
 
 At start-up the frozen reward is checked (eval.reward_version); a drifted scorer stops the run. Each step: groups of
 `rollouts-per-group` episodes on `groups-per-step` train prompts (the C4 filter when given), GRPO update, per-step
-JSONL log (rewards, monitor aggregates, alerts, tokens, timings) under results/rl/<run>/; every `val-every` steps a
-dev evaluation per unit (one episode each, evaluation sampling). Episodes that failed for infrastructure reasons
-are exceptions, never trained on.
+JSONL log (rewards, monitor aggregates, alerts, tokens, timings) under results/rl/<run>/; at step 0 (the base) and
+every `val-every` steps a dev evaluation per unit (one episode each, evaluation sampling), the best checkpoint by the
+training units' macro dev reward in best.json, and the stopping rules (dev plateau, repeated monitor alerts). A
+resumed run continues from ART's latest checkpoint with its logged history. Episodes that failed for infrastructure
+reasons are exceptions, never trained on.
 """
 from __future__ import annotations
 
@@ -30,10 +32,17 @@ from eval import rl_monitor as M  # noqa: E402
 from eval.rl_rollout import TRAIN_UNITS, TRANSFER_UNITS, RolloutConfig, dev_instances, rollout, start_up, train_prompts  # noqa: E402
 
 
-def load_prompts(db, units: list[str], prompts_file: str | None, seed: int) -> list[dict]:
-    """Train prompts: train-split instances of non-dev patients (P4), restricted to the C4 keep-list when given."""
-    keep = set(json.loads(Path(prompts_file).read_text())["keep"]) if prompts_file else None
-    return train_prompts(db, units, seed, keep)
+def load_prompts(db, units: list[str], prompts_file: str | None, seed: int, min_keep: int = 400) -> tuple[list[dict], str]:
+    """Train prompts: train-split instances of non-dev patients (P4). With a C4 file: only the prompts measured to have
+    reward spread when there are at least `min_keep` of them (a pure-signal pool), else every prompt except those
+    measured to have none (a small keep-list would be repeated many times per epoch)."""
+    if not prompts_file:
+        return train_prompts(db, units, seed), "all"
+    f = json.loads(Path(prompts_file).read_text())
+    kept = train_prompts(db, units, seed, keep=set(f["keep"]))
+    if len(kept) >= min_keep:
+        return kept, "keep"
+    return train_prompts(db, units, seed, drop=set(f.get("drop") or [])), "drop"
 
 
 def load_val(db, units: list[str], per_unit: int, seed: int) -> list[dict]:
@@ -79,6 +88,16 @@ projections `in_proj_qkv`, `in_proj_z`, `out_proj` — 3 of every 4 layers — u
 architecture (`qwen3_5_text`, 32 layers, full attention every 4th)."""
 
 
+def train_kwargs(args) -> dict:
+    """ART LocalBackend.train settings (audit/RL_TRAINING_PLAN.md): ART's default loss (CISPO: clipped importance
+    weights, token level) with group-normalized advantages (GRPO); KL to the base off by default (the fallback when the
+    dev gain lags the train gain)."""
+    kw = {"learning_rate": args.lr, "loss_fn": args.loss_fn, "scale_rewards": True, "kl_penalty_coef": args.kl_coef}
+    if args.epsilon is not None:
+        kw["epsilon"] = args.epsilon
+    return kw
+
+
 def lora_config(args) -> dict:
     return {"rank": args.lora_rank, "alpha": args.lora_alpha, "target_modules": list(QWEN3_5_LORA_TARGETS)}
 
@@ -121,7 +140,11 @@ class ArtTrainer:
         return await self.art.gather_trajectory_groups(groups, max_exceptions=max_exceptions)
 
     async def train(self, groups):
-        return await self.backend.train(self.model, groups, learning_rate=self.args.lr)
+        return await self.backend.train(self.model, groups, **train_kwargs(self.args))
+
+    async def prune(self, keep: list[int]) -> None:
+        """Checkpoint retention: only the evaluated steps (the candidates for selection) and the latest survive."""
+        await self.backend._delete_checkpoint_files(self.model, sorted(set(keep) | {await self.step()}))
 
     async def step(self) -> int:
         return await self.model.get_step()
@@ -162,6 +185,9 @@ class DryRunTrainer:
         self._step += 1
         return type("R", (), {"step": self._step, "metrics": {}})()
 
+    async def prune(self, keep: list[int]) -> None:
+        self.kept = sorted(set(keep) | {self._step})
+
     async def step(self) -> int:
         return self._step
 
@@ -183,25 +209,89 @@ def _records(groups) -> list[dict]:
     return out
 
 
+def selection_score(dev_by_unit: dict, units: list[str]) -> float | None:
+    """Checkpoint-selection score: the macro mean dev reward over the training units (the transfer unit is logged, not
+    selected on)."""
+    vals = [dev_by_unit[u] for u in units if u in dev_by_unit]
+    return sum(vals) / len(vals) if vals else None
+
+
+def should_stop(evals: list[dict], patience: int, alert_repeats: int) -> str | None:
+    """Stopping rules (audit/RL_TRAINING_PLAN.md) over the dev evaluations so far (step 0 = the base first):
+    - plateau: no new best selection score in the last `patience` evaluations;
+    - reward hack: the same monitor alert on `alert_repeats` consecutive evaluations."""
+    if patience and len(evals) > patience:
+        best = max(e["score"] for e in evals[:-patience])
+        if all(e["score"] <= best for e in evals[-patience:]):
+            return f"dev plateau: no improvement on {best:.3f} over the last {patience} evaluations"
+    if alert_repeats and len(evals) >= alert_repeats:
+        kinds = [{a.split(" ")[0] for a in e.get("alerts") or []} for e in evals[-alert_repeats:]]
+        common = set.intersection(*kinds)
+        if common:
+            return f"monitor alert on {alert_repeats} consecutive evaluations: {sorted(common)}"
+    return None
+
+
+async def dev_eval(trainer, val: list[dict], cfg_val) -> tuple[dict, dict, list[dict]]:
+    vgroups = await trainer.gather([trainer.group(inst, 1, cfg_val) for inst in val], max_exceptions=len(val))
+    vrecs = _records(vgroups)
+    by_unit: dict[str, list[float]] = {}
+    for inst, grp in zip(val, vgroups):
+        rs = _records([grp])
+        if rs:
+            by_unit.setdefault(inst["task"], []).append(float(rs[0].get("reward") or 0))
+    return M.aggregate(vrecs), {u: sum(v) / len(v) for u, v in by_unit.items()}, vrecs
+
+
 async def main_async(args) -> int:
     reward = start_up()                                      # frozen reward (A4/C1)
     db = D.ReleaseDB(shared=True)
     units = args.units.split(",")
-    prompts = load_prompts(db, units, args.prompts, args.seed)
+    prompts, prompt_mode = load_prompts(db, units, args.prompts, args.seed, args.min_keep)
     val = load_val(db, units + list(TRANSFER_UNITS), args.val_per_unit, args.seed)
     out = Path(os.environ["SH_RL_RESULTS"]) if os.environ.get("SH_RL_RESULTS") else ROOT / "results" / "rl" / args.run_name
     out.mkdir(parents=True, exist_ok=True)
-    (out / "config.json").write_text(json.dumps({**vars(args), **reward, "n_prompts": len(prompts), "n_val": len(val)}, indent=1, default=str))
-    baseline = json.loads(Path(args.baseline).read_text()) if args.baseline and Path(args.baseline).exists() else {}
+    (out / "config.json").write_text(json.dumps({**vars(args), **reward, "n_prompts": len(prompts), "prompt_mode": prompt_mode,
+                                                  "n_val": len(val)}, indent=1, default=str))
     trainer = (DryRunTrainer if args.dry_run else ArtTrainer)(args)
     await trainer.setup()
     cfg_train = RolloutConfig(per_turn_tokens=args.per_turn_tokens, per_episode_tokens=args.per_episode_tokens, logprobs=True)
     cfg_val = RolloutConfig(per_turn_tokens=args.per_turn_tokens, per_episode_tokens=args.per_episode_tokens, seed=args.seed)
-    history: list[dict] = []
+    # a resumed run (ART restarts from its latest checkpoint) picks up its own history, baseline and best checkpoint
+    prior = [json.loads(line) for line in (out / "steps.jsonl").read_text().splitlines() if line.strip()] \
+        if (out / "steps.jsonl").exists() else []
+    evals = [{"step": e["step"], "score": e["dev_score"], "alerts": e.get("alerts")} for e in prior if e.get("dev_score") is not None]
+    history = [{"train_reward": e.get("train_reward"), "dev_reward": e["dev_reward"]} for e in prior
+               if e.get("dev_reward") is not None and e["step"] > 0]
+    baseline = json.loads(Path(args.baseline).read_text()) if args.baseline and Path(args.baseline).exists() \
+        else next((e["dev"] for e in prior if e["step"] == 0), {})
+    best = json.loads((out / "best.json").read_text()) if (out / "best.json").exists() else None
     start_step = await trainer.step()
     k, g = args.rollouts_per_group, args.groups_per_step
     log = (out / "steps.jsonl").open("a")
+
+    def record_eval(step: int, entry: dict, vagg: dict, by_unit: dict) -> None:
+        nonlocal best
+        score = selection_score(by_unit, units)
+        entry.update(dev_reward=vagg.get("reward_mean"), dev=vagg, dev_by_unit=by_unit, dev_score=score)
+        if step > 0:
+            history.append({"train_reward": entry.get("train_reward"), "dev_reward": entry["dev_reward"]})
+            entry["alerts"] = M.alerts(vagg, baseline, history)
+        evals.append({"step": step, "score": score, "alerts": entry.get("alerts")})
+        if step > 0 and score is not None and (best is None or score > best["dev_score"]):
+            best = {"step": step, "dev_score": score, "dev_by_unit": by_unit, "base_dev_score": evals[0]["score"]}
+            (out / "best.json").write_text(json.dumps(best, indent=1))
+
+    stop_reason = None
     try:
+        if args.val_every and start_step == 0 and not evals:        # step 0: the base policy on dev (baseline + reference)
+            t2 = time.time()
+            vagg, by_unit, _ = await dev_eval(trainer, val, cfg_val)
+            entry = {"step": 0, "val_s": round(time.time() - t2, 1)}
+            record_eval(0, entry, vagg, by_unit)
+            baseline = baseline or vagg
+            log.write(json.dumps(entry, default=str) + "\n"); log.flush()
+            print(f"step 0 (base): dev {entry['dev_reward']:.3f}, selection score {entry['dev_score']:.3f}", flush=True)
         for step in range(start_step, args.max_steps):
             batch = [prompts[(step * g + j) % len(prompts)] for j in range(g)]
             t0 = time.time()
@@ -218,25 +308,24 @@ async def main_async(args) -> int:
                      "train_metrics": numeric(getattr(result, "metrics", {}) or {})}
             if args.val_every and ((step + 1) % args.val_every == 0 or step + 1 == args.max_steps):
                 t2 = time.time()
-                vgroups = await trainer.gather([trainer.group(inst, 1, cfg_val) for inst in val], max_exceptions=len(val))
-                vrecs = _records(vgroups)
-                vagg = M.aggregate(vrecs)
-                by_unit = {}
-                for inst, grp in zip(val, vgroups):
-                    rs = _records([grp])
-                    if rs:
-                        by_unit.setdefault(inst["task"], []).append(float(rs[0].get("reward") or 0))
-                entry.update(dev_reward=vagg.get("reward_mean"), dev=vagg, val_s=round(time.time() - t2, 1),
-                             dev_by_unit={u: sum(v) / len(v) for u, v in by_unit.items()})
-                history.append({"train_reward": entry["train_reward"], "dev_reward": entry["dev_reward"]})
-                entry["alerts"] = M.alerts(vagg, baseline, history)
+                vagg, by_unit, _ = await dev_eval(trainer, val, cfg_val)
+                entry["val_s"] = round(time.time() - t2, 1)
+                record_eval(step + 1, entry, vagg, by_unit)
+                stop_reason = should_stop(evals, args.patience, args.alert_repeats)
+                entry["stop"] = stop_reason
+                await trainer.prune([e["step"] for e in evals if e["step"] > 0])
             log.write(json.dumps(entry, default=str) + "\n"); log.flush()
             print(f"step {step + 1}/{args.max_steps}: train reward {entry['train_reward']:.3f}, {entry['episodes']} episodes, "
                   f"rollout {t_roll:.0f}s, train {t_train:.0f}s" + (f", dev {entry['dev_reward']:.3f}" if "dev_reward" in entry else "")
                   + (f", ALERTS {entry['alerts']}" if entry.get("alerts") else ""), flush=True)
+            if stop_reason:
+                print(f"STOP at step {step + 1}: {stop_reason}", flush=True)
+                break
     finally:
         log.close()
         await trainer.close()
+    if best:
+        print(f"best checkpoint: step {best['step']} (dev selection score {best['dev_score']:.3f} vs base {best['base_dev_score']:.3f})")
     return 0
 
 
@@ -248,15 +337,23 @@ def main(argv=None) -> int:
     ap.add_argument("--base-model", default="Qwen/Qwen3.5-9B")
     ap.add_argument("--units", default=",".join(TRAIN_UNITS))
     ap.add_argument("--prompts", default=None, help="C4 prompt filter (JSON with a 'keep' list of gt_ids)")
+    ap.add_argument("--min-keep", type=int, default=400, help="use the C4 keep-list only if it has this many prompts")
     ap.add_argument("--rollouts-per-group", type=int, default=8)
     ap.add_argument("--groups-per-step", type=int, default=8)
     ap.add_argument("--max-steps", type=int, default=3)
     ap.add_argument("--lr", type=float, default=1e-5)
+    ap.add_argument("--loss-fn", default="cispo", choices=["cispo", "ppo"])
+    ap.add_argument("--kl-coef", type=float, default=0.0, help="KL penalty to the base (LoRA off) on the advantages")
+    ap.add_argument("--epsilon", type=float, default=None, help="clip epsilon (default: ART's for the loss)")
     ap.add_argument("--val-every", type=int, default=5)
     ap.add_argument("--val-per-unit", type=int, default=20)
     ap.add_argument("--per-turn-tokens", type=int, default=4096)
     ap.add_argument("--per-episode-tokens", type=int, default=32768)
-    ap.add_argument("--baseline", default=None, help="dev-set monitor aggregate of the base model for alerts")
+    ap.add_argument("--baseline", default=None, help="dev-set monitor aggregate of the base model for alerts "
+                                                     "(default: the step-0 dev evaluation of the base policy)")
+    ap.add_argument("--patience", type=int, default=3, help="stop after this many dev evaluations without a new best (0: off)")
+    ap.add_argument("--alert-repeats", type=int, default=2, help="stop when one monitor alert fires on this many "
+                                                                 "consecutive dev evaluations (0: off)")
     ap.add_argument("--art-path", default=str(ROOT / ".art"))
     ap.add_argument("--max-seq-length", type=int, default=65536)
     ap.add_argument("--lora-rank", type=int, default=16)

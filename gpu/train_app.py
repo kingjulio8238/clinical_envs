@@ -17,7 +17,9 @@ from common import HF_CACHE, RESULTS, Telemetry, committer, repo_image, tee, wit
 
 app = modal.App("clinical-envs-train")
 image = repo_image(with_art_runtime(modal.Image.debian_slim(python_version="3.12").apt_install("git")
-                                    .pip_install("openpipe-art[backend]==0.5.20", "uv", "hf_transfer")))
+                                    # ART's backend pins torch==2.11.0+cu128, which only PyTorch's index serves
+                                    .pip_install("openpipe-art[backend]==0.5.20", "uv", "hf_transfer",
+                                                 extra_index_url="https://download.pytorch.org/whl/cu128")))
 
 
 @app.function(image=image, gpu="H100", volumes={"/hf": HF_CACHE, "/results": RESULTS}, timeout=60 * 60, max_containers=1)

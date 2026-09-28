@@ -84,20 +84,33 @@ Optimizer state is saved every 5 steps: a job moved between workspaces should st
 
 Basis: 5,200–7,400 generated tokens per episode (hosted Qwen3.5-9B, public), rollouts at 2,000–3,500 tokens/s during
 training (ART shares the GPU with the trainer), a step's rollout phase bounded by its longest episode (up to 32,768
-tokens), and 1–2 min of LoRA update per 64 trajectories of ~10k tokens. The C5-smoke replaces all of these with
-measured values; the C5-main projection is recomputed from it before launch (`gpu/budget.py check`).
+tokens), and the LoRA update over **~2.0M tokens per step** (below). The C5-smoke replaces all of these with measured
+values; the C5-main projection is recomputed from it before launch (`gpu/budget.py check`).
+
+**Training tokens per step (checked on CPU, 2026-09-28).** ART 0.5.20 assembles each trajectory from vLLM's
+`prompt_token_ids` + `token_ids` per turn and merges turns into one sequence only when the next turn's prompt tokens
+extend the previous prompt + completion exactly. Our episodes send earlier turns back without their thinking (the
+reasoning parser strips it; Qwen3.5's template then renders an empty `<think>` block for them), so the prefixes never
+match and **every turn is its own training sequence** with its full prompt: training tokens per trajectory = the
+episode's Σ prompt tokens + output tokens = 24.4k (patient_diagnosis), 22.6k (differential), 26.5k (retrieval), 52.5k
+(test_selection; p90 142k, as many sequences ≤ 65k) → ~31.5k mean, ~2.0M per 64-trajectory step (less after ART drops
+zero-advantage trajectories). At ~40% MFU on one H100 that is ~4–6 min of update per step, so a step is ~10–13 min and
+C5-main ≈ 10–13 GPU-hours (≈ $41–53), inside the range above. This is correct training (each turn is scored in the
+context the model actually saw), only not the cheapest; passing the thinking back (Qwen3.5's native interleaved
+format) would merge turns and cut update cost, but it changes the evaluated context relative to the Stage-8 runs, so it
+is kept as is unless the C5-smoke shows the update phase dominating.
 
 ## Risks checked in the C5-smoke (before C5-main)
 
 1. **The 9B loads in ART** with `allow_unvalidated_arch` and the explicit targets (the LoRA has parameters in the
    linear-attention layers: count them in the checkpoint's `adapter_model.safetensors`).
 2. **Tool calls parse in training** (`qwen3_coder`): the smoke's train episodes have tool calls and nonzero rewards.
-3. **Tokenization of the trajectory matches what was sampled.** ART trains on the sampled tokens of each Choice
-   (logprobs required) and re-tokenizes the rest of the conversation with the chat template. Qwen3.5's template drops
-   earlier turns' thinking from later prompts, and the `qwen3` reasoning parser moves thinking out of `content`, so
-   the risk is a mismatch between the tokens scored and the tokens sampled. Check: ART's per-step metrics (trainable
-   tokens per trajectory ≈ the episode's output tokens; no "logprob mismatch" warnings; the importance ratio near 1 on
-   the first step, before any update).
+3. **Tokenization of the trajectory matches what was sampled.** ART trains on vLLM's own `prompt_token_ids` /
+   `token_ids` per turn (`return_token_ids`, injected by ART's client and merged with our `extra_body`) and the
+   sampled logprobs, so the scored tokens are the sampled ones by construction; turns become separate sequences (see
+   the budget note). ART's client also sends `chat_template_kwargs.preserve_thinking`, which Qwen3.5's template does
+   not read (checked: the template keeps a turn's thinking only if the message carries it). Check in the smoke:
+   ART's `data/step_trainable_assistant_tokens` ≈ the episodes' output tokens, the importance ratio ≈ 1 on step 1.
 4. **Memory:** peak GPU memory in the train phase with 64 trajectories of up to ~40k tokens; if it runs out,
    `--gpu-memory-utilization 0.7`, then `--groups-per-step 4` with `--rollouts-per-group 8`.
 5. **Step time** within the projection; the longest-episode tail is what dominates the rollout phase.

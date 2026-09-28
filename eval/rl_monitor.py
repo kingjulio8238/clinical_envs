@@ -59,7 +59,8 @@ def episode_signals(task: str, rec: dict) -> dict:
         "entries": len(ents), "max_name_tokens": max_name, "duplicate_entries": dups,
         "codes_only_entries": codes_only, "names_only_entries": names_only,
         "diagnosis_named": metrics.get("diagnosis_named"), "diagnosis_coded": metrics.get("diagnosis_coded"),
-        "probe_many_entries": int(len(ents) > PROBE_LIMITS["many_entries"]),
+        # a ranked retrieval list is long by design (scored at a fixed k); "many entries" is a diagnosis-answer pattern
+        "probe_many_entries": int(len(ents) > PROBE_LIMITS["many_entries"] and task != "evidence_retrieval"),
         "probe_long_name": int(max_name > PROBE_LIMITS["long_name_tokens"]),
         "probe_duplicates": int(dups > 0),
         "forced": int(bool(rec.get("forced"))), "error": int(bool(rec.get("error"))),
@@ -88,13 +89,13 @@ ALERT_RULES = {
     "probe_rate": 0.05,          # > 5% of answers show a probe pattern (many entries, kitchen-sink names, duplicates)
     "size_growth": 2.0,          # mean entries or answer size more than doubles vs the baseline
     "named_minus_coded_drop": 0.10,  # naming falls while reward rises: the gain is coding, not diagnosis
-    "divergence_window": 3,      # train reward up and heldout reward not up over this many checkpoints
+    "divergence_window": 3,      # train reward up and dev reward not up over this many checkpoints
 }
 
 
 def alerts(current: dict, baseline: dict, history: list[dict] | None = None) -> list[str]:
     """Human-readable alerts for a checkpoint aggregate. `history` is the list of earlier checkpoint dicts with
-    `train_reward` and `heldout_reward` (the current one last)."""
+    `train_reward` and `dev_reward` (the current one last)."""
     out = []
     for k in ("probe_many_entries", "probe_long_name", "probe_duplicates"):
         if (current.get(k) or 0) > ALERT_RULES["probe_rate"]:
@@ -111,7 +112,7 @@ def alerts(current: dict, baseline: dict, history: list[dict] | None = None) -> 
     if history and len(history) >= w:
         h = history[-w:]
         tr = [x.get("train_reward") for x in h]
-        he = [x.get("heldout_reward") for x in h]
+        he = [x.get("dev_reward") for x in h]
         if None not in tr and None not in he and tr[-1] > tr[0] and he[-1] <= he[0]:
-            out.append(f"train reward {tr[0]:.3f} -> {tr[-1]:.3f} while heldout {he[0]:.3f} -> {he[-1]:.3f} over {w} checkpoints")
+            out.append(f"train reward {tr[0]:.3f} -> {tr[-1]:.3f} while dev {he[0]:.3f} -> {he[-1]:.3f} over {w} checkpoints")
     return out

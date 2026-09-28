@@ -78,8 +78,10 @@ def main(argv=None) -> int:
     cfg = MODEL_REGISTRY[a.model]
     adapter = create_adapter(cfg)
     jobs = []
+    from eval.rl_rollout import is_dev_patient
     for u in a.units.split(","):
-        for inst in R.sample_instances(db, u, "train", a.per_unit, a.seed):
+        pool = [i for i in R.sample_instances(db, u, "train", 10 ** 6, a.seed) if not is_dev_patient(i["patient_id"])]
+        for inst in pool[: a.per_unit]:                        # dev patients are never training prompts (P4)
             for s in range(a.k):
                 if (inst["gt_id"], s) not in done:
                     jobs.append({**inst, "task": u, "sample": s})

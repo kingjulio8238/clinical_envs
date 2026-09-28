@@ -1,0 +1,109 @@
+{
+ "rows": [
+  {
+   "criterion": "1",
+   "check": "significant gain on \u2265 3 of 4 training units, on public",
+   "status": "PASS",
+   "evidence": "patient_diagnosis public: +0.185 [+0.083, +0.289] (n=40); differential_diagnosis public: +0.108 [+0.037, +0.181] (n=40); evidence_retrieval public: +0.150 [+0.097, +0.203] (n=40); test_selection public: +0.125 [+0.088, +0.163] (n=314)"
+  },
+  {
+   "criterion": "2",
+   "check": "public gain \u2265 25% of the base-to-anchor gap on the units counted in 1",
+   "status": "PASS",
+   "evidence": "patient_diagnosis: gap +0.185 \u2192 bar +0.046, gain +0.185; differential_diagnosis: gap +0.108 \u2192 bar +0.027, gain +0.108; evidence_retrieval: gap +0.150 \u2192 bar +0.038, gain +0.150; test_selection: gap +0.125 \u2192 bar +0.031, gain +0.125"
+  },
+  {
+   "criterion": "3a",
+   "check": "diagnosis_named rises significantly on patient_diagnosis and test_selection",
+   "status": "PASS",
+   "evidence": "patient_diagnosis: named +0.250 [+0.075, +0.425] (n=40), coded +0.300 [+0.125, +0.475] (n=40); test_selection: named +0.182 [+0.127, +0.242] (n=314), coded +0.382 [+0.328, +0.439] (n=314)"
+  },
+  {
+   "criterion": "3b",
+   "check": "judge-audited correct-but-0 \u2264 5% on every diagnosis unit (trained)",
+   "status": "PASS",
+   "evidence": "patient_diagnosis 0.0%; atypical_diagnosis 0.0%; differential_diagnosis 0.0%; test_selection 4.2%"
+  },
+  {
+   "criterion": "3c",
+   "check": "probe patterns < 5%, answer size < 2.0\u00d7 base",
+   "status": "PASS",
+   "evidence": "patient_diagnosis: clean; differential_diagnosis: clean; evidence_retrieval: clean; test_selection: clean; atypical_diagnosis: clean"
+  },
+  {
+   "criterion": "4a",
+   "check": "atypical transfer: lower bound > -0.03",
+   "status": "PASS",
+   "evidence": "public: +0.272 [+0.141, +0.418] (n=23)"
+  },
+  {
+   "criterion": "4b",
+   "check": "heldout vs public",
+   "status": "N/A",
+   "evidence": "needs both splits"
+  },
+  {
+   "criterion": "4c",
+   "check": "gain > 0 in the rarest third of training diagnoses (D2)",
+   "status": "PASS",
+   "evidence": "patient_diagnosis: rarest +0.217 [+0.018, +0.449] (n=14) (T1 +0.217, T2 +0.163, T3 +0.173); differential_diagnosis: rarest +0.191 [+0.081, +0.313] (n=14) (T1 +0.191, T2 +0.108, T3 +0.017); test_selection: rarest +0.076 [+0.019, +0.135] (n=105) (T1 +0.076, T2 +0.155, T3 +0.144)"
+  },
+  {
+   "criterion": "5",
+   "check": "no regression on untrained units: lower bound > -0.03",
+   "status": "FAIL",
+   "evidence": "context_summarization public: +0.073 [+0.026, +0.121] (n=40); specialty_conditioned public: +0.091 [-0.030, +0.207] (n=40); imaging_indication public: +0.031 [-0.021, +0.079] (n=40); lab_triage public: +0.035 [-0.046, +0.114] (n=40); error_detection public: +0.050 [+0.000, +0.125] (n=40) \u2014 every mean \u2265 0: the interval is too wide (sample size), not a measured regression"
+  },
+  {
+   "criterion": "6a",
+   "check": "tools \u2212 no-tools gap holds (trained gap \u2212 base gap, lower bound > \u22120.03)",
+   "status": "N/A",
+   "evidence": "needs single-arm runs for base and trained"
+  },
+  {
+   "criterion": "6b",
+   "check": "test_selection orders per episode in (0, 2\u00d7 base]",
+   "status": "PASS",
+   "evidence": "base 4.44, trained 4.40"
+  },
+  {
+   "criterion": "7",
+   "check": "private split once",
+   "status": "N/A",
+   "evidence": "run once on the final checkpoint (audit/PRE_OCT1_TODO.md P5)"
+  }
+ ],
+ "outcome": "inconclusive on criterion 5: untrained units need more instances (every mean \u2265 0, intervals too wide)",
+ "fails": [
+  "5"
+ ],
+ "not_evaluated": [
+  "4b",
+  "6a",
+  "7"
+ ],
+ "thresholds": {
+  "patient_diagnosis": 0.04635416666666667,
+  "differential_diagnosis": 0.026954726741696754,
+  "evidence_retrieval": 0.03754097633360793,
+  "test_selection": 0.031297223432116814
+ },
+ "counted_units": [
+  "patient_diagnosis",
+  "differential_diagnosis",
+  "evidence_retrieval",
+  "test_selection"
+ ],
+ "inputs": {
+  "base": "results",
+  "base_model": "qwen3.5-9b",
+  "trained": "results",
+  "trained_model": "gpt-6-sol",
+  "anchor": "/Users/juliansaks/Desktop/code/clinical_envs/results",
+  "anchor_model": "gpt-6-sol",
+  "splits": "public",
+  "trained_audit": "results/reward_noise_audit_sol.json",
+  "private": null,
+  "out": "results/rl_before_after_standin.md"
+ }
+}

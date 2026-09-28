@@ -49,6 +49,8 @@ def main() -> int:
                 m = D.score(db, task, [sub], [cache[key][p["gt_id"]]])
                 new = float(m[D.PRIMARY_METRIC[task]])
                 p["metrics"] = {k: m[k] for k in SECONDARY if k in m}
+            from eval.rl_monitor import episode_signals       # monitor signals, recomputed with the current rules
+            p["signals"] = episode_signals(task, {**p, "reward": new})
             changed += abs(new - float(p["reward"])) > 1e-9
             before += asrun; after += new
             p["reward_asrun"] = asrun

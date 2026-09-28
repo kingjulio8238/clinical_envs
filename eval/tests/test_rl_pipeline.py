@@ -86,11 +86,11 @@ def test_alert_rules():
     base = {"entries": 3.0, "answer_chars": 300.0, "max_name_tokens": 4.0, "diagnosis_named": 0.5, "reward_mean": 0.3}
     cur = {"entries": 7.0, "answer_chars": 350.0, "max_name_tokens": 4.0, "diagnosis_named": 0.35, "reward_mean": 0.4,
            "probe_many_entries": 0.08}
-    hist = [{"train_reward": 0.30, "heldout_reward": 0.30}, {"train_reward": 0.35, "heldout_reward": 0.29},
-            {"train_reward": 0.42, "heldout_reward": 0.28}]
+    hist = [{"train_reward": 0.30, "dev_reward": 0.30}, {"train_reward": 0.35, "dev_reward": 0.29},
+            {"train_reward": 0.42, "dev_reward": 0.28}]
     a = M.alerts(cur, base, hist)
     assert any("probe_many_entries" in x for x in a) and any("entries 7.0" in x for x in a)
-    assert any("naming fell" in x for x in a) and any("heldout" in x for x in a)
+    assert any("naming fell" in x for x in a) and any("while dev" in x for x in a)
     assert M.alerts(base, base, hist[:1]) == []
 
 
@@ -111,8 +111,8 @@ def test_training_loop_dry_run(tmp_path, monkeypatch, db):
     assert rc == 0
     steps = [json.loads(l) for l in (tmp_path / "results" / "rl" / "dry" / "steps.jsonl").read_text().splitlines()]
     assert [s["step"] for s in steps] == [1, 2] and all(s["episodes"] == 6 and s["exceptions"] == 0 for s in steps)
-    assert steps[0]["train_reward"] >= 1 - 1e-9 and steps[1]["heldout_reward"] >= 1 - 1e-9
-    assert set(steps[1]["heldout_by_unit"]) == set(TRAIN_UNITS) | {"atypical_diagnosis"}
+    assert steps[0]["train_reward"] >= 1 - 1e-9 and steps[1]["dev_reward"] >= 1 - 1e-9
+    assert set(steps[1]["dev_by_unit"]) == set(TRAIN_UNITS) | {"atypical_diagnosis"}
     cfg = json.loads((tmp_path / "results" / "rl" / "dry" / "config.json").read_text())
     assert cfg["reward_version"] and cfg["reward_drift"] == []
 
@@ -135,7 +135,8 @@ def test_group_variance_summary_and_prompt_filter(tmp_path, db):
                 return ModelResponse(text="", input_tokens=1, output_tokens=1, latency_ms=1, raw_json=None, tool_calls=[call], raw_tool_calls=raw)
             return super().call_multi_turn_with_retry(system, messages, tools, max_retries)
 
-    first = R.sample_instances(db, "patient_diagnosis", "train", 3, 0)
+    from eval.rl_rollout import is_dev_patient
+    first = [i for i in R.sample_instances(db, "patient_diagnosis", "train", 10 ** 6, 0) if not is_dev_patient(i["patient_id"])][:3]
     ad = Alternating(R._env)
     ad.always_zero = first[0]["gt_id"]
     argv = ["--model", "glm-5.3-flash", "--units", "patient_diagnosis", "--per-unit", "3", "--k", "4", "--workers", "1", "--out", str(tmp_path)]
@@ -170,3 +171,43 @@ def test_local_model_payload_carries_sampling_and_seed(monkeypatch):
     assert seen["top_k"] == 20 and seen["top_p"] == 0.95 and seen["presence_penalty"] == 1.5 and seen["temperature"] == 1.0
     assert seen["seed"] == 4242 * 1000 + 1 and "stream" not in seen and seen["max_tokens"] == 4096
     assert r.finish_reason == "length"
+
+
+
+def test_dev_patients_are_never_training_prompts(db):
+    """P4: checkpoints are selected on train-split dev patients that no training batch ever contains; the dev set never
+    touches public / heldout / private; every training unit has dev instances."""
+    from eval.rl_rollout import dev_instances, is_dev_patient, train_prompts
+    units = list(TRAIN_UNITS) + ["atypical_diagnosis"]
+    prompts = train_prompts(db, units)
+    dev = dev_instances(db, units, 10 ** 6)
+    assert prompts and dev and not ({i["patient_id"] for i in prompts} & {i["patient_id"] for i in dev})
+    assert all(not is_dev_patient(i["patient_id"]) for i in prompts) and all(is_dev_patient(i["patient_id"]) for i in dev)
+    train_ids = {i["gt_id"] for u in units for i in db.instances(u, "train")}
+    assert {i["gt_id"] for i in dev} <= train_ids                       # dev is a slice of train only
+    by_unit = {u: sum(1 for i in dev if i["task"] == u) for u in units}
+    assert all(n >= 50 for n in by_unit.values()), by_unit
+    small = dev_instances(db, ["patient_diagnosis"], 20)
+    assert len(small) == 20 and len({i["patient_id"] for i in small}) == 20      # one per patient first
+
+
+
+def test_art_configuration_for_qwen35_9b():
+    """P6: unvalidated-arch opt-in, bf16 LoRA (the trained policy is the served policy), 64k sequences, vision off,
+    Qwen3.5 tool / reasoning parsers, the validated Qwen3.5 dense LoRA targets, logprobs on training rollouts.
+    (Keys were checked against ART 0.5.20's TypedDicts: audit/PRE_OCT1_TODO.md P6.)"""
+    import argparse
+    import scripts.train_rl as T
+    a = argparse.Namespace(max_seq_length=65536, gpu_memory_utilization=0.8, lora_rank=16, lora_alpha=32)
+    internal, server = T.art_configs(a)
+    assert internal["allow_unvalidated_arch"] is True
+    assert internal["init_args"]["load_in_4bit"] is False and internal["init_args"]["load_in_16bit"] is True
+    assert internal["init_args"]["max_seq_length"] == internal["engine_args"]["max_model_len"] == 65536
+    assert internal["engine_args"]["limit_mm_per_prompt"] == {"image": 0, "video": 0}
+    assert server["server_args"]["tool_call_parser"] == "qwen3_coder" and server["server_args"]["reasoning_parser"] == "qwen3"
+    lc = T.lora_config(a)
+    assert {"in_proj_qkv", "in_proj_z", "out_proj"} <= set(lc["target_modules"]) and lc["rank"] == 16
+    client = ScriptedAsyncClient("oracle")
+    asyncio.run(rollout(client, "p", {**R.shared_db().instances("patient_diagnosis", "train")[0], "task": "patient_diagnosis"},
+                        RolloutConfig(logprobs=True)))
+    assert client.requests[0]["logprobs"] is True

@@ -1,4 +1,6 @@
 """GRPO training of the RL candidate on the environment (RL readiness C1/C5), with ART (LocalBackend: vLLM + LoRA).
+Training prompts come from train-split patients outside the dev set; checkpoints are validated on the dev patients
+(eval/rl_rollout.py `is_dev_patient`), never on public / heldout / private (audit/RL_SUCCESS_CRITERIA.md).
 
     python scripts/train_rl.py --run-name smoke --max-steps 3 [--units patient_diagnosis,...] [--prompts prompts.json]
         [--rollouts-per-group 8] [--groups-per-step 8] [--lr 1e-5] [--val-every 5] [--val-per-unit 20]
@@ -7,7 +9,7 @@
 At start-up the frozen reward is checked (eval.reward_version); a drifted scorer stops the run. Each step: groups of
 `rollouts-per-group` episodes on `groups-per-step` train prompts (the C4 filter when given), GRPO update, per-step
 JSONL log (rewards, monitor aggregates, alerts, tokens, timings) under results/rl/<run>/; every `val-every` steps a
-heldout evaluation per unit (one episode each, evaluation sampling). Episodes that failed for infrastructure reasons
+dev evaluation per unit (one episode each, evaluation sampling). Episodes that failed for infrastructure reasons
 are exceptions, never trained on.
 """
 from __future__ import annotations
@@ -25,30 +27,60 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from eval import degenerate as D  # noqa: E402
 from eval import rl_monitor as M  # noqa: E402
-from eval.rl_rollout import TRAIN_UNITS, TRANSFER_UNITS, RolloutConfig, rollout, start_up  # noqa: E402
+from eval.rl_rollout import TRAIN_UNITS, TRANSFER_UNITS, RolloutConfig, dev_instances, rollout, start_up, train_prompts  # noqa: E402
 
 
 def load_prompts(db, units: list[str], prompts_file: str | None, seed: int) -> list[dict]:
-    """Train prompts: the C4 filter's keep-list when given (gt_ids with learnable variance), else every train instance."""
-    keep = None
-    if prompts_file:
-        keep = set(json.loads(Path(prompts_file).read_text())["keep"])
-    out = []
-    for u in units:
-        for i in db.instances(u, "train"):
-            if keep is None or i["gt_id"] in keep:
-                out.append({**i, "task": u})
-    random.Random(seed).shuffle(out)
-    return out
+    """Train prompts: train-split instances of non-dev patients (P4), restricted to the C4 keep-list when given."""
+    keep = set(json.loads(Path(prompts_file).read_text())["keep"]) if prompts_file else None
+    return train_prompts(db, units, seed, keep)
 
 
 def load_val(db, units: list[str], per_unit: int, seed: int) -> list[dict]:
-    from eval.protocol_run import sample_instances
-    return [{**i, "task": u} for u in units for i in sample_instances(db, u, "heldout", per_unit, seed)]
+    """Checkpoint selection on the train-dev patients (never trained on), never on public / heldout / private."""
+    return dev_instances(db, units, per_unit, seed)
 
 
 def numeric(d: dict) -> dict:
     return {k: float(v) for k, v in d.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+
+
+def art_configs(args) -> tuple[dict, dict]:
+    """ART internal model config and OpenAI-server config for Qwen3.5 (P6). Plain dicts (ART's TypedDicts), so they are
+    testable without ART installed.
+
+    - `allow_unvalidated_arch`: ART 0.5.20's model registry validates Qwen3.5-4B / 27B, not 9B (same Qwen3.5 dense
+      architecture); the 9B runs through the same path with validation relaxed. Fallbacks: --base-model
+      Qwen/Qwen3.5-4B (validated; needs its own local baseline), or TRL's GRPO (see audit/RL_TRAINING_PLAN.md).
+    - bf16 LoRA training (`load_in_4bit` off, `load_in_16bit` on): ART's default trains on 4-bit weights while vLLM
+      samples from bf16 weights; the policy that is trained must be the policy that is served.
+    - `max_seq_length` / `max_model_len`: 65,536 (Qwen3.5 defaults to 262,144, which would size training memory for
+      contexts no episode reaches: the per-episode output cap is 32,768).
+    - vision off (`limit_mm_per_prompt` 0): the checkpoint is a vision-language model; the task is text only.
+    - vLLM server: ART defaults to the `hermes` tool parser; Qwen3.5 emits `<tool_call><function=...>` XML, parsed by
+      `qwen3_coder`, with thinking split out by the `qwen3` reasoning parser (Qwen3.5 model card).
+    """
+    internal = {
+        "allow_unvalidated_arch": True,
+        "init_args": {"load_in_4bit": False, "load_in_16bit": True, "max_seq_length": args.max_seq_length,
+                      "gpu_memory_utilization": args.gpu_memory_utilization},
+        "engine_args": {"max_model_len": args.max_seq_length, "enable_sleep_mode": True,
+                        "limit_mm_per_prompt": {"image": 0, "video": 0}},
+    }
+    server = {"server_args": {"enable_auto_tool_choice": True, "tool_call_parser": "qwen3_coder", "reasoning_parser": "qwen3"}}
+    return internal, server
+
+
+QWEN3_5_LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "in_proj_qkv", "in_proj_z", "out_proj",
+                        "gate_proj", "up_proj", "down_proj"]
+"""ART's validated LoRA targets for the Qwen3.5 dense architecture (registry entry for 4B / 27B), set explicitly: for
+the unvalidated 9B, ART would fall back to the generic list and leave the linear-attention (Gated DeltaNet)
+projections `in_proj_qkv`, `in_proj_z`, `out_proj` — 3 of every 4 layers — untrained. Qwen3.5-9B has the same
+architecture (`qwen3_5_text`, 32 layers, full attention every 4th)."""
+
+
+def lora_config(args) -> dict:
+    return {"rank": args.lora_rank, "alpha": args.lora_alpha, "target_modules": list(QWEN3_5_LORA_TARGETS)}
 
 
 class ArtTrainer:
@@ -59,12 +91,14 @@ class ArtTrainer:
         from art.local import LocalBackend
         self.art = art
         self.args = args
+        self.internal, self.server = art_configs(args)
         self.backend = LocalBackend(path=args.art_path)
         self.model = art.TrainableModel(name=args.model_name, project=args.project, run_name=args.run_name,
-                                        base_model=args.base_model)
+                                        base_model=args.base_model, lora_config=lora_config(args),
+                                        _internal_config=self.internal)
 
     async def setup(self):
-        await self.model.register(self.backend)
+        await self.model.register(self.backend, _openai_client_config=self.server)
         self.client = self.model.openai_client()
 
     def policy(self):
@@ -161,7 +195,7 @@ async def main_async(args) -> int:
     baseline = json.loads(Path(args.baseline).read_text()) if args.baseline and Path(args.baseline).exists() else {}
     trainer = (DryRunTrainer if args.dry_run else ArtTrainer)(args)
     await trainer.setup()
-    cfg_train = RolloutConfig(per_turn_tokens=args.per_turn_tokens, per_episode_tokens=args.per_episode_tokens)
+    cfg_train = RolloutConfig(per_turn_tokens=args.per_turn_tokens, per_episode_tokens=args.per_episode_tokens, logprobs=True)
     cfg_val = RolloutConfig(per_turn_tokens=args.per_turn_tokens, per_episode_tokens=args.per_episode_tokens, seed=args.seed)
     history: list[dict] = []
     start_step = await trainer.step()
@@ -192,13 +226,13 @@ async def main_async(args) -> int:
                     rs = _records([grp])
                     if rs:
                         by_unit.setdefault(inst["task"], []).append(float(rs[0].get("reward") or 0))
-                entry.update(heldout_reward=vagg.get("reward_mean"), heldout=vagg, val_s=round(time.time() - t2, 1),
-                             heldout_by_unit={u: sum(v) / len(v) for u, v in by_unit.items()})
-                history.append({"train_reward": entry["train_reward"], "heldout_reward": entry["heldout_reward"]})
+                entry.update(dev_reward=vagg.get("reward_mean"), dev=vagg, val_s=round(time.time() - t2, 1),
+                             dev_by_unit={u: sum(v) / len(v) for u, v in by_unit.items()})
+                history.append({"train_reward": entry["train_reward"], "dev_reward": entry["dev_reward"]})
                 entry["alerts"] = M.alerts(vagg, baseline, history)
             log.write(json.dumps(entry, default=str) + "\n"); log.flush()
             print(f"step {step + 1}/{args.max_steps}: train reward {entry['train_reward']:.3f}, {entry['episodes']} episodes, "
-                  f"rollout {t_roll:.0f}s, train {t_train:.0f}s" + (f", heldout {entry['heldout_reward']:.3f}" if "heldout_reward" in entry else "")
+                  f"rollout {t_roll:.0f}s, train {t_train:.0f}s" + (f", dev {entry['dev_reward']:.3f}" if "dev_reward" in entry else "")
                   + (f", ALERTS {entry['alerts']}" if entry.get("alerts") else ""), flush=True)
     finally:
         log.close()
@@ -222,8 +256,12 @@ def main(argv=None) -> int:
     ap.add_argument("--val-per-unit", type=int, default=20)
     ap.add_argument("--per-turn-tokens", type=int, default=4096)
     ap.add_argument("--per-episode-tokens", type=int, default=32768)
-    ap.add_argument("--baseline", default=None, help="heldout monitor aggregate of the base model (C2) for alerts")
+    ap.add_argument("--baseline", default=None, help="dev-set monitor aggregate of the base model for alerts")
     ap.add_argument("--art-path", default=str(ROOT / ".art"))
+    ap.add_argument("--max-seq-length", type=int, default=65536)
+    ap.add_argument("--lora-rank", type=int, default=16)
+    ap.add_argument("--lora-alpha", type=int, default=32)
+    ap.add_argument("--gpu-memory-utilization", type=float, default=0.8)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)

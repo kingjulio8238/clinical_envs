@@ -99,7 +99,7 @@ Ordered by dependency; items in the same group are independent. Costs are comput
 
 ## C. RL pipeline (needs a GPU)
 
-- [ ] **C1 Trainer integration.** Wrap `LocalEnv` in the chosen trainer's multi-turn tool loop (verl agent loop,
+- [x] **C1 Trainer integration.** (code done and dry-run tested: `eval/rl_rollout.py`, `scripts/train_rl.py` on ART; GPU proof = STAGE_C_TODO G5) Wrap `LocalEnv` in the chosen trainer's multi-turn tool loop (verl agent loop,
       prime-rl, or ART): Qwen3.5 chat template and tool-call parser, the same intro, tools, submit tool and budget as
       `eval/protocol_run.py`, the reward from the frozen scorer. Tests: an oracle policy reaches 1.0 through the
       trainer's loop; a scripted failure scores 0; the trainer's episode for a fixed seed equals `run_episode`'s.
@@ -107,7 +107,7 @@ Ordered by dependency; items in the same group are independent. Costs are comput
       temperature, top-p, max tokens, thinking on/off); run the protocol on every public and heldout instance of
       every unit; commit as `results/local/qwen3.5-9b-base__*`. Compare with the hosted numbers to size the
       provider/quantization effect.
-- [ ] **C3 Deterministic episode limits.** Replace the wall-clock deadline in training and in the before/after
+- [x] **C3 Deterministic episode limits.** (done: `eval/episode.py`; STAGE_C_TODO N2) Replace the wall-clock deadline in training and in the before/after
       evaluation with token and turn limits (4,096 tokens per turn; a turn cap near the observed p90, 8–16), used
       identically in C2 and the final evaluation.
 - [ ] **C4 Group-variance measurement.** k = 8 samples on a few hundred train prompts per training unit: the share
@@ -116,7 +116,7 @@ Ordered by dependency; items in the same group are independent. Costs are comput
       generated tokens per second, rollout and update time, memory at the p90 context. Project one full pass over
       the training prompts at k = 8 (~46k rollouts, ~230M generated tokens by the hosted averages) from the measured
       rate, and pick the hardware from that projection.
-- [ ] **C6 Training monitors.** Per-episode logs (answer length, number of diagnoses, name length, duplicates,
+- [x] **C6 Training monitors.** (done: `eval/rl_monitor.py`, run logs + dashboard, PRE_OCT1_TODO P13) Per-episode logs (answer length, number of diagnoses, name length, duplicates,
       name-vs-code credit, tool calls, turns, truncations); evaluation hooks every N steps on a fixed heldout subset;
       the A3 probes and the reward-noise judge on a sample of policy answers at each checkpoint; alerts on reward up
       while heldout flat or name length / entries growing.
@@ -128,7 +128,7 @@ Ordered by dependency; items in the same group are independent. Costs are comput
       units, paired 95% intervals on public and on heldout; judge-confirmed; decomposed named vs coded; no significant
       regression on untrained units; atypical_diagnosis as the transfer test; the tools ablation re-run on the
       trained model; one confirmation on the private split through the operator scorer.
-- [ ] **D2 Frequency stratification.** Report the gain by how often each reference diagnosis occurs in train, so a
+- [x] **D2 Frequency stratification.** (done in `scripts/rl_before_after.py`, PRE_OCT1_TODO P2) Report the gain by how often each reference diagnosis occurs in train, so a
       gain that is only prior-learning is visible.
 
 ## Readiness gate (all green before the first full training run)

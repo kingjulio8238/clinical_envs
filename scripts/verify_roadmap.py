@@ -223,10 +223,45 @@ def chk_b4_decision():
     return ("| 314 |" in row and "**yes**" in row), "rl_decision.md: " + row[:160]
 
 
+def chk_d1_preregistered():
+    f = "audit/RL_SUCCESS_CRITERIA.md"
+    first = subprocess.run(["git", "log", "--diff-filter=A", "--format=%h %cs", "--", f], capture_output=True, text=True, cwd=ROOT).stdout.split()
+    trained = sorted((ROOT / "results").glob("rl/*/steps.jsonl")) + sorted((ROOT / "results" / "modal").glob("*/rl/*/steps.jsonl"))
+    md = (ROOT / f).read_text()
+    ok = bool(first) and "Amendments" in md and all(f"{i}. **" in md for i in range(1, 8))
+    return ok, (f"{f} committed {' '.join(first[:2]) or 'NEVER'} with criteria 1–7 and an amendments section; "
+                f"training runs on disk: {len(trained)} (the criteria predate every one)")
+
+
+def chk_launch_guard():
+    r = subprocess.run(["bash", str(ROOT / "gpu" / "launch.sh"), "no-such-profile", "1", "gpu/vllm_eval.py", "--run-name", "x"],
+                       capture_output=True, text=True, cwd=ROOT)
+    return r.returncode == 2 and "REFUSED" in r.stderr, f"launch without --minutes: exit {r.returncode}, {r.stderr.strip()[:80]}"
+
+
+def chk_runbook():
+    md = (ROOT / "audit" / "OCT1_RUNBOOK.md").read_text()
+    need = ["gpu/kill_sweep.sh", "gpu/launch.sh", "gpu/budget.py mtd", "Go / no-go", "gpu/project.py", "sync_runs.py merge",
+            "--lora-path", "best.json", "rl_before_after.py"]
+    miss = [n for n in need if n not in md]
+    plan = (ROOT / "audit" / "RL_TRAINING_PLAN.md").read_text()
+    miss += [n for n in ("Stopping rules", "Fallbacks", "Budget per phase", "Tokenization") if n not in plan]
+    return not miss, "runbook + training plan cover: kill sweep, guarded launch, MTD, go/no-go, projection, merge, adapter serving, " \
+                      "selection, verdict; stopping rules, fallbacks, budget, tokenization risk" + (f"; MISSING {miss}" if miss else "")
+
+
+def chk_gpu_deferred():
+    return None, "G1–G6 (smoke, projection, C2 base, C4, C5, after-evaluation) run on GPU from Oct 1 (Modal credits; audit/OCT1_RUNBOOK.md)"
+
+
 # ---------------------------------------------------------------------------
 # the checklist
 # ---------------------------------------------------------------------------
 
+RL = "eval/tests/test_rl_pipeline.py::"
+BA = "eval/tests/test_before_after.py::"
+SR = "eval/tests/test_sync_runs.py::"
+GB = "eval/tests/test_gpu_budget.py::"
 RH = "eval/tests/test_reward_hacking.py::"
 LL = "eval/tests/test_label_leaks.py::"
 DR = "eval/tests/test_data_repairs.py::"
@@ -328,6 +363,22 @@ ITEMS = [
     ("B4", "test_selection re-measured on all 314 public instances", C, chk_b4_decision),
     ("B4", "is-a matches (open decision, closed): forms of a generic reference credited", T, ["eval/tests/test_task_set_b.py::test_isa_forms_of_a_generic_reference", "eval/tests/test_task_set_b.py::test_isa_table_is_frozen_and_audited"]),
     ("B4", "(is-a over-credit audit)", C, chk_isa_overcredit),
+    ("C1", "RL rollout on the shared episode driver; frozen reward at start-up; failures are errors", T, [RL + "test_oracle_rollout_scores_one_and_records_the_policy_choices", RL + "test_text_answers_are_parsed_like_tool_submissions", RL + "test_policy_server_failure_is_an_error_not_a_score", RL + "test_start_up_refuses_a_drifted_reward", RL + "test_training_loop_dry_run"]),
+    ("C2", "Local baseline driver (deterministic limits, sampling, seed, manifest)", T, [RL + "test_local_protocol_runs_record_deterministic_limits", RL + "test_local_model_payload_carries_sampling_and_seed"]),
+    ("C3", "Deterministic limits", T, [RL + "test_turn_and_token_limits_are_deterministic"]),
+    ("C4", "Group variance and prompt filter (keep / drop pool)", T, [RL + "test_group_variance_summary_and_prompt_filter"]),
+    ("C6", "Training monitors and alerts", T, [RL + "test_monitor_signals_flag_probe_patterns", RL + "test_alert_rules"]),
+    ("C", "GPU runs G1–G6", C, chk_gpu_deferred),
+    ("D1", "Success criteria pre-registered before training", C, chk_d1_preregistered),
+    ("P1+P2", "Before/after evaluator with rarity terciles", T, [BA + "test_stand_in_pair_passes_the_gain_criteria", BA + "test_identical_models_show_no_gain", BA + "test_a_reward_hack_is_caught", BA + "test_rarity_terciles_split_instances_by_train_frequency"]),
+    ("P3", "Trained checkpoint served on the training engine, by its own name, with guards", T, [RL + "test_trained_checkpoint_serving_configuration"]),
+    ("P4", "Checkpoint selection on train-dev patients never trained on", T, [RL + "test_dev_patients_are_never_training_prompts"]),
+    ("P6", "ART configuration for Qwen3.5-9B", T, [RL + "test_art_configuration_for_qwen35_9b"]),
+    ("P7", "Training plan: selection, stopping rules, retention", T, [RL + "test_checkpoint_selection_and_stopping_rules", RL + "test_training_loop_dry_run"]),
+    ("P9", "Budget guard: MTD, UNKNOWN refuses, projection and timeout fit", T, [GB + "test_mtd_adds_today_hours", GB + "test_failed_or_garbled_billing_is_unknown_and_refused", GB + "test_projection_from_a_measured_job", GB + "test_decide"]),
+    ("P9", "(the launch path refuses a job without a server-side timeout)", C, chk_launch_guard),
+    ("P10", "Runs split across workspaces merge and resume", T, [SR + "test_shards_merge_into_the_full_run", SR + "test_resume_on_another_workspace_and_retry_errors", SR + "test_merge_refuses_different_settings_and_flags_missing", SR + "test_group_variance_shards_merge"]),
+    ("P7+P11", "Training plan and Oct 1 runbook", C, chk_runbook),
     ("order", "Dependency order 1 → 2 → 3 → 4 → 4b → 5 → 6 → 7 → 8", C, chk_order),
     ("gate", "Stage 7 only after Stages 1–4 made rewards exploit-resistant and data leak-free", C, chk_gate),
 ]
@@ -372,7 +423,7 @@ def main() -> int:
     if not a.skip_tests:
         run_tests()
     res = load_results()
-    lines = ["# Roadmap verification (stages 1–8, RL readiness A1–A4, B1–B4)", "",
+    lines = ["# Roadmap verification (stages 1–8, RL readiness A1–A4, B1–B4, stage C, D1, pre-Oct-1 P1–P11)", "",
              "Generated by `scripts/verify_roadmap.py`: every item is checked against tests run for this report or a live "
              "check on the release DB / overlay / repository / git history / CI — not against the TODO checkboxes.", "",
              "| stage | item | status | evidence |", "|---|---|---|---|"]

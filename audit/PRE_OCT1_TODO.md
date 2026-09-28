@@ -49,6 +49,14 @@ optional P8.
 - [ ] **P5 Private-split confirmation path (criterion 7):** decide and script where the one private run happens, so the
       private labels never leave the operator's machine (recommended: the client and scorer run locally with the
       overlay, against the Modal vLLM server exposed as a web endpoint for that one run).
+      → approach written, script waits on U2. Size: the private split has 6,184 instances; criterion 7 needs the 5 RL
+        units (patient_diagnosis 711, differential 686, retrieval 733, test_selection 302, atypical 406 = 2,838) for
+        the base and the trained policy on one server (adapter loaded, P3) ≈ 5,700 episodes ≈ $8–14 of GPU (W9).
+        Recommended path: a `serve` mode of `gpu/vllm_eval.py` (`@modal.web_server`, a bearer token from a Modal
+        Secret, the same `launch_config`, server-side timeout) and `eval.protocol_run --split private` run on this
+        machine with the overlay, pointed at it by `SH_VLLM_URL`; the model only ever receives prompts built from the
+        release DB (which holds no private labels), and the scorer runs locally. The laptop must stay online for the
+        run; a disconnect costs at most the capped server, and the run resumes by `gt_id`.
 
 ## B. Training
 

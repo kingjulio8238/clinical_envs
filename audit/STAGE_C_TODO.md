@@ -18,8 +18,12 @@ workspace headroom checked, and the full run launched only after the resources a
 - **Hardware:** Modal. One H100 80 GB serves Qwen3.5-9B (bf16 ~19 GB) with vLLM for C2/C4; ART (vLLM + LoRA trainer on
   one GPU) for C5. Every Modal job carries a server-side timeout ~1.5x its projection; profiles are pinned per command;
   month-to-date spend is checked before, during and after each run.
-- **Sampling:** evaluation (C2 and every before/after) uses Qwen's recommended thinking settings (temperature 0.6,
-  top-p 0.95, top-k 20) with a fixed per-request seed; training rollouts use temperature 1.0. Recorded in manifests.
+- **Sampling:** evaluation (C2 and every before/after) and training use Qwen3.5's recommended thinking settings
+  (temperature 1.0, top-p 0.95, top-k 20, presence penalty 1.5); evaluation with a fixed per-episode seed. Recorded in
+  manifests. (Superseded an earlier temperature-0.6 evaluation setting: the evaluated policy is the sampled one.)
+- **Serving engine (P3):** ART's managed vLLM runtime for both the before and the after evaluation (the engine that
+  samples the policy in training); the trained adapter is loaded into the base server as `qwen3.5-9b-rl`.
+- **Operations:** `audit/OCT1_RUNBOOK.md` (order, workspaces, guarded launches) and `audit/RL_TRAINING_PLAN.md`.
 
 ## Non-GPU work (first)
 - [x] N1 `eval/episode.py`: `EpisodeDriver` + `EpisodeLimits`; `protocol_run.run_episode` rebuilt on it; the existing

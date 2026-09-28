@@ -74,8 +74,12 @@ def summarize_run(r: dict) -> dict:
     vals = [float(p.get("reward") or 0) for p in r["predictions"]]
     lo, hi = P.bootstrap_ci(vals)
     nc = P._named_coded(r["predictions"])
-    return {"n": len(vals), "mean": sum(vals) / len(vals), "lo": lo, "hi": hi, "named": nc["named"], "coded": nc["coded"],
-            "errors": sum(1 for p in r["predictions"] if p.get("error"))}
+    mu = sum(vals) / len(vals)
+    return {"n": len(vals), "mean": mu, "lo": lo, "hi": hi, "named": nc["named"], "coded": nc["coded"],
+            "errors": sum(1 for p in r["predictions"] if p.get("error")),
+            "sd": (sum((v - mu) ** 2 for v in vals) / len(vals)) ** 0.5,
+            "zero_share": sum(1 for v in vals if v <= 1e-9) / len(vals),
+            "partial_share": sum(1 for v in vals if 1e-9 < v < 1 - 1e-9) / len(vals)}
 
 
 def main(argv=None) -> int:

@@ -140,8 +140,12 @@ optional P8.
         silence; `--once` for scripted polls. PufferLib's dashboard is part of its own PPO trainer, so the pattern is
         reused rather than the library. Verified: a dry run rendered from local files and from a throwaway Modal volume.
         Tests: `eval/tests/test_run_logs.py`.
-- [ ] **P12 Verification:** `scripts/verify_roadmap.py` gains checks for the stage-C / D artifacts; tests, CI green;
+- [x] **P12 Verification:** `scripts/verify_roadmap.py` gains checks for the stage-C / D artifacts; tests, CI green;
       committed and pushed.
+      → done: 16 new items (C1–C6, the GPU runs as deferred, D1 pre-registration, P1–P4, P6, P7, P9 incl. the live
+        launch-guard refusal, P10, P7+P11 docs, P13). Local run: 109 pass, 0 fail except CI still running on the
+        newest commit, 2 deferred (Kimi row by decision; G1–G6 on Oct 1); 323 tests passed, 0 failed. CI green on
+        every earlier commit of this batch (e43dabd, 8f0664f, dbb1dd6).
 
 ## D. Needs you
 

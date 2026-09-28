@@ -101,8 +101,9 @@ Ordered by dependency; items in the same group are independent. Costs are comput
 
 ## Readiness gate (all green before the first full training run)
 
-- [ ] A1–A4 done; floors current on all four splits; `pytest eval/tests etl/tests` and the simulator suite green;
+- [x] A1–A4 done; floors current on all four splits; `pytest eval/tests etl/tests` and the simulator suite green;
       `scripts/verify_roadmap.py` 0 failures
+      → 2026-09-28: `scripts/verify_roadmap.py` 87 pass / 0 fail / 1 deferred (Kimi row); 283 tests passed; CI green at the reward-v1 commit
 - [ ] B1–B4 decided and documented
 - [ ] C1–C6 done on the target hardware, with the cost projection inside the available budget
 - [ ] D1–D2 written down before training starts

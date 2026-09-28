@@ -256,6 +256,16 @@ RETRIEVAL_BASELINES = {"bm25", "sapbert", "hybrid"}
 
 MODEL_REGISTRY.update(PROTOCOL_PANEL)
 
+# Local serving of the RL candidate (stage C): vLLM's OpenAI-compatible server (gpu/vllm_eval.py), base weights or a
+# trained LoRA. Sampling = Qwen3.5 thinking defaults with a per-request seed (eval.adapters: `seeded`), the same for the
+# before and after measurements. SH_VLLM_URL points at the server; no API key.
+VLLM_URL = os.environ.get("SH_VLLM_URL", "http://localhost:8000/v1")
+MODEL_REGISTRY["qwen3.5-9b-local"] = ModelConfig(
+    name="qwen3.5-9b-local", adapter_type=AdapterType.OPENAI_COMPATIBLE, base_url=VLLM_URL, api_key_env="",
+    model_id=os.environ.get("SH_VLLM_MODEL", "Qwen/Qwen3.5-9B"), max_tokens=4096, temperature=1.0, timeout_secs=900.0,
+    extra={"sampling": {"top_p": 0.95, "presence_penalty": 1.5, "top_k": 20}, "seeded": True, "stream": False,
+           "total_timeout_s": 900})
+
 
 def _live_prices() -> dict[str, tuple[float, float]]:
     """eval/model_prices.json: $ per 1M (input, output) per registry name, refreshed by scripts/refresh_model_registry.py."""

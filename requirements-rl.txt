@@ -1,0 +1,23 @@
+# Environment dependencies for GPU jobs (gpu/*.py): what eval.protocol_run, eval.local_env and the scorers import,
+# unpinned so pip resolves them together with vLLM / ART. Verified on a clean Python 3.12 env (stage C, N7):
+# an oracle episode of every unit scores 1.0.
+numpy
+scipy
+rouge_score
+nltk
+rank_bm25
+pydantic
+pydantic_settings
+sqlalchemy
+httpx
+python-dotenv
+regex
+pyyaml
+fastapi
+greenlet
+bcrypt
+python-jose
+asyncpg
+psycopg[binary]
+passlib
+pytest

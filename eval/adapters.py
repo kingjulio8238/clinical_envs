@@ -28,6 +28,8 @@ from concurrent.futures import Future as _Future
 import threading as _threading
 
 _CALL_DEADLINE = _threading.local()
+_CALL_SEED = _threading.local()
+"""Per-thread seed base set by the protocol runner (gt_id x sample index) for seeded local models."""
 """Per-thread absolute deadline (time.time()) set by the episode runner; calls never outlive it."""
 
 
@@ -74,7 +76,8 @@ class ModelResponse:
     tool_calls: list[dict] | None = None       # parsed: [{"name": ..., "arguments": dict}]
     raw_tool_calls: list[dict] | None = None   # original format for conversation history
     cost_usd: float | None = None              # billed cost when the provider reports it (OpenRouter usage accounting)
-    provider: str | None = None                # upstream provider that served the call (OpenRouter)
+    provider: str | None = None
+    finish_reason: str | None = None           # "length" = the turn hit the output-token cap
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +255,14 @@ class OpenAICompatibleAdapter(ModelAdapter):
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
         if "openrouter.ai" in self.config.base_url:
-            payload["usage"] = {"include": True}          # billed cost per call (list prices under-read ~2x in the smoke)
+            payload["usage"] = {"include": True}
+        if self.config.extra.get("sampling"):                # local vLLM: top_p / top_k / presence_penalty (stage C)
+            payload.update(self.config.extra["sampling"])
+        if self.config.extra.get("seeded"):                  # a deterministic seed per episode and call (C2 / C4)
+            base = getattr(_CALL_SEED, "base", None)
+            if base is not None:
+                _CALL_SEED.n = getattr(_CALL_SEED, "n", 0) + 1
+                payload["seed"] = int(base) * 1000 + _CALL_SEED.n          # billed cost per call (list prices under-read ~2x in the smoke)
         # Reasoning/thinking passthrough (e.g. OpenRouter `reasoning` param for Kimi-thinking).
         if self.config.extra.get("reasoning"):
             payload["reasoning"] = self.config.extra["reasoning"]
@@ -276,6 +286,7 @@ class OpenAICompatibleAdapter(ModelAdapter):
             """Server-sent events: progress is a content / reasoning / tool-call delta (keep-alive comments are
             not), so a provider that holds the connection without generating is told apart from a slow one."""
             content, calls, usage, provider = [], {}, {}, None
+            finish = [None]
             with httpx.Client(timeout=self.config.timeout_secs) as client:
                 with client.stream("POST", f"{self.config.base_url}/chat/completions", headers=headers,
                                    json={**payload, "stream": True}) as r:
@@ -299,6 +310,7 @@ class OpenAICompatibleAdapter(ModelAdapter):
                         if chunk.get("usage"):
                             usage = chunk["usage"]
                         for ch in chunk.get("choices") or []:
+                            finish[0] = ch.get("finish_reason") or finish[0]
                             d = ch.get("delta") or {}
                             if d.get("content"):
                                 content.append(d["content"])
@@ -314,7 +326,7 @@ class OpenAICompatibleAdapter(ModelAdapter):
             msg = {"role": "assistant", "content": "".join(content)}
             if calls:
                 msg["tool_calls"] = [calls[k] for k in sorted(calls)]
-            return {"choices": [{"message": msg}], "usage": usage, "provider": provider}
+            return {"choices": [{"message": msg, "finish_reason": finish[0]}], "usage": usage, "provider": provider}
 
         # Hard wall-clock cap per call: httpx timeouts are per phase, and a provider that keeps the connection
         # alive (OpenRouter sends keep-alive bytes while a slow provider generates) can hold a request for many
@@ -380,6 +392,7 @@ class OpenAICompatibleAdapter(ModelAdapter):
             raw_tool_calls=raw_tool_calls,
             cost_usd=float(cost) if isinstance(cost, (int, float)) else None,
             provider=data.get("provider"),
+            finish_reason=data["choices"][0].get("finish_reason"),
         )
 
     def call(self, system_prompt: str, user_prompt: str) -> ModelResponse:

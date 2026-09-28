@@ -88,6 +88,10 @@ sample was the longest charts minus a ceiling filter, and the data generator sat
   the call is never executed (recorded as `format_retry`).
 - A scorer fix that lands after a run is applied to every run with `scripts/rescore_protocol_runs.py` (the as-run
   value is kept as `reward_asrun`), so all models in a table are scored by one scorer.
+- Local runs (a model served by us, `protocol_run --local`; every RL before/after) use deterministic limits
+  (`eval/episode.py`: turns per unit, 4,096 output tokens per turn, 32,768 per episode) and no wall-clock deadline;
+  hosted APIs keep the 15-minute deadline against stalled providers. Evaluation and RL training drive the same
+  `EpisodeDriver`, so the episode a policy is trained on is the episode it is evaluated on.
 - Arms: the agent arm caps each model turn at 4,096 output tokens (an RL-rollout-like limit); the single arm is
   one call and gets the registry's 16,384 so a thinking model is not truncated before it answers. Sampling
   settings differ by provider where the API forces them (GPT-6 accepts only its default temperature and

@@ -36,22 +36,16 @@ import httpx
 from eval import degenerate as D
 from eval.adapters import create_adapter
 from eval.config import COST_RATES, MODEL_REGISTRY
-from eval.local_env import EpisodeError, LocalEnv
+from eval.episode import LOCAL_LIMITS, SECONDARY_METRICS, UNIT_MAX_TURNS, EpisodeDriver, EpisodeLimits, submission_from_text
+from eval.local_env import LocalEnv
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "results"
-SUBMIT_KEYS = {"active_diagnoses", "chronic_conditions", "summary", "rankings", "clinical_question", "differential",
-               "icd10", "section_type", "relevant"}
 RUN_UNITS = ("patient_diagnosis", "evidence_retrieval", "context_summarization", "specialty_conditioned",
              "imaging_indication", "differential_diagnosis", "test_selection", "error_detection", "lab_triage",
              "atypical_diagnosis")
 """The units a panel run plays. The specialty task is played as served, the involved/absent mixture;
 its two halves are recoverable from the predictions (`involvement`)."""
-UNIT_MAX_TURNS = {"error_detection": 16}
-"""Per-unit turn caps (Stage B2): Qwen looped 14–42 turns on error_detection (median 5, p90 9), and the loops ended in
-the wall-clock deadline; 16 turns bounds them deterministically. Other units: budget + 3."""
-SECONDARY_METRICS = ("diagnosis_named", "diagnosis_coded")
-"""Recorded per episode beside the reward (RL readiness A2: a gain splits into naming vs coding)."""
 EPISODE_DEADLINE_S = int(os.environ.get("SH_EPISODE_DEADLINE_S", "900"))
 """Wall-clock cap per episode: after it the episode is force-submitted with the best answer seen (scored as usual);
 every model call is also bounded by the episode's remaining time."""
@@ -133,134 +127,47 @@ def sample_instances(db: D.ReleaseDB, task: str, split: str, n: int, seed: int) 
 # one episode
 # ---------------------------------------------------------------------------
 
-def _submission_from_text(text: str) -> dict | None:
-    t = (text or "").strip()
-    if t.startswith("```"):
-        t = "\n".join(l for l in t.split("\n") if not l.strip().startswith("```"))
-    for cand in (t, t[t.find("{"): t.rfind("}") + 1] if "{" in t else ""):
-        if not cand:
-            continue
-        try:
-            obj = json.loads(cand, strict=False)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(obj, dict) and (set(obj) & SUBMIT_KEYS):
-            return obj
-        if isinstance(obj, list):
-            return {"differential": obj}
-    return None
+_submission_from_text = submission_from_text           # kept for callers
 
 
-def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[float, float], max_turns: int) -> dict:
+def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[float, float], max_turns: int,
+                limits: EpisodeLimits | None = None) -> dict:
+    """One episode through the shared EpisodeDriver (eval/episode.py). Hosted runs keep a wall-clock deadline (a stalled
+    provider cannot hold a worker); local runs pass deterministic `limits` (C3)."""
     env = _env()
-    t0 = time.time()
-    from eval.adapters import _CALL_DEADLINE
-    _CALL_DEADLINE.t = t0 + EPISODE_DEADLINE_S                     # no single call may outlive the episode deadline
-    rec: dict = {"gt_id": inst["gt_id"], "patient_id": inst["patient_id"], "encounter_id": inst.get("encounter_id"),
-                 "parent_gt_id": inst["gt"].get("parent_gt_id"), "involvement": inst["gt"].get("involvement"),
-                 "reward": 0.0, "metric": None, "steps": 0, "turns": 0, "orders": 0, "order_log": [], "unmatched_orders": 0,
-                 "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "error": None, "forced": False,
-                 "submitted": False, "submission": None, "latency_ms": 0}
+    lim = limits or EpisodeLimits(max_turns, None, None, EPISODE_DEADLINE_S)
+    from eval.adapters import _CALL_DEADLINE, _CALL_SEED
+    _CALL_DEADLINE.t = (time.time() + lim.wall_clock_s) if lim.wall_clock_s else None
+    _CALL_SEED.base, _CALL_SEED.n = inst["gt_id"] * 100 + int(inst.get("sample", 0)), 0     # seeded local models
     try:
-        ro = env.reset(gt_id=inst["gt_id"], budget=budget)
-        system = ro.instructions
-        if arm == "single":
-            user = (f"{ro.intro}\n\nYou cannot call tools in this setting. The visible chart follows; answer in one message with "
-                    f"the JSON the task asks for (or call {ro.submit_tool}).\n\n{env.visible_chart()}")
-            tools = [t for t in ro.tools if t["function"]["name"] == ro.submit_tool]
-        else:
-            user = ro.intro
-            tools = ro.tools
-        messages: list[dict] = [{"role": "user", "content": user}]
-        done = False
-        last_parsed = None
-        for turn in range(1, max_turns + 1):
-            if time.time() - t0 > EPISODE_DEADLINE_S - 5:           # a stalled provider cannot hold a worker forever
-                rec["error"] = f"episode deadline {EPISODE_DEADLINE_S}s reached at turn {turn}"
-                break
-            resp = adapter.call_multi_turn_with_retry(system, messages, tools=tools)
-            rec["turns"] = turn
-            if resp.cost_usd is not None:
-                rec["billed_usd"] = rec.get("billed_usd", 0.0) + resp.cost_usd
-            if resp.provider:
-                rec.setdefault("providers", {})
-                rec["providers"][resp.provider] = rec["providers"].get(resp.provider, 0) + 1
-            rec["input_tokens"] += resp.input_tokens
-            rec["output_tokens"] += resp.output_tokens
-            rec["latency_ms"] += resp.latency_ms
-            if arm == "single" and resp.tool_calls and all(c["name"] != ro.submit_tool for c in resp.tool_calls) \
-                    and not rec.get("format_retry"):
-                # the single arm has no chart tools; a model that still calls one (Qwen ordered tests in 43% of
-                # single-arm test_selection episodes) gets one corrective turn instead of a forced 0, and the calls
-                # are never executed (no steps, no revealed results)
-                rec["format_retry"] = [c["name"] for c in resp.tool_calls]
-                messages.append({"role": "assistant", "content": resp.text or "", "tool_calls": resp.raw_tool_calls})
-                for raw, call in zip(resp.raw_tool_calls or [{}] * len(resp.tool_calls), resp.tool_calls):
-                    messages.append({"role": "tool", "tool_call_id": raw.get("id", f"call_{turn}"), "name": call["name"],
-                                     "content": "Not available in this setting: no tools can be called."})
-                messages.append({"role": "user", "content": f"Tools are not available here. Answer now from the chart above: "
-                                                            f"call {ro.submit_tool} or reply with the JSON answer."})
-                continue
-            if resp.tool_calls:
-                messages.append({"role": "assistant", "content": resp.text or "", "tool_calls": resp.raw_tool_calls})
-                for raw, call in zip(resp.raw_tool_calls or [{}] * len(resp.tool_calls), resp.tool_calls):
-                    name, args = call["name"], call.get("arguments") or {}
-                    obs, reward, done, info = env.step(name, args)
-                    messages.append({"role": "tool", "tool_call_id": raw.get("id", f"call_{turn}"), "name": name,
-                                     "content": info.get("observation_text") or json.dumps(obs, default=str)[:8000]})
-                    if done:
-                        rec.update(reward=float(reward), metric=info.get("reward_metric"), forced=bool(info.get("forced")),
-                                   submitted=True, submission=args)
-                        rec["metrics"] = {k: v for k, v in (info.get("metrics") or {}).items() if k in SECONDARY_METRICS}
-                        break
-                if done:
-                    break
-            else:
-                parsed = _submission_from_text(resp.text)
-                messages.append({"role": "assistant", "content": resp.text or ""})
-                if parsed is not None:
-                    last_parsed = parsed
-                    obs, reward, done, info = env.step(ro.submit_tool, parsed)
-                    rec.update(reward=float(reward), metric=info.get("reward_metric"), forced=bool(info.get("forced")),
-                               submitted=True, submission=parsed)
-                    rec["metrics"] = {k: v for k, v in (info.get("metrics") or {}).items() if k in SECONDARY_METRICS}
-                    break
-                messages.append({"role": "user", "content": f"Take an action: call a tool, or call {ro.submit_tool} with your answer. "
-                                                            f"{max(0, budget - env.ep['steps'])} actions remain."})
-            if arm == "single":
-                break                                               # one answer (after at most one format retry)
-        if not done:
-            # forced final submission: the best answer seen, else empty (scored 0), exactly like the server
-            obs, reward, _, info = env.step(ro.submit_tool, last_parsed or {})
-            rec.update(reward=float(reward), metric=info.get("reward_metric"), forced=True, submitted=last_parsed is not None,
-                       submission=last_parsed)
-            rec["metrics"] = {k: v for k, v in (info.get("metrics") or {}).items() if k in SECONDARY_METRICS}
-        rec["steps"] = env.ep["steps"]
-        rec["order_log"] = list(env.ep.get("orders") or [])
-        rec["orders"] = len(rec["order_log"])
-        rec["unmatched_orders"] = sum(1 for o in rec["order_log"] if not o.get("matched"))
-    except (EpisodeError, Exception) as exc:  # noqa: BLE001 — an API failure is a scored 0, recorded
-        detail = ""
-        cause = exc
-        while cause is not None and not detail:                     # the provider's error body, when there is one
-            try:
-                r = getattr(cause, "response", None)                # httpx raises when it is an unread stream
-            except Exception:  # noqa: BLE001
-                r = None
-            if r is not None:
-                try:
-                    detail = f" | {r.text[:300]}"
-                except Exception:  # noqa: BLE001 — never let error reporting kill the run
-                    detail = " | (streamed response)"
-            cause = cause.__cause__
-        rec["error"] = f"{type(exc).__name__}: {str(exc)[:300]}{detail}"
+        drv = EpisodeDriver(env, {**inst, "task": inst.get("task")}, arm, budget, lim)
+    except Exception as exc:  # noqa: BLE001
+        rec = {"gt_id": inst["gt_id"], "patient_id": inst["patient_id"], "reward": 0.0, "error": f"{type(exc).__name__}: {exc}",
+               "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "list_cost_usd": 0.0, "steps": 0, "turns": 0}
+        return rec
+    rec = drv.rec
+    while not drv.finished:
         try:
-            env.close()
-        except Exception:  # noqa: BLE001
-            pass
+            resp = adapter.call_multi_turn_with_retry(drv.system, drv.messages, tools=drv.tools)
+        except Exception as exc:  # noqa: BLE001 — an API failure is a scored 0, recorded
+            drv.fail(exc)
+            break
+        if resp.cost_usd is not None:
+            rec["billed_usd"] = rec.get("billed_usd", 0.0) + resp.cost_usd
+        if resp.provider:
+            rec.setdefault("providers", {})
+            rec["providers"][resp.provider] = rec["providers"].get(resp.provider, 0) + 1
+        calls = [{"id": (raw or {}).get("id"), "name": c["name"], "arguments": c.get("arguments") or {}}
+                 for raw, c in zip(resp.raw_tool_calls or [{}] * len(resp.tool_calls or []), resp.tool_calls or [])]
+        try:
+            drv.observe(resp.text, calls, output_tokens=resp.output_tokens, input_tokens=resp.input_tokens,
+                        truncated=getattr(resp, "finish_reason", None) == "length", latency_ms=resp.latency_ms)
+        except Exception as exc:  # noqa: BLE001
+            drv.fail(exc)
+            break
+    rec = drv.finish()
     rec["list_cost_usd"] = (rec["input_tokens"] * prices[0] + rec["output_tokens"] * prices[1]) / 1e6
     rec["cost_usd"] = rec["billed_usd"] if rec.get("billed_usd") is not None else rec["list_cost_usd"]
-    rec["wall_s"] = round(time.time() - t0, 2)
     return rec
 
 
@@ -279,7 +186,7 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
               budget: int = 40, workers: int = 16, max_usd: float | None = None, out_root: Path = RESULTS,
               max_turns: int | None = None, adapter=None, prices: tuple[float, float] | None = None, quiet: bool = False,
               max_output_tokens: int | None = None, min_balance: float | None = None,
-              allow_reward_drift: bool = False) -> dict[str, Path]:
+              allow_reward_drift: bool = False, local: bool = False) -> dict[str, Path]:
     from eval import reward_version as RV
     reward_info = RV.current()
     if reward_info["reward_drift"] and not allow_reward_drift:
@@ -291,6 +198,10 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
     prices = prices or live_prices(model)
     db = shared_db()
     turn_cap = {t: max_turns or UNIT_MAX_TURNS.get(t, budget + 3) for t in tasks}
+    if local:        # deterministic limits (C3): no wall clock; per-turn cap in the request, per-episode output cap
+        limits = {t: EpisodeLimits(turn_cap[t], cfg.max_tokens, LOCAL_LIMITS["per_episode"], None) for t in tasks}
+    else:            # hosted APIs: the wall-clock deadline guards against stalled providers
+        limits = {t: EpisodeLimits(turn_cap[t], None, None, EPISODE_DEADLINE_S) for t in tasks}
     units: dict[str, dict] = {}
     todo: list[tuple[str, D.Instance]] = []
     for task in tasks:
@@ -316,7 +227,7 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
         for _ in range(workers):
             nxt = next(it, None)
             if nxt is not None:
-                futures[ex.submit(run_episode, adapter, nxt[1], arm, budget, prices, turn_cap[nxt[0]])] = nxt[0]
+                futures[ex.submit(run_episode, adapter, {**nxt[1], "task": nxt[0]}, arm, budget, prices, turn_cap[nxt[0]], limits[nxt[0]])] = nxt[0]
         while futures:
             finished, _ = wait(futures, return_when=FIRST_COMPLETED)
             for fut in finished:
@@ -342,7 +253,7 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
                     continue
                 nxt = next(it, None)
                 if nxt is not None:
-                    futures[ex.submit(run_episode, adapter, nxt[1], arm, budget, prices, turn_cap[nxt[0]])] = nxt[0]
+                    futures[ex.submit(run_episode, adapter, {**nxt[1], "task": nxt[0]}, arm, budget, prices, turn_cap[nxt[0]], limits[nxt[0]])] = nxt[0]
     if stop_reason and not quiet:
         print(f"[{model} {arm}] STOPPED: {stop_reason}; completed episodes are kept and a rerun resumes", flush=True)
     prompt_hash = None
@@ -353,7 +264,8 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
         manifest = {
             "run_id": u["out"].name, "model": model, "provider_base_url": cfg.base_url, "model_id": cfg.model_id, "task": task,
             "arm": arm, "split": split, "seed": seed, "n_requested": n, "n_sampled": len(u["insts"]), "n_recorded": u["n_done"],
-            "budget": budget, "max_turns": turn_cap[task], "prices_per_million": {"input": prices[0], "output": prices[1]},
+            "budget": budget, "max_turns": turn_cap[task], "limits": dataclasses.asdict(limits[task]), "local": local,
+            "prices_per_million": {"input": prices[0], "output": prices[1]},
             "temperature": None if "api.openai.com" in cfg.base_url and cfg.extra.get("no_temperature", True) else cfg.temperature,
             "extra": dict(cfg.extra), "max_output_tokens_per_turn": cfg.max_tokens, "episode_deadline_s": EPISODE_DEADLINE_S,
             "prompt_hash": prompt_hash, "git_commit": _git(), "floors_file": "eval/floors.json",
@@ -403,12 +315,14 @@ def main(argv=None) -> int:
     ap.add_argument("--max-output-tokens", type=int, default=None, help="per-turn output cap (default: the registry's 16384)")
     ap.add_argument("--out", default=str(RESULTS))
     ap.add_argument("--allow-reward-drift", action="store_true", help="run although the scorer differs from eval/reward_lock.json (recorded)")
+    ap.add_argument("--local", action="store_true", help="deterministic limits for a local model (no wall clock; C3)")
     a = ap.parse_args(argv)
     tasks = a.tasks.split(",") if a.tasks else (list(RUN_UNITS) if a.panel else [a.task])
     n = 3 if a.smoke else a.n
     out_root = Path(a.out) / ("smoke" if a.smoke else "")
     outs = run_units(a.model, tasks, n, a.arm, a.split, a.seed, a.budget, a.workers, a.max_usd, out_root,
-                     max_output_tokens=a.max_output_tokens, min_balance=a.min_balance, allow_reward_drift=a.allow_reward_drift)
+                     max_output_tokens=a.max_output_tokens, min_balance=a.min_balance, allow_reward_drift=a.allow_reward_drift,
+                     local=a.local)
     for task, out in outs.items():
         s = summarize(out)
         print(json.dumps({"run": out.name, **s}))

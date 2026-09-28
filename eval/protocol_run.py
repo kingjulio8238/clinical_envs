@@ -186,8 +186,14 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
               budget: int = 40, workers: int = 16, max_usd: float | None = None, out_root: Path = RESULTS,
               max_turns: int | None = None, adapter=None, prices: tuple[float, float] | None = None, quiet: bool = False,
               max_output_tokens: int | None = None, min_balance: float | None = None,
-              allow_reward_drift: bool = False, local: bool = False) -> dict[str, Path]:
+              allow_reward_drift: bool = False, local: bool = False, shard: tuple[int, int] | None = None,
+              retry_errors: bool = False) -> dict[str, Path]:
+    """`shard=(i, k)`: only the i-th of k interleaved slices of each unit's sample (a unit split across workspaces;
+    scripts/sync_runs.py merges the shards). `retry_errors`: on resume, rerun episodes recorded with an error (a
+    crashed server) — the new record is appended and the merge keeps it."""
     from eval import reward_version as RV
+    if shard is not None and not (shard[1] >= 1 and 0 <= shard[0] < shard[1]):
+        raise ValueError(f"bad shard {shard}")
     reward_info = RV.current()
     if reward_info["reward_drift"] and not allow_reward_drift:
         RV.require_frozen()                                       # raises: the reward is not the frozen one
@@ -206,11 +212,13 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
     todo: list[tuple[str, D.Instance]] = []
     for task in tasks:
         insts = sample_instances(db, task, split, n, seed)
+        if shard is not None:
+            insts = insts[shard[0]::shard[1]]
         out = out_root / f"{model}__{task}__{arm}__{split}__s{seed}"
         out.mkdir(parents=True, exist_ok=True)
         pred_path = out / "predictions.jsonl"
         prior = [json.loads(l) for l in pred_path.read_text().splitlines() if l.strip()] if pred_path.exists() else []
-        done_ids = {p["gt_id"] for p in prior}
+        done_ids = {p["gt_id"] for p in prior if not (retry_errors and p.get("error"))}
         units[task] = {"out": out, "insts": insts, "fh": pred_path.open("a"), "spent": sum(float(p.get("cost_usd") or 0) for p in prior),
                        "n_done": len(prior), "t0": time.time()}
         todo += [(task, i) for i in insts if i["gt_id"] not in done_ids]
@@ -264,6 +272,7 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
         manifest = {
             "run_id": u["out"].name, "model": model, "provider_base_url": cfg.base_url, "model_id": cfg.model_id, "task": task,
             "arm": arm, "split": split, "seed": seed, "n_requested": n, "n_sampled": len(u["insts"]), "n_recorded": u["n_done"],
+            "shard": list(shard) if shard else None, "gt_ids": [i["gt_id"] for i in u["insts"]],
             "budget": budget, "max_turns": turn_cap[task], "limits": dataclasses.asdict(limits[task]), "local": local,
             "prices_per_million": {"input": prices[0], "output": prices[1]},
             "temperature": None if "api.openai.com" in cfg.base_url and cfg.extra.get("no_temperature", True) else cfg.temperature,
@@ -316,13 +325,16 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default=str(RESULTS))
     ap.add_argument("--allow-reward-drift", action="store_true", help="run although the scorer differs from eval/reward_lock.json (recorded)")
     ap.add_argument("--local", action="store_true", help="deterministic limits for a local model (no wall clock; C3)")
+    ap.add_argument("--shard", default=None, help="i/k: run the i-th of k slices of each unit (merge: scripts/sync_runs.py)")
+    ap.add_argument("--retry-errors", action="store_true", help="on resume, rerun episodes that ended in an error")
     a = ap.parse_args(argv)
     tasks = a.tasks.split(",") if a.tasks else (list(RUN_UNITS) if a.panel else [a.task])
     n = 3 if a.smoke else a.n
     out_root = Path(a.out) / ("smoke" if a.smoke else "")
     outs = run_units(a.model, tasks, n, a.arm, a.split, a.seed, a.budget, a.workers, a.max_usd, out_root,
                      max_output_tokens=a.max_output_tokens, min_balance=a.min_balance, allow_reward_drift=a.allow_reward_drift,
-                     local=a.local)
+                     local=a.local, shard=tuple(int(x) for x in a.shard.split("/")) if a.shard else None,
+                     retry_errors=a.retry_errors)
     for task, out in outs.items():
         s = summarize(out)
         print(json.dumps({"run": out.name, **s}))

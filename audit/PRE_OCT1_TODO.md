@@ -80,8 +80,18 @@ optional P8.
       month-to-date, including each workspace's one-time costs (image build, 19 GB weight download to its own volume);
       `gpu/mtd.sh` prints month-to-date per profile and treats any billing error as UNKNOWN (never $0); a pre-launch
       check refuses a job whose projection exceeds the workspace's headroom.
-- [ ] **P10 Results sync and resume:** pull outputs from each workspace's results volume, merge runs of one unit that
+- [x] **P10 Results sync and resume:** pull outputs from each workspace's results volume, merge runs of one unit that
       were split across workspaces (resume by `gt_id`), tested locally on protocol-run directories.
+      → done: `scripts/sync_runs.py` — `pull` (a job's outputs from one workspace's volume → `results/modal/<profile>/`),
+        `push` (a stopped run's partial directory to the same path on another workspace's volume, so the same command
+        resumes there by `gt_id`), `merge` (every piece of each run → one directory per run: refuses pieces whose
+        validity-determining settings differ — model, limits, sampling, prompt hash, reward fingerprint —, one record per
+        `gt_id` preferring one without an error, the union checked against the unit's full sample, sources / duplicates /
+        errors / missing in the manifest, exit 1 when incomplete), `merge-gv` (C4 shards → one `prompts.json`).
+        `eval.protocol_run --shard i/k` and `--retry-errors`; `scripts/group_variance.py --shard i/k --retry-errors`
+        (deduplicated summaries). The `modal volume get/put` path semantics were checked on a throwaway volume (created
+        and deleted; no compute). Tests: `eval/tests/test_sync_runs.py` (shards merge to the unsharded run's rewards;
+        an errored run resumed elsewhere; mismatched limits refused; a half sample flagged; C4 shards).
 - [ ] **P11 Oct 1 runbook** (`audit/OCT1_RUNBOOK.md`): the ordered commands (G1 → projection → C2 / C4 → C5) with pinned
       profiles, month-to-date checks before / during / after, timeouts, kill sweep, and the go / no-go after the smoke.
 - [ ] **P12 Verification:** `scripts/verify_roadmap.py` gains checks for the stage-C / D artifacts; tests, CI green;

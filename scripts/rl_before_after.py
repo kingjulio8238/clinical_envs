@@ -2,13 +2,13 @@
 (audit/RL_SUCCESS_CRITERIA.md, criteria 1–7; P1 + P2 of audit/PRE_OCT1_TODO.md).
 
     python scripts/rl_before_after.py --base results/local/base --base-model qwen3.5-9b-local \
-        --trained results/local/trained --trained-model qwen3.5-9b-local \
+        --trained results/local/trained --trained-model qwen3.5-9b-rl \
         [--anchor results --anchor-model gpt-6-sol] [--splits public,heldout] \
         [--trained-audit results/local/trained/reward_noise_audit.json] [--private results/local/private] \
         [--out results/rl_before_after.md]
 
 Each directory holds protocol-run directories (<model>__<unit>__<arm>__<split>__s0, as written by
-eval.protocol_run). Everything is paired per instance with 95% bootstrap intervals (eval.protocol). Prints a table of
+eval.protocol_run; for Modal runs, the output of `scripts/sync_runs.py merge`). Everything is paired per instance with 95% bootstrap intervals (eval.protocol). Prints a table of
 criteria with PASS / FAIL / N/A, the outcome row, and writes the report (markdown + JSON). A criterion whose inputs
 are missing is N/A and the verdict says which inputs to add.
 """

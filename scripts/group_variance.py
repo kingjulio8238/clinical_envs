@@ -30,6 +30,26 @@ from eval.rl_rollout import TRAIN_UNITS  # noqa: E402
 SPREAD = 0.01
 
 
+def dedupe(samples: list[dict]) -> list[dict]:
+    """One row per (unit, prompt, sample): the last one without an error, else the last one (resumed or merged files
+    can hold a retried sample twice)."""
+    best: dict[tuple, dict] = {}
+    for s in samples:
+        key = (s["task"], s["gt_id"], s["sample"])
+        if key not in best or not s.get("error") or best[key].get("error"):
+            best[key] = s
+    return list(best.values())
+
+
+def write_summary(out: Path, samples: list[dict], k: int, model: str, reward_version: str | None) -> dict:
+    samples = dedupe(samples)
+    summ = summarize([s for s in samples if not s.get("error")], k)
+    summ.update(model=model, reward_version=reward_version, errors=sum(1 for s in samples if s.get("error")))
+    (out / "summary.json").write_text(json.dumps({k_: v for k_, v in summ.items() if k_ != "keep"}, indent=1))
+    (out / "prompts.json").write_text(json.dumps({"keep": summ["keep"], "k": k, "rule": f"reward std > {SPREAD}"}, indent=1))
+    return summ
+
+
 def summarize(samples: list[dict], k: int) -> dict:
     by = defaultdict(list)
     for s in samples:
@@ -67,13 +87,18 @@ def main(argv=None) -> int:
     ap.add_argument("--workers", type=int, default=64)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=str(ROOT / "results" / "group_variance"))
+    ap.add_argument("--shard", default=None, help="i/k: the i-th of k interleaved slices of each unit's prompts "
+                                                  "(merge: scripts/sync_runs.py merge-gv)")
+    ap.add_argument("--retry-errors", action="store_true", help="on resume, rerun samples that ended in an error")
     a = ap.parse_args(argv)
+    si, sk = (int(x) for x in a.shard.split("/")) if a.shard else (0, 1)
     from eval import reward_version as RV
     reward = RV.require_frozen()
     out = Path(a.out) / a.model
     out.mkdir(parents=True, exist_ok=True)
     path = out / "samples.jsonl"
-    done = {(s["gt_id"], s["sample"]) for s in (json.loads(l) for l in path.read_text().splitlines() if l.strip())} if path.exists() else set()
+    prior = [json.loads(l) for l in path.read_text().splitlines() if l.strip()] if path.exists() else []
+    done = {(s["gt_id"], s["sample"]) for s in dedupe(prior) if not (a.retry_errors and s.get("error"))}
     db = R.shared_db()
     cfg = MODEL_REGISTRY[a.model]
     adapter = create_adapter(cfg)
@@ -81,7 +106,7 @@ def main(argv=None) -> int:
     from eval.rl_rollout import is_dev_patient
     for u in a.units.split(","):
         pool = [i for i in R.sample_instances(db, u, "train", 10 ** 6, a.seed) if not is_dev_patient(i["patient_id"])]
-        for inst in pool[: a.per_unit]:                        # dev patients are never training prompts (P4)
+        for inst in pool[: a.per_unit][si::sk]:                # dev patients are never training prompts (P4)
             for s in range(a.k):
                 if (inst["gt_id"], s) not in done:
                     jobs.append({**inst, "task": u, "sample": s})
@@ -103,10 +128,7 @@ def main(argv=None) -> int:
                     el = time.time() - t0
                     print(f"{n}/{len(jobs)} episodes ({100 * n // max(len(jobs), 1)}%), {el / 60:.1f} min, ETA {(len(jobs) - n) * el / n / 60:.1f} min", flush=True)
     samples = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
-    summ = summarize([s for s in samples if not s.get("error")], a.k)
-    summ.update(model=a.model, reward_version=reward["reward_version"], errors=sum(1 for s in samples if s.get("error")))
-    (out / "summary.json").write_text(json.dumps({k: v for k, v in summ.items() if k != "keep"}, indent=1))
-    (out / "prompts.json").write_text(json.dumps({"keep": summ["keep"], "k": a.k, "rule": f"reward std > {SPREAD}"}, indent=1))
+    summ = write_summary(out, samples, a.k, a.model, reward["reward_version"])
     print(json.dumps({k: v for k, v in summ.items() if k != "keep"}, indent=1))
     return 0
 

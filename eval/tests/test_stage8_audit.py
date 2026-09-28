@@ -365,3 +365,72 @@ def test_kitchen_sink_and_hedged_names_score_the_floor(db):
         for pol in ("name_sink", "hedge_one_name"):
             preds = [D.POLICIES[task][pol](db, i) for i in insts]
             assert D.score(db, task, preds, insts)[D.PRIMARY_METRIC[task]] <= 0.01, (task, pol)
+
+
+PROBE_CEILING = {"patient_diagnosis": 0.02, "atypical_diagnosis": 0.02, "differential_diagnosis": 0.03,
+                 "test_selection": 0.01, "evidence_retrieval": 0.10}
+"""RL readiness A3: the highest score an RL-pressure probe may reach (each unit's cheap-strategy floor is higher:
+0.036 / 0.035 / 0.027 / 0.001 / 0.42), on public and heldout."""
+
+
+@pytest.mark.parametrize("split", ["public", "heldout"])
+def test_rl_pressure_probes_stay_at_the_floor(db, split):
+    """Many diagnoses, duplicated entries, codes without names and names without codes, the documented problem list
+    as names, one mega-order, a passage repeated ten times: none may beat the floor (duplicated passages used to
+    count at every rank: nDCG@10 0.33 for ten copies of one passage)."""
+    for task, pols in D.PROBES.items():
+        insts = db.instances(task, split)
+        for pol in pols:
+            v = D.score(db, task, [D.POLICIES[task][pol](db, i) for i in insts], insts)[D.PRIMARY_METRIC[task]]
+            assert v <= PROBE_CEILING[task], (split, task, pol, v)
+
+# ---------------------------------------------------------------------------
+# RL readiness A4: the frozen reward
+# ---------------------------------------------------------------------------
+
+def test_reward_files_match_the_lock():
+    """Any change to a reward file must re-lock deliberately (`python -m eval.reward_version --lock <version>`)."""
+    from eval import reward_version as RV
+    assert RV.lock().get("version"), "eval/reward_lock.json missing"
+    assert RV.drift() == [], f"reward files changed without re-locking: {RV.drift()}"
+
+
+def test_runner_refuses_a_drifted_reward_and_records_the_version(tmp_path, db, monkeypatch):
+    from eval import reward_version as RV
+    out = R.run("glm-5.3-flash", "patient_diagnosis", n=1, seed=10, workers=1, out_root=tmp_path, adapter=ScriptedAdapter(R._env),
+                prices=(1.0, 1.0), quiet=True)
+    mf = json.loads((out / "manifest.json").read_text())
+    assert mf["reward_version"] == RV.lock()["version"] and mf["reward_fingerprint"] == RV.lock()["fingerprint"]
+    monkeypatch.setattr(RV, "drift", lambda: ["eval/scoring.py"])
+    with pytest.raises(RV.RewardDrift):
+        R.run_units("glm-5.3-flash", ["patient_diagnosis"], 1, seed=11, workers=1, out_root=tmp_path / "d",
+                    adapter=ScriptedAdapter(R._env), prices=(1.0, 1.0), quiet=True)
+    outs = R.run_units("glm-5.3-flash", ["patient_diagnosis"], 1, seed=11, workers=1, out_root=tmp_path / "d",
+                       adapter=ScriptedAdapter(R._env), prices=(1.0, 1.0), quiet=True, allow_reward_drift=True)
+    assert json.loads((outs["patient_diagnosis"] / "manifest.json").read_text())["reward_drift_allowed"] is True
+
+
+def test_diagnosis_named_and_coded_split_the_reward(db):
+    """RL readiness A2: named = the reference diagnosis named (code ignored), coded = coded exactly."""
+    from eval.scoring import score_patient_diagnosis_item
+    gt = {"active_diagnoses": [{"icd10": "H91.13", "display_name": "Presbycusis", "acuity": "chronic", "diagnosis_id": None},
+                               {"icd10": "I10", "display_name": "Essential hypertension", "acuity": "chronic", "diagnosis_id": None}],
+          "chronic_conditions": []}
+    m = score_patient_diagnosis_item({"active_diagnoses": [{"icd10": "H90.5", "name": "Presbycusis", "acuity": "chronic"},
+                                                           {"icd10": "I10", "name": "", "acuity": "chronic"}]}, gt)
+    assert m["diagnosis_named"] == pytest.approx(1.0) and m["diagnosis_coded"] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("pred,did,expect", [
+    ("Intrauterine adhesions", 6035, 0.75),          # Asherman syndrome: CMS "Intrauterine synechiae"
+    ("IgA vasculitis", 2721, 0.75),                  # Henoch-Schönlein purpura: SNOMED "Immunoglobulin A vasculitis"
+    ("Inorganic arsenic poisoning", 3813, 0.75),     # Arsenic toxicity: SNOMED "Inorganic arsenic poisoning"
+    ("Endometriosis", 6035, 0.0),
+])
+def test_concept_aliases_credit_clinically_identical_names(db, pred, did, expect):
+    """RL readiness A1: the release's own names for the concept (CMS / SNOMED descriptions, merged duplicates)."""
+    from eval.scoring import dx_credit
+    code = {6035: "N85.6", 2721: "D69.0", 3813: "T57.0X1A"}[did]
+    name = {6035: "Asherman syndrome", 2721: "Henoch-Schönlein purpura", 3813: "Arsenic toxicity"}[did]
+    pred_code = {6035: "N84.0", 2721: "L40.0", 3813: "T56.0X1A"}[did]
+    assert dx_credit(pred_code, code, pred, name, did) == pytest.approx(expect)

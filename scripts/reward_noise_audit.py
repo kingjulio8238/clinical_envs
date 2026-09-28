@@ -52,12 +52,14 @@ def main() -> int:
     ap.add_argument("--results", default=str(ROOT / "results"))
     ap.add_argument("--split", default="public")
     ap.add_argument("--max", type=int, default=400, help="cap on judged cases per model (cost)")
+    ap.add_argument("--arm", default="agent", help="agent, or single (the no-tools arm: an out-of-sample check)")
+    ap.add_argument("--out", default=None, help="output file (default results/reward_noise_audit.json)")
     a = ap.parse_args()
     db = D.ReleaseDB()
     judge = create_adapter(MODEL_REGISTRY[a.judge])
     cases = []
     for u in UNITS:
-        f = Path(a.results) / f"{a.model}__{u}__agent__{a.split}__s0" / "predictions.jsonl"
+        f = Path(a.results) / f"{a.model}__{u}__{a.arm}__{a.split}__s0" / "predictions.jsonl"
         if not f.exists():
             continue
         insts = {i["gt_id"]: i for i in db.instances(u, a.split)}
@@ -83,7 +85,7 @@ def main() -> int:
 
     with ThreadPoolExecutor(8) as ex:
         judged = list(ex.map(ask, cases))
-    out: dict = {"model": a.model, "judge": a.judge, "split": a.split}
+    out: dict = {"model": a.model, "judge": a.judge, "split": a.split, "arm": a.arm}
     for u in UNITS:
         js = [j for j in judged if j["unit"] == u]
         ok = [j for j in js if j["verdict"] in ("same", "related", "different")]
@@ -93,7 +95,7 @@ def main() -> int:
         print(f"{u:24s} zero-scored answered {len(js):4d}  same {counts['same']:3d}  related {counts['related']:3d}  "
               f"different {counts['different']:3d}  correct-but-0 {out[u]['correct_zero_rate'] if ok else '—'}")
     out["cases"] = judged
-    (Path(a.results) / "reward_noise_audit.json").write_text(json.dumps(out, indent=1))
+    (Path(a.out) if a.out else Path(a.results) / "reward_noise_audit.json").write_text(json.dumps(out, indent=1))
     return 0
 
 

@@ -87,6 +87,16 @@ def _ci(ci: tuple[float, float]) -> str:
     return f"[{_fmt(ci[0])}, {_fmt(ci[1])}]"
 
 
+def _named_coded(preds: list[dict]) -> dict:
+    """RL readiness A2: mean share of reference diagnoses named / coded exactly (diagnosis-scored units only;
+    failed episodes count 0)."""
+    vals = [(p.get("metrics") or {}) for p in preds]
+    if not preds or not any("diagnosis_named" in v for v in vals):
+        return {"named": None, "coded": None}
+    return {"named": sum(float(v.get("diagnosis_named") or 0) for v in vals) / len(preds),
+            "coded": sum(float(v.get("diagnosis_coded") or 0) for v in vals) / len(preds)}
+
+
 def leaderboard(runs: list[dict], split: str = "public", floors: dict | None = None) -> tuple[str, dict]:
     """Markdown tables per (task, arm) plus a JSON summary."""
     doc = floors or F.load()
@@ -115,24 +125,26 @@ def leaderboard(runs: list[dict], split: str = "public", floors: dict | None = N
             rows.append({"model": mf["model"], "generator": mf["model"] in GENERATOR_MODELS, "n": len(vals), "raw": raw, "raw_ci": (lo, hi),
                          "norm": norm, "norm_ci": (nlo, nhi), "errors": sum(1 for p in r["predictions"] if p.get("error")),
                          "forced": sum(1 for p in r["predictions"] if p.get("forced")), "cost_usd": sum(float(p.get("cost_usd") or 0) for p in r["predictions"]),
-                         "steps": (sum(int(p.get("steps") or 0) for p in r["predictions"]) / len(vals)), "rewards": r["rewards"], "dir": r["dir"]})
+                         "steps": (sum(int(p.get("steps") or 0) for p in r["predictions"]) / len(vals)), "rewards": r["rewards"], "dir": r["dir"],
+                         **_named_coded(r["predictions"])})
         ranked = sorted([x for x in rows if not x["generator"]], key=lambda x: -(x["norm"] if x["norm"] is not None else x["raw"]))
         gens = [x for x in rows if x["generator"]]
         unit = doc.get("splits", {}).get(split, {}).get(task, {})
         floor = unit.get("metrics", {}).get(F.METRICS.get(task, [None])[0], {}).get("floor") if unit else None
         ceiling = unit.get("metrics", {}).get(F.METRICS.get(task, [None])[0], {}).get("ceiling") if unit else None
         out_md.append(f"\n## {task} — arm `{arm}`  (floor {_fmt(floor)}, ceiling {_fmt(ceiling)})\n")
-        out_md.append("| model | n | raw [95% CI] | normalized [95% CI] | Δ vs best (paired) | errors | forced | steps | cost $ |")
-        out_md.append("|---|---|---|---|---|---|---|---|---|")
+        out_md.append("| model | n | raw [95% CI] | normalized [95% CI] | Δ vs best (paired) | named | coded | errors | forced | steps | cost $ |")
+        out_md.append("|---|---|---|---|---|---|---|---|---|---|---|")
         best = ranked[0] if ranked else None
         for x in ranked + ([None] if gens else []) + gens:
             if x is None:
-                out_md.append("| *generator (not ranked)* | | | | | | | | |")
+                out_md.append("| *generator (not ranked)* | | | | | | | | | | |")
                 continue
             d = paired_diff(x["rewards"], best["rewards"]) if best and x is not best else None
             dtxt = "best" if x is best else (f"{_fmt(d['mean'])} {_ci(d['ci'])}{' *' if d['significant'] else ''}" if d else "—")
             out_md.append(f"| {x['model']} | {x['n']} | {_fmt(x['raw'])} {_ci(x['raw_ci'])} | {_fmt(x['norm'])} "
-                          f"{_ci(x['norm_ci']) if x['norm'] is not None else '—'} | {dtxt} | {x['errors']} | {x['forced']} | {x['steps']:.1f} | {x['cost_usd']:.2f} |")
+                          f"{_ci(x['norm_ci']) if x['norm'] is not None else '—'} | {dtxt} | {_fmt(x.get('named'))} | {_fmt(x.get('coded'))} | "
+                          f"{x['errors']} | {x['forced']} | {x['steps']:.1f} | {x['cost_usd']:.2f} |")
             summary["cells"].append({k: v for k, v in x.items() if k != "rewards"} | {"task": task, "arm": arm, "delta_vs_best": d})
     return "\n".join(out_md) + "\n", summary
 

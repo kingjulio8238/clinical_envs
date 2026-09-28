@@ -679,6 +679,70 @@ def workup_hedge_one_name(db: ReleaseDB, inst: Instance) -> dict:
     return {"icd10": "", "name": _hedge_name(db, inst), "tests_ordered": []}
 
 
+# RL-pressure probes (RL readiness A3): what a policy optimizing these rewards would try first --------------
+
+def _prior(db: ReleaseDB, n: int) -> list[dict]:
+    return db.dx_frequency_prior("train", n)
+
+
+def dx_many_diagnoses(db: ReleaseDB, inst: Instance) -> dict:
+    return {"active_diagnoses": [{**d, "acuity": "acute"} for d in _prior(db, 50)], "chronic_conditions": []}
+
+
+def dx_duplicate_entries(db: ReleaseDB, inst: Instance) -> dict:
+    return {"active_diagnoses": [{**_prior(db, 1)[0], "acuity": "acute"}] * 10, "chronic_conditions": []}
+
+
+def dx_codes_only(db: ReleaseDB, inst: Instance) -> dict:
+    return {"active_diagnoses": [{"icd10": d["icd10"], "name": "", "acuity": "acute"} for d in _prior(db, 5)], "chronic_conditions": []}
+
+
+def dx_names_only(db: ReleaseDB, inst: Instance) -> dict:
+    return {"active_diagnoses": [{"icd10": "", "name": d["name"], "acuity": "acute"} for d in _prior(db, 5)], "chronic_conditions": []}
+
+
+def dx_problem_list_names_only(db: ReleaseDB, inst: Instance) -> dict:
+    names = sorted(set(_PROBLEM_LINE.findall(db.chart_text(inst["patient_id"], inst.get("encounter_id")))))
+    return {"active_diagnoses": [{"icd10": "", "name": n, "acuity": "acute"} for n in names], "chronic_conditions": []}
+
+
+def diff_duplicate_entries(db: ReleaseDB, inst: Instance) -> dict:
+    return {"differential": [_prior(db, 1)[0]] * 5}
+
+
+def diff_names_only(db: ReleaseDB, inst: Instance) -> dict:
+    return {"differential": [{"icd10": "", "name": d["name"]} for d in _prior(db, 5)]}
+
+
+def diff_problem_list_names_only(db: ReleaseDB, inst: Instance) -> dict:
+    return {"differential": [{"icd10": "", "name": d["name"]} for d in dx_problem_list_names_only(db, inst)["active_diagnoses"]][:5]}
+
+
+def workup_mega_order(db: ReleaseDB, inst: Instance) -> dict:
+    top = _prior(db, 1)[0]
+    return {"icd10": top["icd10"], "name": top["name"], "tests_ordered": [" ".join(COMMON_TESTS)]}
+
+
+def workup_problem_list_names_only(db: ReleaseDB, inst: Instance) -> dict:
+    pl = dx_problem_list_names_only(db, inst)["active_diagnoses"] or [{"name": ""}]
+    return {"icd10": "", "name": pl[0]["name"], "tests_ordered": list(COMMON_TESTS)}
+
+
+def retr_duplicate_top(db: ReleaseDB, inst: Instance) -> dict:
+    ranked = retr_type_prior(db, inst)["rankings"]
+    return {"rankings": ranked[:1] * 10} if ranked else {"rankings": []}
+
+
+PROBES = {
+    "patient_diagnosis": ("name_sink", "hedge_one_name", "many_diagnoses", "duplicate_entries", "codes_only", "names_only", "problem_list_names_only"),
+    "atypical_diagnosis": ("name_sink", "hedge_one_name", "many_diagnoses", "duplicate_entries", "codes_only", "names_only", "problem_list_names_only"),
+    "differential_diagnosis": ("name_sink", "hedge_one_name", "duplicate_entries", "names_only", "problem_list_names_only"),
+    "test_selection": ("name_sink", "hedge_one_name", "mega_order", "problem_list_names_only"),
+    "evidence_retrieval": ("duplicate_top",),
+}
+"""The RL-pressure probes per unit; each is a floor policy and CI-gated at the floor (eval/tests/test_stage8_audit.py)."""
+
+
 def workup_prior_no_orders(db: ReleaseDB, inst: Instance) -> dict:
     top = db.dx_frequency_prior("train", 1)[0]
     return {"icd10": top["icd10"], "name": top["name"], "tests_ordered": []}
@@ -716,6 +780,9 @@ POLICIES: dict[str, dict[str, Policy]] = {
         "frequency_prior": diff_frequency_prior,
         "name_sink": diff_name_sink,
         "hedge_one_name": diff_hedge_one_name,
+        "duplicate_entries": diff_duplicate_entries,
+        "names_only": diff_names_only,
+        "problem_list_names_only": diff_problem_list_names_only,
     },
     "test_selection": {
         "empty": empty,
@@ -724,6 +791,8 @@ POLICIES: dict[str, dict[str, Policy]] = {
         "order_everything_copy_problem_list": workup_order_everything_copy_problem_list,
         "name_sink": workup_name_sink,
         "hedge_one_name": workup_hedge_one_name,
+        "mega_order": workup_mega_order,
+        "problem_list_names_only": workup_problem_list_names_only,
     },
     "error_detection": {
         "empty": empty,
@@ -741,6 +810,11 @@ POLICIES: dict[str, dict[str, Policy]] = {
         "copy_problem_list_plus_chronic": dx_copy_plus_chronic,
         "name_sink": dx_name_sink,
         "hedge_one_name": dx_hedge_one_name,
+        "many_diagnoses": dx_many_diagnoses,
+        "duplicate_entries": dx_duplicate_entries,
+        "codes_only": dx_codes_only,
+        "names_only": dx_names_only,
+        "problem_list_names_only": dx_problem_list_names_only,
     },
     "patient_diagnosis": {
         "empty": empty,
@@ -750,12 +824,18 @@ POLICIES: dict[str, dict[str, Policy]] = {
         "echo_problem_list_tool": dx_echo_problem_list_tool,
         "name_sink": dx_name_sink,
         "hedge_one_name": dx_hedge_one_name,
+        "many_diagnoses": dx_many_diagnoses,
+        "duplicate_entries": dx_duplicate_entries,
+        "codes_only": dx_codes_only,
+        "names_only": dx_names_only,
+        "problem_list_names_only": dx_problem_list_names_only,
     },
     "evidence_retrieval": {
         "empty": empty,
         "random": retr_random,
         "single_hpi": retr_single_hpi,
         "section_type_prior": retr_type_prior,
+        "duplicate_top": retr_duplicate_top,
     },
     "context_summarization": {
         "empty": empty,

@@ -10,11 +10,16 @@
       "floor_policy": "copy_problem_list_plus_chronic",
       "headroom": 0.9679663608562691,
       "policies": {
+       "codes_only": 0.003486238532110092,
        "copy_problem_list": 0.02377675840978593,
        "copy_problem_list_plus_chronic": 0.032033639143730884,
+       "duplicate_entries": 0.0010842368640533778,
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "many_diagnoses": 0.003491840920759431,
        "name_sink": 0.0,
+       "names_only": 0.002064220183486238,
+       "problem_list_names_only": 0.0055002184359982526,
        "profile_chronic": 0.00871559633027523
       }
      }
@@ -46,10 +51,13 @@
       "headroom": 0.975594368085117,
       "policies": {
        "copy_problem_list": 0.02440563191488302,
+       "duplicate_entries": 0.010080227535752113,
        "empty": 0.0,
        "frequency_prior": 0.020205789198669662,
        "hedge_one_name": 0.00016080881378358788,
-       "name_sink": 0.0
+       "name_sink": 0.0,
+       "names_only": 0.014213121812854312,
+       "problem_list_names_only": 0.010490537308852502
       }
      }
     },
@@ -79,6 +87,7 @@
       "floor_policy": "section_type_prior",
       "headroom": 0.5708501262920485,
       "policies": {
+       "duplicate_top": 0.07468909252428388,
        "empty": 0.0,
        "random": 0.25090415167486074,
        "section_type_prior": 0.4291498737079516,
@@ -91,6 +100,7 @@
       "floor_policy": "section_type_prior",
       "headroom": 0.5358208955223881,
       "policies": {
+       "duplicate_top": 0.05884861407249467,
        "empty": 0.0,
        "random": 0.22434968017057572,
        "section_type_prior": 0.39936034115138597,
@@ -141,12 +151,17 @@
       "floor_policy": "copy_problem_list_plus_chronic",
       "headroom": 0.9689686924493555,
       "policies": {
+       "codes_only": 0.004346224677716391,
        "copy_problem_list": 0.01998158379373849,
        "copy_problem_list_plus_chronic": 0.03103130755064457,
+       "duplicate_entries": 0.0024359618282270216,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "many_diagnoses": 0.00371367289086842,
        "name_sink": 0.0,
+       "names_only": 0.0028545119705340695,
+       "problem_list_names_only": 0.00425611681136543,
        "profile_chronic": 0.011602209944751382
       }
      }
@@ -220,10 +235,12 @@
       "policies": {
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "mega_order": 0.0,
        "name_sink": 0.0,
        "order_everything": 0.0,
        "order_everything_copy_problem_list": 0.00044525065963060687,
-       "prior_dx_no_orders": 0.0
+       "prior_dx_no_orders": 0.0,
+       "problem_list_names_only": 0.0001566622691292876
       }
      }
     },
@@ -239,11 +256,16 @@
       "floor_policy": "copy_problem_list_plus_chronic",
       "headroom": 0.9692118226600985,
       "policies": {
+       "codes_only": 0.0031198686371100167,
        "copy_problem_list": 0.017857142857142856,
        "copy_problem_list_plus_chronic": 0.03078817733990148,
+       "duplicate_entries": 0.0012315270935960591,
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "many_diagnoses": 0.0036247520607458664,
        "name_sink": 0.0,
+       "names_only": 0.0015394088669950735,
+       "problem_list_names_only": 0.0008210180623973727,
        "profile_chronic": 0.014778325123152709
       }
      }
@@ -275,10 +297,13 @@
       "headroom": 0.9759028027719406,
       "policies": {
        "copy_problem_list": 0.024097197228059322,
+       "duplicate_entries": 0.005225046287567902,
        "empty": 0.0,
-       "frequency_prior": 0.01639466019395313,
+       "frequency_prior": 0.01646607100991942,
        "hedge_one_name": 0.00018459428141877045,
-       "name_sink": 0.0
+       "name_sink": 0.0,
+       "names_only": 0.010913290472741359,
+       "problem_list_names_only": 0.010578180617617063
       }
      }
     },
@@ -308,6 +333,7 @@
       "floor_policy": "section_type_prior",
       "headroom": 0.567932986660285,
       "policies": {
+       "duplicate_top": 0.07662910772207174,
        "empty": 0.0,
        "random": 0.2614476991229443,
        "section_type_prior": 0.432067013339715,
@@ -320,6 +346,7 @@
       "floor_policy": "section_type_prior",
       "headroom": 0.5481582537517053,
       "policies": {
+       "duplicate_top": 0.056207366984993186,
        "empty": 0.0,
        "random": 0.23061391541609824,
        "section_type_prior": 0.3858117326057299,
@@ -370,12 +397,17 @@
       "floor_policy": "copy_problem_list_plus_chronic",
       "headroom": 0.964310829817159,
       "policies": {
+       "codes_only": 0.004031879981247071,
        "copy_problem_list": 0.015646976090014066,
        "copy_problem_list_plus_chronic": 0.03568917018284107,
+       "duplicate_entries": 0.0015343306482546988,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "many_diagnoses": 0.004353471591582592,
        "name_sink": 0.0,
+       "names_only": 0.002461322081575246,
+       "problem_list_names_only": 0.0018501774830888753,
        "profile_chronic": 0.02109704641350211
       }
      }
@@ -449,10 +481,12 @@
       "policies": {
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "mega_order": 0.0,
        "name_sink": 0.0,
        "order_everything": 0.0,
        "order_everything_copy_problem_list": 0.0004966887417218544,
-       "prior_dx_no_orders": 0.0
+       "prior_dx_no_orders": 0.0,
+       "problem_list_names_only": 0.0
       }
      }
     },
@@ -468,11 +502,16 @@
       "floor_policy": "copy_problem_list_plus_chronic",
       "headroom": 0.9645784543325527,
       "policies": {
+       "codes_only": 0.003942232630757221,
        "copy_problem_list": 0.024882903981264637,
        "copy_problem_list_plus_chronic": 0.035421545667447304,
+       "duplicate_entries": 0.0013838620395997445,
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "many_diagnoses": 0.003135694034612661,
        "name_sink": 0.0,
+       "names_only": 0.0023419203747072595,
+       "problem_list_names_only": 0.004391100702576112,
        "profile_chronic": 0.01053864168618267
       }
      }
@@ -504,10 +543,13 @@
       "headroom": 0.9731617805476265,
       "policies": {
        "copy_problem_list": 0.026838219452373562,
+       "duplicate_entries": 0.011482166488243207,
        "empty": 0.0,
        "frequency_prior": 0.020547886939776883,
        "hedge_one_name": 0.0,
-       "name_sink": 0.0
+       "name_sink": 0.0,
+       "names_only": 0.014308838439101685,
+       "problem_list_names_only": 0.013397440291483485
       }
      }
     },
@@ -537,6 +579,7 @@
       "floor_policy": "section_type_prior",
       "headroom": 0.5796798438375403,
       "policies": {
+       "duplicate_top": 0.07247029323973724,
        "empty": 0.0,
        "random": 0.24842792253392085,
        "section_type_prior": 0.4203201561624597,
@@ -549,6 +592,7 @@
       "floor_policy": "section_type_prior",
       "headroom": 0.5355021216407355,
       "policies": {
+       "duplicate_top": 0.055445544554455446,
        "empty": 0.0,
        "random": 0.21691654879773695,
        "section_type_prior": 0.38415841584158417,
@@ -599,12 +643,17 @@
       "floor_policy": "copy_problem_list_plus_chronic",
       "headroom": 0.9642857142857143,
       "policies": {
+       "codes_only": 0.004906204906204907,
        "copy_problem_list": 0.023448773448773448,
        "copy_problem_list_plus_chronic": 0.03571428571428571,
+       "duplicate_entries": 0.00173816082906992,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "many_diagnoses": 0.0037637054466610736,
        "name_sink": 0.0,
+       "names_only": 0.0029461279461279457,
+       "problem_list_names_only": 0.003427128427128427,
        "profile_chronic": 0.012265512265512266
       }
      }
@@ -678,10 +727,12 @@
       "policies": {
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "mega_order": 0.0,
        "name_sink": 0.0,
        "order_everything": 0.0,
        "order_everything_copy_problem_list": 0.0008558917197452228,
-       "prior_dx_no_orders": 0.0
+       "prior_dx_no_orders": 0.0,
+       "problem_list_names_only": 0.0004179936305732484
       }
      }
     },
@@ -697,11 +748,16 @@
       "floor_policy": "copy_problem_list_plus_chronic",
       "headroom": 0.9621067985794013,
       "policies": {
+       "codes_only": 0.007559614408929477,
        "copy_problem_list": 0.023116438356164382,
        "copy_problem_list_plus_chronic": 0.03789320142059868,
+       "duplicate_entries": 0.0016604400166044,
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "many_diagnoses": 0.005554842285517565,
        "name_sink": 0.0,
+       "names_only": 0.00491501775748351,
+       "problem_list_names_only": 0.003283322461404653,
        "profile_chronic": 0.016362252663622526
       }
      }
@@ -733,10 +789,13 @@
       "headroom": 0.9743318698458558,
       "policies": {
        "copy_problem_list": 0.025668130154144184,
+       "duplicate_entries": 0.009797365661623599,
        "empty": 0.0,
-       "frequency_prior": 0.023877115390289114,
+       "frequency_prior": 0.02394243248329295,
        "hedge_one_name": 0.00017801184765756583,
-       "name_sink": 0.0
+       "name_sink": 0.0,
+       "names_only": 0.015893910709041868,
+       "problem_list_names_only": 0.01348513658575621
       }
      }
     },
@@ -766,6 +825,7 @@
       "floor_policy": "section_type_prior",
       "headroom": 0.5786365319585758,
       "policies": {
+       "duplicate_top": 0.07456007931421665,
        "empty": 0.0,
        "random": 0.2503885033021457,
        "section_type_prior": 0.42136346804142416,
@@ -778,6 +838,7 @@
       "floor_policy": "section_type_prior",
       "headroom": 0.5597791072250344,
       "policies": {
+       "duplicate_top": 0.05669581224114128,
        "empty": 0.0,
        "random": 0.22308329498389326,
        "section_type_prior": 0.3785549930971008,
@@ -828,12 +889,17 @@
       "floor_policy": "copy_problem_list_plus_chronic",
       "headroom": 0.9649921197793538,
       "policies": {
+       "codes_only": 0.007517730496453902,
        "copy_problem_list": 0.019326241134751773,
        "copy_problem_list_plus_chronic": 0.03500788022064617,
+       "duplicate_entries": 0.0030732860520094564,
        "echo_problem_list_tool": 0.0,
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "many_diagnoses": 0.0054127490333455855,
        "name_sink": 0.0,
+       "names_only": 0.004826635145784081,
+       "problem_list_names_only": 0.0029263762242485647,
        "profile_chronic": 0.01702127659574468
       }
      }
@@ -907,10 +973,12 @@
       "policies": {
        "empty": 0.0,
        "hedge_one_name": 0.0,
+       "mega_order": 0.0,
        "name_sink": 0.0,
        "order_everything": 0.0,
        "order_everything_copy_problem_list": 0.0004922279792746114,
-       "prior_dx_no_orders": 0.0
+       "prior_dx_no_orders": 0.0,
+       "problem_list_names_only": 8.095854922279794e-05
       }
      }
     },

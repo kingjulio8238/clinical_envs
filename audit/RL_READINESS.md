@@ -88,3 +88,19 @@ correctly* (name credit or the LLM judge) and *coded it exactly*.
   intrauterine adhesions for Asherman syndrome); a SNOMED-concept matcher would remove most of it.
 - Whole-patient summarization: echoing the key finding names scores 0.487 (floor), close to Qwen's 0.525, so there
   is little headroom there.
+
+## 6. Update after the reward-validity items (A1–A4, `audit/RL_READINESS_TODO.md`)
+
+- **Synonym noise closed to ≤ 5%.** Concept aliases from the release (CMS / SNOMED descriptions, merged duplicates,
+  parenthetical glosses) plus a small synonym lexicon: judge-audited correct-but-0 for Qwen 2.8% / 3.7% / 0% / 3.1%
+  (patient_diagnosis / atypical / differential / test_selection), 0% for GPT-6 Sol, and 2.7% / – / 0% / 0% on the
+  no-tools answers that were not used to build it. Rewards after rescoring: Qwen patient_diagnosis 0.332,
+  atypical 0.347, differential 0.408, test_selection 0.273; GPT-6 Sol 0.520 / 0.647 / 0.526 / 0.325. Still GO on
+  the same four units (`results/rl_decision.md`).
+- **Named vs coded is now a first-class metric** (`diagnosis_named`, `diagnosis_coded`; leaderboard columns).
+  Qwen names the reference diagnosis in 47% of patient_diagnosis references but codes 13% exactly (Sol 75% / 48%):
+  the coding gap is larger than the naming gap, as §2 predicted.
+- **Probe suite:** 20 RL-pressure probes are CI floor gates on public and heldout; one more exploit was found and
+  fixed (retrieval counted a duplicated passage at every rank).
+- **Frozen reward:** `reward-v1` (`eval/reward_lock.json`, git tag), recorded in every manifest; the runner refuses a
+  drifted scorer; CI fails on an un-locked scorer change.

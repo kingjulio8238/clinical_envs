@@ -225,10 +225,10 @@ paired comparisons, failures scored 0, random seeded samples); the paper's Table
 
 | unit | floor | Qwen3.5-9B, tools (n=120) | Qwen3.5-9B, no tools | GPT-6 Sol, tools (n=40) |
 |---|---|---|---|---|
-| patient_diagnosis | 0.036 | 0.305 | 0.226 | 0.514 |
-| atypical_diagnosis | 0.035 | 0.271 (n=77) | — | 0.625 (n=23) |
-| differential_diagnosis | 0.027 | 0.390 | 0.324 | 0.524 |
-| test_selection | 0.001 | 0.247 | 0.095 | 0.315 |
+| patient_diagnosis | 0.036 | 0.332 | 0.246 | 0.520 |
+| atypical_diagnosis | 0.035 | 0.347 (n=77) | — | 0.647 (n=23) |
+| differential_diagnosis | 0.027 | 0.408 | 0.340 | 0.526 |
+| test_selection | 0.001 | 0.273 | 0.106 | 0.325 |
 | evidence_retrieval | 0.420 | 0.563 | — | 0.700 |
 | context_summarization | 0.487 | 0.525 | — | 0.619 |
 | specialty_conditioned | 0.407 | 0.595 | — | 0.589 |

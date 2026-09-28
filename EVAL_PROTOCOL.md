@@ -70,8 +70,15 @@ sample was the longest charts minus a ceiling filter, and the data generator sat
   qualifiers such as "obstetric" or "exercise" optional); generic orders ("labs", "imaging") match by name only.
   Each prediction records its orders and what they matched (`order_log`, `unmatched_orders`).
 - Diagnosis credit is the ICD credit, or a lower name credit when the model named the reference diagnosis but
-  coded it differently (`eval/scoring.py dx_credit`: 0.75 same name, 0.5 related name in the same ICD block,
-  0 on a contradicting qualifier), in every diagnosis-scored task.
+  coded it differently (`eval/scoring.py dx_credit`: 0.75 same name, 0.5 related name, 0 on a contradicting
+  qualifier), in every diagnosis-scored task. Names are compared with the reference and with the concept's other
+  names in the release (CMS and SNOMED descriptions, merged duplicates, the reference's parenthetical gloss;
+  `eval/diagnosis_aliases.json`). A more specific name may add qualifiers, not a list of diseases.
+- Every diagnosis-scored result reports `diagnosis_named` (the reference named, code ignored) and
+  `diagnosis_coded` (coded exactly) beside the reward, so a gain splits into naming and coding.
+- The reward is frozen: `eval/reward_lock.json` holds the version and the SHA-256 of every reward file; the runner
+  records it in each manifest and refuses to run on a drifted scorer (`--allow-reward-drift` is recorded), and CI
+  fails when a reward file changes without re-locking (`python -m eval.reward_version`).
 - The single arm offers only the submit tool; a model that still calls another tool gets one corrective turn and
   the call is never executed (recorded as `format_retry`).
 - A scorer fix that lands after a run is applied to every run with `scripts/rescore_protocol_runs.py` (the as-run

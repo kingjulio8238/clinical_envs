@@ -27,10 +27,10 @@ PRIMARY = {
 }
 
 
-def _icd_credit(pred: str, gt: str, pred_name: str = "", gt_name: str = "") -> float:
-    """ICD credit, or the name-equivalence credit when higher (eval.scoring.dx_credit, Stage-8 audit R2)."""
+def _icd_credit(pred: str, gt: str, pred_name: str = "", gt_name: str = "", gt_id=None) -> float:
+    """ICD credit, or the concept name credit when higher (eval.scoring.dx_credit: Stage-8 R2, RL readiness A1)."""
     from eval.scoring import dx_credit
-    return dx_credit(pred or "", gt or "", pred_name or "", gt_name or "")
+    return dx_credit(pred or "", gt or "", pred_name or "", gt_name or "", gt_id)
 
 
 # ---------------------------------------------------------------------------
@@ -51,18 +51,18 @@ def score_differential_item(pred: dict, gt: dict) -> dict:
     matched one-to-one greedily; the ideal ordering is correct first, then the distractors."""
     correct = [d for d in gt.get("correct", []) if isinstance(d, dict)]
     distr = [d for d in gt.get("distractors", []) if isinstance(d, dict)]
-    targets = [(d.get("icd10") or "", 1.0, d.get("display_name") or d.get("name") or "") for d in correct] + \
-              [(d.get("icd10") or "", DISTRACTOR_GAIN, d.get("display_name") or d.get("name") or "") for d in distr]
+    targets = [(d.get("icd10") or "", 1.0, d.get("display_name") or d.get("name") or "", d.get("diagnosis_id")) for d in correct] + \
+              [(d.get("icd10") or "", DISTRACTOR_GAIN, d.get("display_name") or d.get("name") or "", d.get("diagnosis_id")) for d in distr]
     preds = _dx_list(pred)
     used: set[int] = set()
     gains: list[float] = []
     top1 = 0.0
     for i, p in enumerate(preds):
         best, best_j = 0.0, None
-        for j, (code, gain, tname) in enumerate(targets):
+        for j, (code, gain, tname, tid) in enumerate(targets):
             if j in used or not code:
                 continue
-            c = _icd_credit(p.get("icd10") or "", code, str(p.get("name") or ""), tname) * gain
+            c = _icd_credit(p.get("icd10") or "", code, str(p.get("name") or ""), tname, tid) * gain
             if c > best:
                 best, best_j = c, j
         if best_j is not None:
@@ -71,9 +71,15 @@ def score_differential_item(pred: dict, gt: dict) -> dict:
                 top1 = best
         gains.append(best)
     dcg = sum(g / math.log2(i + 2) for i, g in enumerate(gains))
-    ideal = sorted((g for _, g, _ in targets), reverse=True)[:DIFFERENTIAL_K]
+    ideal = sorted((t[1] for t in targets), reverse=True)[:DIFFERENTIAL_K]
     idcg = sum(g / math.log2(i + 2) for i, g in enumerate(ideal))
+    from eval.scoring import diagnosis_named_coded
+    named, coded = diagnosis_named_coded([str(p.get("icd10") or "") for p in preds], [str(p.get("name") or "") for p in preds],
+                                         [d.get("icd10") or "" for d in correct],
+                                         [d.get("display_name") or d.get("name") or "" for d in correct],
+                                         [d.get("diagnosis_id") for d in correct])
     return {"differential_ndcg_5": (dcg / idcg) if idcg else 0.0, "differential_top1": top1,
+            "diagnosis_named": named, "diagnosis_coded": coded,
             "differential_distractor_recall": (sum(1 for j in used if j >= len(correct)) / len(distr)) if distr else 0.0,
             "n_predicted": len(preds)}
 
@@ -94,7 +100,11 @@ def score_test_selection_item(pred: dict, gt: dict) -> dict:
         pred = {}
     dx = pred.get("diagnosis") if isinstance(pred.get("diagnosis"), dict) else pred
     gdx = gt.get("diagnosis") or {}
-    credit = _icd_credit(str(dx.get("icd10") or ""), str(gdx.get("icd10") or ""), str(dx.get("name") or ""), str(gdx.get("name") or ""))
+    credit = _icd_credit(str(dx.get("icd10") or ""), str(gdx.get("icd10") or ""), str(dx.get("name") or ""), str(gdx.get("name") or ""),
+                         gdx.get("diagnosis_id"))
+    from eval.scoring import diagnosis_named_coded
+    named, coded = diagnosis_named_coded([str(dx.get("icd10") or "")], [str(dx.get("name") or "")], [str(gdx.get("icd10") or "")],
+                                         [str(gdx.get("name") or "")], [gdx.get("diagnosis_id")])
     disc = [d for d in gt.get("discriminating", [])]
     orders = pred.get("tests_ordered") or []
     if orders and isinstance(orders[0], str):                       # single-turn: names only, matched like order_test
@@ -109,7 +119,8 @@ def score_test_selection_item(pred: dict, gt: dict) -> dict:
     n_needed = max(1, len(disc))
     parsimony = min(1.0, n_needed / n_orders) if n_orders else 1.0
     return {"workup_score": credit * coverage * parsimony, "workup_icd_credit": credit, "workup_coverage": coverage,
-            "workup_parsimony": parsimony, "n_orders": n_orders, "discriminating_ordered": int(hit)}
+            "workup_parsimony": parsimony, "n_orders": n_orders, "discriminating_ordered": int(hit),
+            "diagnosis_named": named, "diagnosis_coded": coded}
 
 
 # ---------------------------------------------------------------------------

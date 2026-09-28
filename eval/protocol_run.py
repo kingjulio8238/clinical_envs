@@ -47,6 +47,8 @@ RUN_UNITS = ("patient_diagnosis", "evidence_retrieval", "context_summarization",
              "atypical_diagnosis")
 """The units a panel run plays. The specialty task is played as served, the involved/absent mixture;
 its two halves are recoverable from the predictions (`involvement`)."""
+SECONDARY_METRICS = ("diagnosis_named", "diagnosis_coded")
+"""Recorded per episode beside the reward (RL readiness A2: a gain splits into naming vs coding)."""
 EPISODE_DEADLINE_S = int(os.environ.get("SH_EPISODE_DEADLINE_S", "900"))
 """Wall-clock cap per episode: after it the episode is force-submitted with the best answer seen (scored as usual);
 every model call is also bounded by the episode's remaining time."""
@@ -206,6 +208,7 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
                     if done:
                         rec.update(reward=float(reward), metric=info.get("reward_metric"), forced=bool(info.get("forced")),
                                    submitted=True, submission=args)
+                        rec["metrics"] = {k: v for k, v in (info.get("metrics") or {}).items() if k in SECONDARY_METRICS}
                         break
                 if done:
                     break
@@ -217,6 +220,7 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
                     obs, reward, done, info = env.step(ro.submit_tool, parsed)
                     rec.update(reward=float(reward), metric=info.get("reward_metric"), forced=bool(info.get("forced")),
                                submitted=True, submission=parsed)
+                    rec["metrics"] = {k: v for k, v in (info.get("metrics") or {}).items() if k in SECONDARY_METRICS}
                     break
                 messages.append({"role": "user", "content": f"Take an action: call a tool, or call {ro.submit_tool} with your answer. "
                                                             f"{max(0, budget - env.ep['steps'])} actions remain."})
@@ -227,6 +231,7 @@ def run_episode(adapter, inst: D.Instance, arm: str, budget: int, prices: tuple[
             obs, reward, _, info = env.step(ro.submit_tool, last_parsed or {})
             rec.update(reward=float(reward), metric=info.get("reward_metric"), forced=True, submitted=last_parsed is not None,
                        submission=last_parsed)
+            rec["metrics"] = {k: v for k, v in (info.get("metrics") or {}).items() if k in SECONDARY_METRICS}
         rec["steps"] = env.ep["steps"]
         rec["order_log"] = list(env.ep.get("orders") or [])
         rec["orders"] = len(rec["order_log"])
@@ -270,7 +275,12 @@ def _git() -> str | None:
 def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: str = "public", seed: int = 0,
               budget: int = 40, workers: int = 16, max_usd: float | None = None, out_root: Path = RESULTS,
               max_turns: int | None = None, adapter=None, prices: tuple[float, float] | None = None, quiet: bool = False,
-              max_output_tokens: int | None = None, min_balance: float | None = None) -> dict[str, Path]:
+              max_output_tokens: int | None = None, min_balance: float | None = None,
+              allow_reward_drift: bool = False) -> dict[str, Path]:
+    from eval import reward_version as RV
+    reward_info = RV.current()
+    if reward_info["reward_drift"] and not allow_reward_drift:
+        RV.require_frozen()                                       # raises: the reward is not the frozen one
     cfg = MODEL_REGISTRY[model]
     if max_output_tokens:
         cfg = dataclasses.replace(cfg, max_tokens=max_output_tokens)      # per-turn cap, like an RL rollout limit
@@ -346,6 +356,7 @@ def run_units(model: str, tasks: list[str], n: int, arm: str = "agent", split: s
             "prompt_hash": prompt_hash, "git_commit": _git(), "floors_file": "eval/floors.json",
             "started": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(u["t0"])), "duration_s": round(time.time() - u["t0"], 1),
             "cost_usd": round(u["spent"], 4), "max_usd": max_usd, "stopped": stop_reason, "protocol": "EVAL_PROTOCOL.md",
+            **reward_info, "reward_drift_allowed": bool(allow_reward_drift and reward_info["reward_drift"]),
         }
         (u["out"] / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return {task: u["out"] for task, u in units.items()}
@@ -388,12 +399,13 @@ def main(argv=None) -> int:
     ap.add_argument("--min-balance", type=float, default=None, help="stop when the OpenRouter balance falls below this")
     ap.add_argument("--max-output-tokens", type=int, default=None, help="per-turn output cap (default: the registry's 16384)")
     ap.add_argument("--out", default=str(RESULTS))
+    ap.add_argument("--allow-reward-drift", action="store_true", help="run although the scorer differs from eval/reward_lock.json (recorded)")
     a = ap.parse_args(argv)
     tasks = a.tasks.split(",") if a.tasks else (list(RUN_UNITS) if a.panel else [a.task])
     n = 3 if a.smoke else a.n
     out_root = Path(a.out) / ("smoke" if a.smoke else "")
     outs = run_units(a.model, tasks, n, a.arm, a.split, a.seed, a.budget, a.workers, a.max_usd, out_root,
-                     max_output_tokens=a.max_output_tokens, min_balance=a.min_balance)
+                     max_output_tokens=a.max_output_tokens, min_balance=a.min_balance, allow_reward_drift=a.allow_reward_drift)
     for task, out in outs.items():
         s = summarize(out)
         print(json.dumps({"run": out.name, **s}))

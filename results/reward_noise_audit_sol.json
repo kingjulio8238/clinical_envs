@@ -2,21 +2,22 @@
  "model": "gpt-6-sol",
  "judge": "gpt-6-sol",
  "split": "public",
+ "arm": "agent",
  "patient_diagnosis": {
-  "zero_scored_answered": 8,
-  "judged": 8,
-  "same": 1,
+  "zero_scored_answered": 7,
+  "judged": 7,
+  "same": 0,
   "related": 7,
   "different": 0,
-  "correct_zero_rate": 0.125
+  "correct_zero_rate": 0.0
  },
  "atypical_diagnosis": {
-  "zero_scored_answered": 2,
-  "judged": 2,
-  "same": 1,
+  "zero_scored_answered": 1,
+  "judged": 1,
+  "same": 0,
   "related": 1,
   "different": 0,
-  "correct_zero_rate": 0.5
+  "correct_zero_rate": 0.0
  },
  "differential_diagnosis": {
   "zero_scored_answered": 1,
@@ -27,10 +28,10 @@
   "correct_zero_rate": 0.0
  },
  "test_selection": {
-  "zero_scored_answered": 5,
-  "judged": 5,
+  "zero_scored_answered": 4,
+  "judged": 4,
   "same": 0,
-  "related": 5,
+  "related": 4,
   "different": 0,
   "correct_zero_rate": 0.0
  },
@@ -45,21 +46,8 @@
     "Gross hematuria (R31.0)"
    ],
    "verdict": "related",
-   "reason": "Gross hematuria can be a symptom of urolithiasis, but it does not name the reference diagnosis.",
+   "reason": "Gross hematuria can occur with urolithiasis but is a symptom, not the same diagnosis.",
    "cost_input_tokens": 135
-  },
-  {
-   "unit": "patient_diagnosis",
-   "gt_id": 70299,
-   "reference": [
-    "Coagulopathy due to vitamin K deficiency"
-   ],
-   "answer": [
-    "Acquired coagulation factor deficiency due to vitamin K deficiency, with bleeding (D68.4)"
-   ],
-   "verdict": "same",
-   "reason": "Both describe a vitamin K deficiency\u2013induced coagulopathy; the model adds bleeding as a manifestation.",
-   "cost_input_tokens": 144
   },
   {
    "unit": "patient_diagnosis",
@@ -71,7 +59,7 @@
     "Left S1 lumbosacral radiculopathy, acute exacerbation (M54.17)"
    ],
    "verdict": "related",
-   "reason": "S1 radiculopathy can result from an L5-S1 disc herniation, but it does not name the herniation itself.",
+   "reason": "S1 radiculopathy can result from an L5-S1 disc herniation, but it does not identify the herniation itself.",
    "cost_input_tokens": 148
   },
   {
@@ -84,7 +72,7 @@
     "Acute viral infection following upper respiratory illness (B34.9)"
    ],
    "verdict": "related",
-   "reason": "An acute viral infection may trigger systemic inflammatory response syndrome, but it does not name the syndrome.",
+   "reason": "An acute viral infection can trigger SIRS, but it does not name the systemic inflammatory response syndrome.",
    "cost_input_tokens": 134
   },
   {
@@ -110,7 +98,7 @@
     "Localized enlarged lymph nodes (cervical and supraclavicular lymphadenopathy) (R59.0)"
    ],
    "verdict": "related",
-   "reason": "Lymphadenopathy can be a sign of lymphoma, but it does not name lymphoma as the diagnosis.",
+   "reason": "Cervical and supraclavicular lymphadenopathy can occur with lymphoma but does not diagnose lymphoma.",
    "cost_input_tokens": 154
   },
   {
@@ -123,7 +111,7 @@
     "Encounter for genetic counseling for family history of cystic fibrosis (Z31.5)"
    ],
    "verdict": "related",
-   "reason": "Genetic counseling for a family history of cystic fibrosis is related but does not identify the daughter's homozygous normal CFTR genotype.",
+   "reason": "Genetic counseling for a family history of cystic fibrosis does not establish the daughter's homozygous normal CFTR genotype.",
    "cost_input_tokens": 144
   },
   {
@@ -136,20 +124,7 @@
     "Gross hematuria (initial-stream hematuria) (R31.0)"
    ],
    "verdict": "related",
-   "reason": "Initial-stream hematuria can occur with urethral stricture, but it is a symptom rather than the diagnosis.",
-   "cost_input_tokens": 138
-  },
-  {
-   "unit": "atypical_diagnosis",
-   "gt_id": 84092,
-   "reference": [
-    "Acetaminophen overdose"
-   ],
-   "answer": [
-    "Acute liver failure without coma due to acetaminophen toxicity (K72.00)"
-   ],
-   "verdict": "same",
-   "reason": "Acetaminophen toxicity with acute liver failure identifies the acetaminophen overdose and its complication.",
+   "reason": "Initial-stream hematuria may result from a urethral stricture, but it is a symptom rather than the diagnosis.",
    "cost_input_tokens": 138
   },
   {
@@ -162,7 +137,7 @@
     "Osmotic diarrhea due to magnesium-containing laxative use (K52.1)"
    ],
    "verdict": "related",
-   "reason": "Magnesium laxative use can cause factitious diarrhea, but the answer does not identify intentional or surreptitious laxative use.",
+   "reason": "Magnesium-containing laxatives can cause factitious diarrhea, but the answer does not establish intentional laxative use.",
    "cost_input_tokens": 135
   },
   {
@@ -175,7 +150,7 @@
     "Dissection of thoracic aorta (acute ascending aortic dissection) (I71.01)"
    ],
    "verdict": "different",
-   "reason": "An acute ascending aortic dissection is distinct from aortic valve stenosis.",
+   "reason": "Acute ascending aortic dissection is distinct from aortic valve stenosis.",
    "cost_input_tokens": 142
   },
   {
@@ -188,7 +163,7 @@
     "Hyperprolactinemia (E22.1)"
    ],
    "verdict": "related",
-   "reason": "Hyperprolactinemia is elevated prolactin, but it does not establish a prolactin-secreting pituitary tumor.",
+   "reason": "Hyperprolactinemia can result from a prolactinoma but does not specify the tumor.",
    "cost_input_tokens": 132
   },
   {
@@ -201,7 +176,7 @@
     "Left S1 lumbosacral radiculopathy (M54.17)"
    ],
    "verdict": "related",
-   "reason": "S1 radiculopathy may result from an L5-S1 disc herniation but does not identify the herniation itself.",
+   "reason": "S1 radiculopathy can result from an L5-S1 disc herniation, but it does not identify the herniated disc itself.",
    "cost_input_tokens": 144
   },
   {
@@ -214,21 +189,8 @@
     "Exertional heatstroke (T67.01XA)"
    ],
    "verdict": "related",
-   "reason": "Exertional heatstroke can cause acute liver failure, but it names the underlying cause rather than the reference diagnosis.",
+   "reason": "Exertional heatstroke can cause acute liver failure, but it is a distinct diagnosis.",
    "cost_input_tokens": 131
-  },
-  {
-   "unit": "test_selection",
-   "gt_id": 76997,
-   "reference": [
-    "Gestational Trophoblastic Neoplasia"
-   ],
-   "answer": [
-    "Hydatidiform mole (O02.0)"
-   ],
-   "verdict": "related",
-   "reason": "Hydatidiform mole is a gestational trophoblastic condition, but it does not by itself establish gestational trophoblastic neoplasia.",
-   "cost_input_tokens": 135
   },
   {
    "unit": "test_selection",
@@ -240,7 +202,7 @@
     "Viral meningitis, unspecified (A87.9)"
    ],
    "verdict": "related",
-   "reason": "Viral meningitis is a related CNS infection but does not identify herpes simplex encephalitis.",
+   "reason": "Viral meningitis is a related but distinct diagnosis from herpes simplex encephalitis.",
    "cost_input_tokens": 133
   }
  ]

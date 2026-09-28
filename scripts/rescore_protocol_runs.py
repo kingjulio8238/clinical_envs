@@ -18,6 +18,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from eval import degenerate as D  # noqa: E402
 
+SECONDARY = ("diagnosis_named", "diagnosis_coded")
+DX_TASKS = ("patient_diagnosis", "atypical_diagnosis", "differential_diagnosis", "test_selection")
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -38,12 +41,14 @@ def main() -> int:
             asrun = p.get("reward_asrun", p["reward"])
             if p.get("error") or p.get("submission") is None and not p.get("forced"):
                 new = 0.0 if p.get("error") else float(p["reward"])
+                p["metrics"] = {k: 0.0 for k in SECONDARY} if task in DX_TASKS else {}
             else:
                 sub = dict(p.get("submission") or {})
                 if task == "test_selection" and arm == "agent":
                     sub["tests_ordered"] = list(p.get("order_log") or [])   # the trace, never the claim
                 m = D.score(db, task, [sub], [cache[key][p["gt_id"]]])
                 new = float(m[D.PRIMARY_METRIC[task]])
+                p["metrics"] = {k: m[k] for k in SECONDARY if k in m}
             changed += abs(new - float(p["reward"])) > 1e-9
             before += asrun; after += new
             p["reward_asrun"] = asrun

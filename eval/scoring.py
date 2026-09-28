@@ -11,10 +11,12 @@ Cross-task:
   - Inter-model agreement (Cohen's kappa)
 """
 
+import functools
 import json
 import logging
 import math
 import re
+from pathlib import Path
 from collections import defaultdict
 
 import numpy as np
@@ -453,16 +455,25 @@ _DX_SYN = {"mi": "myocardial infarction", "stemi": "st elevation myocardial infa
            "pprom": "preterm premature rupture membranes", "prom": "premature rupture membranes", "tia": "transient ischemic attack",
            "ards": "acute respiratory distress", "dka": "diabetic ketoacidosis", "sle": "systemic lupus erythematosus",
            "ibs": "irritable bowel", "bph": "benign prostatic hyperplasia", "hiv": "human immunodeficiency virus", "tb": "tuberculosis",
-           "ii": "2", "iii": "3", "iv": "4"}      # not "i": "I-cell disease" is no type 1
+           "ii": "2", "iii": "3", "iv": "4",
+           "synechiae": "adhesion", "synechia": "adhesion", "toxicity": "poisoning", "intoxication": "poisoning",
+           "overdose": "poisoning", "csf": "cerebrospinal fluid", "arterial": "artery", "testosterone": "androgen",
+           "administration": "use", "related": "", "periprosthetic": "prosthetic"}      # not "i": "I-cell disease" is no type 1
 _DX_POLAR = ({"left", "right"}, {"acute", "chronic"}, {"benign", "malignant"}, {"primary", "secondary"}, {"upper", "lower"},
              {"anterior", "posterior"}, {"inferior", "superior"}, {"with", "without"}, {"congenital", "acquired"},
              {"early", "late"}, {"unilateral", "bilateral"}, {"proximal", "distal"}, {"central", "peripheral"})
 
 
+_DX_PHRASES = ((re.compile(r"\bimmunoglobulin ([agmde])\b"), r"ig\1"),)    # "Immunoglobulin A vasculitis" = "IgA vasculitis"
+
+
+@functools.lru_cache(maxsize=200_000)
 def _dx_tokens(name: str, keep_parentheticals: bool = False) -> frozenset[str]:
     t = (name or "").lower()
     if not keep_parentheticals:
         t = re.sub(r"\([^)]*\)", " ", t)                            # parentheticals are glosses ("(PPROM)")
+    for pat, rep in _DX_PHRASES:
+        t = pat.sub(rep, t)
     t = t.replace("-", " ").replace("/", " ").replace(",", " ")
     out = set()
     for w in re.findall(r"[a-z0-9]+", t):
@@ -503,6 +514,10 @@ def name_credit(pred_name: str, gt_name: str, pred_code: str = "", gt_code: str 
     cap = _specific_cap(len(ga))
     if len(ga) >= 2 and not _dx_conflict(pf, ga) and ((ga <= pa and len(pa) <= cap) or (ga <= pf and len(pf) <= cap)):
         return NAME_CREDIT["related"]                     # (the name outside its parenthetical gloss may carry it)
+    # near-identical multi-word names in any block ("Aortic stenosis" for "Aortic valve stenosis"): at least two shared
+    # content words and a Jaccard of 2/3 ("Essential" vs "Pulmonary hypertension" is 1/3)
+    if len(pa & ga) >= 2 and len(pa & ga) / len(pa | ga) >= 2 / 3:
+        return NAME_CREDIT["related"]
     pc, gc = _normalize_icd10(pred_code), _normalize_icd10(gt_code)
     if not pc or not gc or pc[:2] != gc[:2]:
         return 0.0
@@ -515,20 +530,75 @@ def _specific_cap(n_ref: int) -> int:
     return max(3 * n_ref, n_ref + 6)
 
 
-def dx_credit(pred_code: str, gt_code: str, pred_name: str = "", gt_name: str = "") -> float:
-    """ICD credit, or the name credit when that is higher (never above the exact-code credit)."""
+_ALIASES: dict[str, list[str]] | None = None
+
+
+def diagnosis_aliases(diagnosis_id) -> list[str]:
+    """Other names the release gives the reference concept (CMS description, SNOMED description, merged duplicates;
+    eval/diagnosis_aliases.json, built by scripts/build_diagnosis_aliases.py). RL readiness A1."""
+    global _ALIASES
+    if _ALIASES is None:
+        path = Path(__file__).with_name("diagnosis_aliases.json")
+        _ALIASES = json.loads(path.read_text())["aliases"] if path.exists() else {}
+    return _ALIASES.get(str(diagnosis_id), []) if diagnosis_id is not None else []
+
+
+def _alias_credit(pred_name: str, alias: str, pred_code: str, gt_code: str) -> float:
+    """Name credit against an alias of the reference concept, without the 'prediction is less specific' rule (a short
+    generic name inside a long CMS description is not the concept): equal names, the alias inside a specific name,
+    or a Jaccard >= 0.5 overlap within the ICD block."""
+    pa, ga = _dx_tokens(pred_name), _dx_tokens(alias)
+    if not pa or not ga or _dx_conflict(pa, ga):
+        return 0.0
+    if pa == ga:
+        return NAME_CREDIT["equivalent"]
+    pf = _dx_tokens(pred_name, keep_parentheticals=True)
+    cap = _specific_cap(len(ga))
+    if len(ga) >= 2 and not _dx_conflict(pf, ga) and ((ga <= pa and len(pa) <= cap) or (ga <= pf and len(pf) <= cap)):
+        return NAME_CREDIT["related"]
+    pc, gc = _normalize_icd10(pred_code), _normalize_icd10(gt_code)
+    if pc and gc and pc[:2] == gc[:2] and len(pa & ga) / len(pa | ga) >= 0.5:
+        return NAME_CREDIT["related"]
+    return 0.0
+
+
+def concept_name_credit(pred_name: str, gt_name: str, pred_code: str = "", gt_code: str = "", gt_diagnosis_id=None) -> float:
+    """Best name credit against the reference name and every alias of its concept (code ignored except for the
+    in-block rules)."""
+    if not pred_name:
+        return 0.0
+    best = name_credit(pred_name, gt_name, pred_code, gt_code) if gt_name else 0.0
+    for alias in diagnosis_aliases(gt_diagnosis_id) + _gloss_aliases(gt_name):
+        if best >= NAME_CREDIT["equivalent"]:
+            break
+        best = max(best, _alias_credit(pred_name, alias, pred_code, gt_code))
+    return best
+
+
+def _gloss_aliases(name: str) -> list[str]:
+    """The parenthetical gloss of a reference name lists its synonyms: "Chronic vasospastic disorder (Raynaud's
+    phenomenon/Buerger's disease)" -> "Raynaud's phenomenon", "Buerger's disease"."""
+    out = []
+    for g in re.findall(r"\(([^)]*)\)", name or ""):
+        out += [x.strip() for x in re.split(r"/|;|,|\bor\b", g) if x.strip()]
+    return out
+
+
+def dx_credit(pred_code: str, gt_code: str, pred_name: str = "", gt_name: str = "", gt_diagnosis_id=None) -> float:
+    """ICD credit, or the concept name credit when that is higher (never above the exact-code credit)."""
     c = _icd_credit(pred_code, gt_code)
-    if c >= ICD_CREDIT["exact"] or not (pred_name and gt_name):
+    if c >= ICD_CREDIT["exact"] or not pred_name or not (gt_name or gt_diagnosis_id is not None):
         return c
-    return max(c, name_credit(pred_name, gt_name, pred_code, gt_code))
+    return max(c, concept_name_credit(pred_name, gt_name, pred_code, gt_code, gt_diagnosis_id))
 
 
 def _match_graded(pred_codes: list[str], gt_codes: list[str], pred_names: list[str] | None = None,
-                  gt_names: list[str] | None = None) -> list[tuple[int, int, float]]:
+                  gt_names: list[str] | None = None, gt_ids: list | None = None) -> list[tuple[int, int, float]]:
     """Greedy one-to-one matching by descending credit. Returns (pred_index, gt_index, credit)."""
     pn = pred_names or [""] * len(pred_codes)
     gn = gt_names or [""] * len(gt_codes)
-    cred = {(gi, pi): dx_credit(p, g, pn[pi], gn[gi]) for gi, g in enumerate(gt_codes) for pi, p in enumerate(pred_codes)}
+    gi_ = gt_ids or [None] * len(gt_codes)
+    cred = {(gi, pi): dx_credit(p, g, pn[pi], gn[gi], gi_[gi]) for gi, g in enumerate(gt_codes) for pi, p in enumerate(pred_codes)}
     pairs = sorted(((c, -gi, -pi) for (gi, pi), c in cred.items() if c > 0), reverse=True)
     used_p, used_g, out = set(), set(), []
     for credit, ngi, npi in pairs:
@@ -575,10 +645,12 @@ def score_patient_diagnosis_item(pred: dict, gt: dict) -> dict:
     gt_acuity = [a if a in ("acute", "chronic", "acute_on_chronic") else None for a in gt_acuity]
     weights = [_assign_severity_tier(c, a or "acute") for c, a in zip(gt_codes, gt_acuity)]
     gt_names = [str(d.get("display_name") or d.get("name") or "") for d in gt_active + gt_chronic]
+    gt_ids = [d.get("diagnosis_id") for d in gt_active + gt_chronic]
 
     pred_codes, pred_acuity, pred_names = _dx_entries(pred if isinstance(pred, dict) else {}, with_names=True)
     neutral = {c[:3] for c in (gt.get("_neutral_categories") or [])}
-    matched = _match_graded(pred_codes, gt_codes, pred_names, gt_names)
+    matched = _match_graded(pred_codes, gt_codes, pred_names, gt_names, gt_ids)
+    named, coded = diagnosis_named_coded(pred_codes, pred_names, gt_codes, gt_names, gt_ids)
 
     credit_by_gt: dict[int, float] = {}
     icd_by_gt: dict[int, float] = {}
@@ -619,7 +691,24 @@ def score_patient_diagnosis_item(pred: dict, gt: dict) -> dict:
         "acuity_accuracy": (sum(1 for p, g in acuity_pairs if p == g) / len(acuity_pairs)) if acuity_pairs else None,
         "acuity_pairs": acuity_pairs,
         "empty_prediction": n_pred == 0,
+        "diagnosis_named": named,
+        "diagnosis_coded": coded,
     }
+
+
+def diagnosis_named_coded(pred_codes: list[str], pred_names: list[str], gt_codes: list[str], gt_names: list[str],
+                          gt_ids: list | None = None) -> tuple[float, float]:
+    """RL readiness A2: the share of reference diagnoses the prediction *named* (an exact code, or a name or concept
+    credit, the code ignored) and the share it *coded exactly*. A reward gain splits into these two."""
+    if not gt_codes:
+        return 0.0, 0.0
+    ids = gt_ids or [None] * len(gt_codes)
+    named = coded = 0
+    for g, gname, gid in zip(gt_codes, gt_names, ids):
+        exact = any(_icd_credit(p, g) >= ICD_CREDIT["exact"] for p in pred_codes)
+        coded += exact
+        named += exact or any(concept_name_credit(n, gname, "", "", gid) > 0 for n in pred_names if n)
+    return named / len(gt_codes), coded / len(gt_codes)
 
 
 def _compute_patient_diagnosis_metrics(predictions: list[dict], ground_truths: list[dict]) -> dict:
@@ -627,7 +716,7 @@ def _compute_patient_diagnosis_metrics(predictions: list[dict], ground_truths: l
     items = [score_patient_diagnosis_item(p, g) for p, g in zip(predictions, ground_truths)]
     keys = ("problem_list_recall", "problem_list_precision", "problem_list_f1", "weighted_problem_list_recall",
             "weighted_problem_list_f1", "problem_list_precision_neutral", "problem_list_f1_neutral",
-            "weighted_problem_list_f1_neutral")
+            "weighted_problem_list_f1_neutral", "diagnosis_named", "diagnosis_coded")
     out = {k: float(np.mean([it[k] for it in items])) if items else 0.0 for k in keys}
     spec = [it["icd10_specificity_score"] for it in items if it["icd10_specificity_score"] is not None]
     pairs = [pr for it in items for pr in it["acuity_pairs"]]
@@ -1319,11 +1408,19 @@ def _compute_retrieval_metrics(predictions: list[dict], ground_truths: list[dict
         judg_keys = set(judg.keys())
         # Normalize passage IDs to match judgment keys
         normalized = []
-        for item in raw_rankings:
+        seen: set[str] = set()
+        for item in raw_rankings if isinstance(raw_rankings, list) else []:
+            if not isinstance(item, dict):
+                continue
             norm_item = dict(item)
             norm_item["passage_id"] = _normalize_passage_id(
                 item.get("passage_id", ""), judg_keys
             )
+            # a passage counts once, at its first rank (RL readiness A3: ten copies of one passage scored nDCG@10
+            # 0.33, four times the passage alone)
+            if norm_item["passage_id"] in seen:
+                continue
+            seen.add(norm_item["passage_id"])
             normalized.append(norm_item)
         ranked_results.append(normalized)
         judgments_list.append(judg)

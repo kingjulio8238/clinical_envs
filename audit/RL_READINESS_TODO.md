@@ -6,7 +6,7 @@ Ordered by dependency; items in the same group are independent. Costs are comput
 
 ## A. Reward validity (environment; no GPU)
 
-- [ ] **A1 Concept-level diagnosis matching (synonym noise).** 9–21% of Qwen's zero-scored answered diagnoses are
+- [x] **A1 Concept-level diagnosis matching (synonym noise).** 9–21% of Qwen's zero-scored answered diagnoses are
       clinically the same diagnosis under another name (Asherman ↔ intrauterine adhesions, HSP ↔ IgA vasculitis,
       arsenic toxicity ↔ poisoning). Map predicted names/codes to the graph's own diagnosis nodes (`diagnoses`
       display names, SNOMED ids where present, merged-node aliases, ICD descriptions from the CMS file) and credit a
@@ -14,17 +14,40 @@ Ordered by dependency; items in the same group are independent. Costs are comput
       ≤ 5% on every diagnosis unit (re-run `scripts/reward_noise_audit.py` on the stored predictions, both models);
       the kitchen-sink and hedge probes stay at the floor; floors regenerated.
       *Cost: judge re-audit ≈ $0.5 of OpenAI credits.*
-- [ ] **A2 Report the coding share.** Add `diagnosis_named` (name/concept credit ignoring the code) and
+      - done: `eval/diagnosis_aliases.json` (6,911 nodes, 10,749 aliases: CMS description, SNOMED description,
+        merged duplicates; `scripts/build_diagnosis_aliases.py`, deterministic), the reference's parenthetical gloss,
+        a small synonym lexicon (IgA/immunoglobulin A, synechiae/adhesions, toxicity/overdose/poisoning, CSF, arterial,
+        -related, periprosthetic), and near-identical multi-word names across blocks (≥ 2 shared words, Jaccard ≥ 2/3).
+        Judge-audited correct-but-0 (GPT-6 Sol judge), before → after: Qwen agent patient_diagnosis 9% → 2.8%,
+        atypical 21% → 3.7%, differential 0% → 0%, test_selection 13–15% → 3.1%; GPT-6 Sol 0% on all four;
+        out-of-sample check on Qwen's no-tools answers (not used to build the lexicon): 2.7% / – / 0% / 0%.
+        Residual cases need anatomy or ontology knowledge (popliteal ⊂ lower-extremity embolism, fourth-ventricle vs
+        cerebellar hemangioblastoma, intimate-partner violence vs adult abuse). All probes stay at the floor; floors
+        regenerated (unchanged). Judge verdicts vary slightly between runs (GPT-6 accepts only its default temperature).
+- [x] **A2 Report the coding share.** Add `diagnosis_named` (name/concept credit ignoring the code) and
       `diagnosis_coded` (exact-code share) as secondary metrics for patient_diagnosis, atypical, differential and
       test_selection, in the scorer output, the leaderboard and the RL logs, so a gain can be split into "named the
       diagnosis" vs "coded it". (Today 23–32% of Qwen's reward is name credit, 1–7% of GPT-6 Sol's.)
-- [ ] **A3 Adversarial probe suite for optimization pressure.** Extend the degenerate policies with the strategies a
+      - done: scorer outputs for all four units, `protocol_run` records them per episode (`metrics`), the rescore
+        script backfills them, the leaderboard shows `named` / `coded` columns. Qwen vs Sol named / coded:
+        patient_diagnosis 0.47 / 0.13 vs 0.75 / 0.48; atypical 0.45 / 0.09 vs 0.87 / 0.57; differential 0.63 / 0.27 vs
+        0.78 / 0.63; test_selection 0.50 / 0.13 vs 0.65 / 0.43 — Qwen's coding gap is the larger one.
+- [x] **A3 Adversarial probe suite for optimization pressure.** Extend the degenerate policies with the strategies a
       policy under RL is most likely to find, each a CI gate at the floor: many diagnoses per answer (precision
       floor), duplicated entries, the train-label frequency prior with generic names, codes without names and names
       without codes, maximal-length differentials, retrieval of every section, order spam in test_selection.
       Gate: all at or below the floor on public and heldout; any that is not gets a scorer fix first.
-- [ ] **A4 Freeze the reward.** Tag the scorer commit used for training (`reward-v1`), record it in every RL and
+      - done: 20 probes (`eval/degenerate.py PROBES`: name sink, hedged name, 50 diagnoses, duplicated entries,
+        codes-only, names-only, problem-list names, one mega-order, a passage repeated ten times), CI-gated on public
+        and heldout (`test_rl_pressure_probes_stay_at_the_floor`). One exploit found and fixed: retrieval counted a
+        duplicated passage at every rank (ten copies of one passage: nDCG@10 0.33 → 0.07 after dedup; no stored
+        prediction changed). Every probe now scores ≤ 0.014 (diagnosis units) and 0.073 (retrieval, the single passage it repeats), below each floor.
+- [x] **A4 Freeze the reward.** Tag the scorer commit used for training (`reward-v1`), record it in every RL and
       evaluation manifest, and fail the trainer at start-up if the working scorer differs from the tag.
+      - done: `eval/reward_version.py` + `eval/reward_lock.json` (`reward-v1`, SHA-256 over the 11 reward files,
+        fingerprint 3bc9a76270f49c59); the protocol runner records version and fingerprint in every manifest and
+        refuses a drifted scorer (`--allow-reward-drift` is recorded); CI fails when a reward file changes without
+        re-locking; git tag `reward-v1`. The trainer (C1) must call `eval.reward_version.require_frozen()` at start-up.
 
 ## B. Task set (environment; no GPU)
 

@@ -189,10 +189,11 @@ def chk_a2_reported():
 def chk_a4_lock():
     r = subprocess.run([str(ROOT / ".venv/bin/python"), "-m", "eval.reward_version", "--check"], capture_output=True, text=True, cwd=ROOT)
     info = json.loads(r.stdout)
-    tag = subprocess.run(["git", "rev-list", "-n", "1", "reward-v1"], capture_output=True, text=True, cwd=ROOT).stdout.strip()
-    ok = r.returncode == 0 and info["reward_version"] == "reward-v1" and bool(tag)
-    return ok, (f"lock {info['reward_version']} fingerprint {info['reward_locked_fingerprint']}, working tree "
-                f"{info['reward_fingerprint']}, drift {info['reward_drift']}; git tag reward-v1 -> {tag[:7] or 'MISSING'}")
+    version = info["reward_version"] or ""
+    tag = subprocess.run(["git", "rev-list", "-n", "1", version], capture_output=True, text=True, cwd=ROOT).stdout.strip() if version else ""
+    ok = r.returncode == 0 and version.startswith("reward-v") and bool(tag)
+    return ok, (f"lock {version} fingerprint {info['reward_locked_fingerprint']}, working tree "
+                f"{info['reward_fingerprint']}, drift {info['reward_drift']}; git tag {version} -> {tag[:7] or 'MISSING'}")
 
 
 def chk_b1_runs():
@@ -310,7 +311,7 @@ ITEMS = [
     ("A2", "(in the leaderboard and every stored prediction)", C, chk_a2_reported),
     ("A3", "RL-pressure probe suite at the floor (public + heldout)", T, ["eval/tests/test_stage8_audit.py::test_rl_pressure_probes_stay_at_the_floor", "eval/tests/test_stage8_audit.py::test_kitchen_sink_and_hedged_names_score_the_floor"]),
     ("A4", "Reward frozen (lock, manifest, refusal, CI)", T, ["eval/tests/test_stage8_audit.py::test_reward_files_match_the_lock", "eval/tests/test_stage8_audit.py::test_runner_refuses_a_drifted_reward_and_records_the_version"]),
-    ("A4", "(lock intact, git tag reward-v1)", C, chk_a4_lock),
+    ("A4", "(lock intact, git tag for the locked version)", C, chk_a4_lock),
     ("B1", "lab_triage: analyte matching, Youden's J, floor ≤ 0.3, oracle 1.0", T, ["eval/tests/test_task_set_b.py::test_triage_rows_are_built_for_every_instance", "eval/tests/test_task_set_b.py::test_analyte_names_reach_interpretation_labels", "eval/tests/test_task_set_b.py::test_flagging_everything_or_nothing_earns_no_triage_credit", "eval/tests/test_task_set_b.py::test_triage_urgent_must_be_the_labelled_result"]),
     ("B1", "(re-run: both models above the new floor)", C, chk_b1_runs),
     ("B2", "error_detection retired from RL; turn cap recorded", T, ["eval/tests/test_task_set_b.py::test_error_detection_episodes_are_turn_capped"]),

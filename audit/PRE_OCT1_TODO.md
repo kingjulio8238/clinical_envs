@@ -46,7 +46,7 @@ optional P8.
         instances per unit); `train_prompts` excludes them from every unit, `dev_instances` serves checkpoint selection;
         `train_rl.py` logs `dev_reward` / `dev_by_unit`; C4 samples non-dev prompts only; test
         `test_dev_patients_are_never_training_prompts`.
-- [ ] **P5 Private-split confirmation path (criterion 7):** decide and script where the one private run happens, so the
+- [x] **P5 Private-split confirmation path (criterion 7):** decide and script where the one private run happens, so the
       private labels never leave the operator's machine (recommended: the client and scorer run locally with the
       overlay, against the Modal vLLM server exposed as a web endpoint for that one run).
       → approach written, script waits on U2. Size: the private split has 6,184 instances; criterion 7 needs the 5 RL
@@ -57,6 +57,13 @@ optional P8.
         machine with the overlay, pointed at it by `SH_VLLM_URL`; the model only ever receives prompts built from the
         release DB (which holds no private labels), and the scorer runs locally. The laptop must stay online for the
         run; a disconnect costs at most the capped server, and the run resumes by `gt_id`.
+      → U2 confirmed (local scorer). Built: `gpu/private_serve.py` (`modal serve`: ART's runtime on the base with a
+        bearer token from the Modal secret `clinical-envs-vllm-key`, the adapter from `SH_LORA_PATH` loaded once up,
+        telemetry; scales down after 10 min idle, 6 h lifetime cap, and the app dies with the local `modal serve`
+        command); `scripts/run_private.sh` (refuses without the overlay; checks both names are served and that the
+        adapter's greedy logprobs differ from the base's; runs base then trained on the 5 RL units' private instances
+        with `--retry-errors`, into `results/local/private` for `rl_before_after.py --private`); the registry sends the
+        token only when `SH_VLLM_API_KEY` is set. Test: `test_private_endpoint_token_is_sent_only_when_set`.
 
 ## B. Training
 
@@ -87,8 +94,9 @@ optional P8.
         (`--alert-repeats 2`), checkpoint pruning to the evaluated steps, resume with the logged history, ART loss
         settings (`--loss-fn cispo`, `--kl-coef`, `--epsilon`), the C4 keep / drop pool (`--min-keep 400`). Tests:
         `test_checkpoint_selection_and_stopping_rules`, the dry run (step 0 + best.json), the prompt-pool modes.
-- [ ] **P8 (optional, ≈ $2–3 of OpenRouter)** early group-variance estimate on hosted Qwen at the training temperature
+- [x] **P8 (optional, ≈ $2–3 of OpenRouter)** early group-variance estimate on hosted Qwen at the training temperature
       (8 samples × 20 train prompts per unit) to size C4 and the prompts per step before the GPU run.
+      → skipped (U3): C4 on Oct 1 measures it on the real engine; the keep / drop pool rule covers a low spread share.
 
 ## C. October operations
 
@@ -151,5 +159,5 @@ optional P8.
 
 - [ ] **U1** Set each Modal workspace's usage limit to $30 at `modal.com/settings/<workspace>/usage` (dashboard only;
       it is what actually prevents out-of-pocket spend).
-- [ ] **U2** Confirm the private-split path (P5).
-- [ ] **U3** Approve or skip P8 (≈ $2–3 of the $3.32 OpenRouter balance).
+- [x] **U2** Confirm the private-split path (P5). → local scorer against a Modal endpoint.
+- [x] **U3** Approve or skip P8 (≈ $2–3 of OpenRouter) → skip.

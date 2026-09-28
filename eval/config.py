@@ -259,10 +259,12 @@ MODEL_REGISTRY.update(PROTOCOL_PANEL)
 
 # Local serving of the RL candidate (stage C): vLLM's OpenAI-compatible server (gpu/vllm_eval.py), base weights or a
 # trained LoRA. Sampling = Qwen3.5 thinking defaults with a per-request seed (eval.adapters: `seeded`), the same for the
-# before and after measurements. SH_VLLM_URL points at the server; no API key.
+# before and after measurements. SH_VLLM_URL points at the server (SH_VLLM_API_KEY only for the private endpoint).
 VLLM_URL = os.environ.get("SH_VLLM_URL", "http://localhost:8000/v1")
 MODEL_REGISTRY["qwen3.5-9b-local"] = ModelConfig(
-    name="qwen3.5-9b-local", adapter_type=AdapterType.OPENAI_COMPATIBLE, base_url=VLLM_URL, api_key_env="",
+    name="qwen3.5-9b-local", adapter_type=AdapterType.OPENAI_COMPATIBLE, base_url=VLLM_URL,
+    # a bearer token only for the authenticated web endpoint of the private run (gpu/private_serve.py, P5)
+    api_key_env="SH_VLLM_API_KEY" if os.environ.get("SH_VLLM_API_KEY") else "",
     model_id=os.environ.get("SH_VLLM_BASE_MODEL", "Qwen/Qwen3.5-9B"), max_tokens=4096, temperature=1.0, timeout_secs=900.0,
     extra={"sampling": {"top_p": 0.95, "presence_penalty": 1.5, "top_k": 20}, "seeded": True, "stream": False,
            "total_timeout_s": 900})

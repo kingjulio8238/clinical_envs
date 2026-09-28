@@ -177,7 +177,16 @@ python scripts/rl_before_after.py --base results/local/base --base-model qwen3.5
   --trained results/local/trained --trained-model qwen3.5-9b-rl \
   --trained-audit results/local/trained/reward_noise_audit.json --out results/rl_before_after.md
 ```
-Criterion 7 (private split, once): P5.
+Criterion 7 (private split, once, on W9 — labels stay on this machine):
+```bash
+TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+MODAL_PROFILE=credited modal secret create clinical-envs-vllm-key VLLM_API_KEY=$TOKEN
+python scripts/sync_runs.py push-dir --profile credited --src $CK --remote ckpt/c5-main-$S
+python3 gpu/budget.py check --profile credited --projected <proj> --minutes 360
+SH_LORA_PATH=/results/ckpt/c5-main-$S MODAL_PROFILE=credited modal serve gpu/private_serve.py     # terminal 1
+bash scripts/run_private.sh <endpoint url printed above> $TOKEN                                    # terminal 2
+```
+Then rerun the verdict with `--private results/local/private`.
 
 ## 7. After the study
 

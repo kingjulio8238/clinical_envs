@@ -58,10 +58,13 @@ def runtime_server_cmd(lora_rank: int = 16) -> list[str]:
     return build_vllm_runtime_server_cmd(VllmRuntimeLaunchConfig(**launch_config(lora_rank)))
 
 
-def _post(path: str, body: dict, timeout: int = 300) -> tuple[int, str]:
+def _post(path: str, body: dict, timeout: int = 300, port: int = 8000) -> tuple[int, str]:
     import json as _json
-    req = urllib.request.Request(f"http://127.0.0.1:8000{path}", data=_json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"}, method="POST")
+    headers = {"Content-Type": "application/json"}
+    if os.environ.get("VLLM_API_KEY"):                  # the authenticated private endpoint (gpu/private_serve.py)
+        headers["Authorization"] = f"Bearer {os.environ['VLLM_API_KEY']}"
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=_json.dumps(body).encode(),
+                                 headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read().decode()
@@ -94,7 +97,10 @@ def adapter_effect() -> dict:
 
 def served_models() -> list[dict]:
     import json as _json
-    with urllib.request.urlopen("http://127.0.0.1:8000/v1/models", timeout=10) as r:
+    req = urllib.request.Request("http://127.0.0.1:8000/v1/models")
+    if os.environ.get("VLLM_API_KEY"):
+        req.add_header("Authorization", f"Bearer {os.environ['VLLM_API_KEY']}")
+    with urllib.request.urlopen(req, timeout=10) as r:
         return _json.loads(r.read())["data"]
 
 

@@ -278,3 +278,19 @@ def test_checkpoint_selection_and_stopping_rules():
     import argparse
     kw = T.train_kwargs(argparse.Namespace(lr=1e-5, loss_fn="cispo", kl_coef=0.0, epsilon=None))
     assert kw == {"learning_rate": 1e-5, "loss_fn": "cispo", "scale_rewards": True, "kl_penalty_coef": 0.0}
+
+
+def test_private_endpoint_token_is_sent_only_when_set():
+    """P5: the private run talks to an authenticated Modal endpoint (bearer token from SH_VLLM_API_KEY); every other
+    local run has no key and must not require one."""
+    import os
+    import subprocess
+    import sys
+    code = ("from eval.config import get_api_key as g; print(repr(g('qwen3.5-9b-local')), repr(g('qwen3.5-9b-rl')))")
+    env = {k: v for k, v in os.environ.items() if k != "SH_VLLM_API_KEY"}
+    root = str(__import__("pathlib").Path(__file__).resolve().parents[2])
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, cwd=root).stdout.split()
+    assert out == ["''", "''"]
+    out = subprocess.run([sys.executable, "-c", code], env={**env, "SH_VLLM_API_KEY": "tok"}, capture_output=True, text=True,
+                         cwd=root).stdout.split()
+    assert out == ["'tok'", "'tok'"]

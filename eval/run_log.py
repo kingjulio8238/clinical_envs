@@ -93,22 +93,23 @@ def fmt_dev(e: dict, best: dict | None, base_score: float | None) -> str:
 class RunLog:
     """Emit events to stdout (formatted) and to `<out>/events.jsonl` (JSON). Thread-safe."""
 
-    def __init__(self, out: Path, name: str, stream=None, progress_every: int = 8, progress_s: float = 60.0):
+    def __init__(self, out: Path, name: str, stream=None, progress_every: int = 8, progress_s: float = 60.0, clock=None):
         out.mkdir(parents=True, exist_ok=True)
         self.name, self.stream = name, stream or sys.stdout
         self.fh = (out / "events.jsonl").open("a")
         self.lock = threading.Lock()
-        self.t0 = time.time()
+        self.clock = clock or time.time          # a simulated clock only in scripts/rl_watch.py --demo
+        self.t0 = self.clock()
         self.progress_every, self.progress_s = progress_every, progress_s
         self._batch: dict[str, Any] = {}
 
     def emit(self, kind: str, text: str | None = None, **data) -> None:
-        ev = {"ts": round(time.time(), 2), "kind": kind, **data}
+        ev = {"ts": round(self.clock(), 2), "kind": kind, **data}
         with self.lock:
             self.fh.write(json.dumps(ev, default=str) + "\n")
             self.fh.flush()
             if text:
-                stamp = time.strftime("%H:%M:%S")
+                stamp = time.strftime("%H:%M:%S", time.localtime(self.clock()))
                 print(f"{stamp} [{self.name}] {text}", file=self.stream, flush=True)
 
     def close(self) -> None:
@@ -117,8 +118,8 @@ class RunLog:
     # -- episodes, batched into progress lines ---------------------------------------------------------------------
     def begin_batch(self, label: str, total: int) -> None:
         with self.lock:
-            self._batch = {"label": label, "total": total, "done": 0, "rewards": [], "errors": 0, "t0": time.time(),
-                           "last_print": time.time(), "by_unit": defaultdict(list)}
+            self._batch = {"label": label, "total": total, "done": 0, "rewards": [], "errors": 0, "t0": self.clock(),
+                           "last_print": self.clock(), "by_unit": defaultdict(list)}
 
     def episode(self, task: str, gt_id: Any, rec: dict | None, error: str | None = None, **extra) -> None:
         rec = rec or {}
@@ -137,10 +138,10 @@ class RunLog:
             b["errors"] += bool(err)
             b["rewards"].append(reward)
             b["by_unit"][task].append(reward)
-            due = b["done"] % self.progress_every == 0 or b["done"] == b["total"] or time.time() - b["last_print"] > self.progress_s
+            due = b["done"] % self.progress_every == 0 or b["done"] == b["total"] or self.clock() - b["last_print"] > self.progress_s
             if due:
-                b["last_print"] = time.time()
-                el = time.time() - b["t0"]
+                b["last_print"] = self.clock()
+                el = self.clock() - b["t0"]
                 mean = sum(b["rewards"]) / len(b["rewards"])
                 eta = el / b["done"] * (b["total"] - b["done"]) if b["total"] else None
                 line = (f"{b['label']}: {b['done']}/{b['total']} episodes ({100 * b['done'] / max(b['total'], 1):.0f}%), "

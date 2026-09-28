@@ -152,113 +152,296 @@ def eval_totals(events: list[dict]) -> dict[str, int]:
     return totals
 
 
-def render(data: dict, title: str, stale_s: float, logs: LogTail | None = None):
-    from rich import box
+# PufferLib's dashboard palette and helpers (pufferl.py print_dashboard / abbreviate / duration / fmt_perf): cyan
+# labels, default-colour values, dim units, bright-cyan section heads, one rounded bright-cyan frame.
+C1, C2, B1, B2 = "[cyan]", "[dim default]", "[bright_cyan]", "[default]"
+
+
+def abbreviate(num: float | None) -> str:
+    if num is None:
+        return f"{C2}—"
+    if num < 1e3:
+        return f"{B2}{num:.0f}{C2}" if isinstance(num, float) else f"{B2}{num}{C2}"
+    for div, unit in ((1e3, "K"), (1e6, "M"), (1e9, "B")):
+        if num < div * 1e3:
+            return f"{B2}{num / div:.1f}{C2}{unit}"
+    return f"{B2}{num / 1e12:.2f}{C2}T"
+
+
+def duration(seconds: float | None) -> str:
+    if seconds is None:
+        return f"{C2}—"
+    s = max(int(seconds), 0)
+    h, m, s = s // 3600, s % 3600 // 60, s % 60
+    return f"{B2}{h}{C2}h {B2}{m}{C2}m {B2}{s}{C2}s" if h else f"{B2}{m}{C2}m {B2}{s}{C2}s" if m else f"{B2}{s}{C2}s"
+
+
+def num(x: float | None, nd: int = 3) -> str:
+    return f"{C2}—" if x is None else f"{B2}{_f(float(x), nd)}"
+
+
+def pct(x: float | None, nd: int = 1) -> str:
+    return f"{C2}—" if x is None else f"{B2}{x:.{nd}f}{C2}%"
+
+
+def fmt_perf(name: str, color: str, total: float, secs: float) -> tuple[str, str, str]:
+    p = 0 if not total else int(100 * secs / total - 1e-5)
+    return f"{color}{name}", duration(secs), f"{B2}{p:2d}{C2}%"
+
+
+def _stats_pairs(tables, pairs: list[tuple[str, str]]) -> None:
+    for i, (k, v) in enumerate(pairs):
+        tables[i % len(tables)].add_row(f"{B2}{k}", v)
+
+
+UNIT_LABEL = {"patient_diagnosis": "Diagnosis", "differential_diagnosis": "Differential", "evidence_retrieval": "Retrieval",
+              "test_selection": "Test select", "atypical_diagnosis": "Atypical"}
+
+
+def budget(height: int | None) -> dict:
+    """Rows per section so the dashboard fits the terminal (Rich's Live cuts off whatever does not)."""
+    if not height:
+        return {"steps": 8, "devs": 6, "issues": 5, "logs": 8, "stats": 40}
+    extra = max(height - 36, 0)
+    clamp = lambda x, lo, hi: int(max(lo, min(hi, x)))
+    return {"steps": clamp(extra * 0.35, 3, 8), "devs": clamp(extra * 0.2, 2, 6), "issues": clamp(extra * 0.15, 2, 5),
+            "logs": clamp(extra * 0.3, 0, 8), "stats": 40 if height >= 60 else 24}
+
+
+def render(data: dict, title: str, stale_s: float, logs=None, height: int | None = None):
+    import rich.box
     from rich.console import Group
-    from rich.panel import Panel
     from rich.table import Table
-    from rich.text import Text
     st = data["state"]
     start = st["start"] or {}
     kind = start.get("kind_of_run") or ("train" if st["steps"] or st["devs"] else "eval")
-    now = time.time()
-    first = (data["events"][0]["ts"] if data["events"] else None)
+    now = max(time.time(), st["last_ts"] or 0)
+    first = data["events"][0]["ts"] if data["events"] else None
     age = now - st["last_ts"] if st["last_ts"] else None
     finished = st["end"] is not None and not any(j.get("rc") is None for j in data["jobs"])
-    status = ("FINISHED" if finished else "STOPPED: " + st["stop"]["reason"] if st["stop"] else
-              "NO EVENTS YET" if age is None else f"STALE — no event for {_dur(age)}" if age > stale_s else "RUNNING")
-    color = "red" if status.startswith(("STALE", "STOPPED")) or st["errors"] else ("green" if status == "RUNNING" else "yellow")
-    up = (st["last_ts"] if finished else now) - first if first else None
-
-    head = Table.grid(expand=True)
-    head.add_column(); head.add_column(justify="right")
-    steps = st["steps"]
-    prog = ""
-    if kind == "train":
-        last = steps[-1] if steps else {}
-        prog = f"step {last.get('step', 0)}/{start.get('max_steps', '?')}" + (f"  ETA {_dur(last.get('eta_s'))}" if last.get("eta_s") else "")
-        if st["progress"] and (not steps or st["progress"]["ts"] > last.get("ts", 0)):
-            p = st["progress"]
-            prog += f"  |  {p.get('label')}: {p.get('done')}/{p.get('total')}"
+    if finished:
+        status, scol = "finished", "[green]"
+    elif st["stop"]:
+        status, scol = "stopped: " + str(st["stop"].get("reason")), "[red]"
+    elif age is None:
+        status, scol = "waiting for events", "[yellow]"
+    elif age > stale_s:
+        status, scol = f"stale — no event for {_dur(age)}", "[red]"
     else:
-        done, total = st["episodes"], sum(eval_totals(data["events"]).values())
-        prog = f"{done}/{total} episodes ({100 * done / max(total, 1):.0f}%)"
-    head.add_row(Text(f"{title}  [{kind}]  {prog}  ", style="bold"),
-                 Text(f"{status}  |  up {_dur(up)}  ≈${(up or 0) / 3600 * RATE:.2f} GPU  |  "
-                      f"{st['episodes']} episodes, {len(st['errors'])} errors", style=f"bold {color}"))
-    parts = [Panel(head, box=box.HEAVY, border_style=color)]
+        status, scol = "running", "[green]"
+    bad = scol == "[red]" or bool(st["errors"])
+    up = ((st["last_ts"] if finished else now) - first) if first else None
+    rows = budget(height)
+    tele = data["telemetry"] or {}
+    g = (tele.get("gpus") or [{}])[0]
+    v = tele.get("vllm") or {}
 
+    dashboard = Table(box=rich.box.ROUNDED, expand=True, show_header=False, border_style="red" if bad else "bright_cyan")
+    head = Table(box=None, expand=True, show_header=False)
+    head.add_column(justify="left", ratio=3)
+    for _ in range(4):
+        head.add_column(justify="center", ratio=1)
+    head.add_row(f"{B1}Clinical RL {C2}· {B2}{title} {C2}· {scol}{status}",
+                 f"{C1}GPU: {B2}{g.get('gpu_util', 0):.1f}{C2}%" if g else f"{C1}GPU: {C2}—",
+                 (f"{C1}VRAM: {B2}{100 * g['vram_used_gb'] / g['vram_total_gb']:.1f}{C2}%" if g.get("vram_total_gb") else f"{C1}VRAM: {C2}—"),
+                 f"{C1}DRAM: " + pct(tele.get("ram_pct")),
+                 f"{C1}KV cache: " + pct(100 * v["kv_cache"] if "kv_cache" in v else None))
+    dashboard.add_row(head)
+
+    steps, devs = st["steps"], st["devs"]
+    last = steps[-1] if steps else {}
+    m = last.get("train_metrics") or {}
+    best = max((d for d in devs if d.get("step")), key=lambda d: d.get("dev_score") or -1, default=None)
+    base_dev = next((d.get("dev_score") for d in devs if d.get("step") == 0), None)
+
+    # -- summary | performance | losses ----------------------------------------------------------------------------
+    s = Table(box=None, expand=True)
+    s.add_column(f"{C1}Summary", justify="left", vertical="top", ratio=5)
+    s.add_column(f"{C1}Value", justify="right", vertical="top", ratio=6)
+    p = Table(box=None, expand=True)
+    p.add_column(f"{C1}Performance", justify="left", ratio=5)
+    p.add_column(f"{C1}Time", justify="right", ratio=5)
+    p.add_column(f"{C1}%", justify="right", ratio=2)
+    lt = Table(box=None, expand=True)
+    lt.add_column(f"{C1}Losses", justify="left", ratio=5)
+    lt.add_column(f"{C1}Value", justify="right", ratio=4)
     if kind == "train":
-        t = Table(title="training steps (ART losses)", box=box.SIMPLE_HEAD, expand=True)
-        for c in ("step", "reward", "±sd", "per unit", "flat", *[s for _, s in LOSS_KEYS[:8]], "gen tok", "roll", "train", "exc"):
-            t.add_column(c, justify="right")
-        for e in steps[-12:]:
-            m = e.get("train_metrics") or {}
-            t.add_row(str(e["step"]), _f(e.get("train_reward")), _f((e.get("train") or {}).get("reward_sd"), 2),
-                      " ".join(f"{UNIT_ABBR.get(u, u)}{v:.2f}" for u, v in (e.get("train_by_unit") or {}).items()),
-                      f"{e.get('flat_groups', '—')}/{e.get('groups', '—')}", *[_f(m.get(k), 4) for k, _ in LOSS_KEYS[:8]],
-                      _k(e.get("output_tokens")), _dur(e.get("rollout_s")), _dur(e.get("train_s")),
-                      Text(str(e.get("exceptions", 0)), style="red" if e.get("exceptions") else ""))
-        parts.append(t)
-        rw = [e.get("train_reward") for e in steps]
-        loss = [(e.get("train_metrics") or {}).get("loss/train") for e in steps]
-        kl = [(e.get("train_metrics") or {}).get("loss/kl_div") for e in steps]
-        ent = [(e.get("train_metrics") or {}).get("loss/entropy") for e in steps]
-        trend = Text()
-        for name, vals in (("reward ", rw), ("loss   ", loss), ("entropy", ent), ("kl     ", kl),
-                           ("dev    ", [d.get("dev_score") for d in st["devs"]])):
-            if any(v is not None for v in vals):
-                trend.append(f"{name} {spark(vals[-60:])}  last {_f(next((v for v in reversed(vals) if v is not None), None))}\n")
-        dv = Table(title="dev evaluations (checkpoint selection)", box=box.SIMPLE_HEAD, expand=True)
-        for c in ("step", "score", "per unit", "named", "probes", "entries", "alerts"):
-            dv.add_column(c, justify="right")
-        best = max((d for d in st["devs"] if d.get("step")), key=lambda d: d.get("dev_score") or -1, default=None)
-        for d in st["devs"][-8:]:
+        max_steps = start.get("max_steps")
+        gen = sum(e.get("output_tokens") or 0 for e in steps)
+        roll = sum(e.get("rollout_s") or 0 for e in steps)
+        prog = st["progress"]
+        s.add_row(f"{B2}Run", f"{B2}{title}")
+        s.add_row(f"{B2}Step", f"{B2}{last.get('step', 0)}{C2}/{B2}{max_steps or '?'}")
+        s.add_row(f"{B2}Episodes", abbreviate(st["episodes"]))
+        s.add_row(f"{B2}Gen tokens", abbreviate(gen))
+        s.add_row(f"{B2}Tok/s", abbreviate(gen / roll) if roll else f"{C2}—")
+        s.add_row(f"{B2}Uptime", duration(up))
+        s.add_row(f"{B2}Remaining", duration(last.get("eta_s")))
+        s.add_row(f"{B2}GPU cost", f"{C2}≈${B2}{(up or 0) / 3600 * RATE:.2f}")
+        if prog and (not steps or prog.get("ts", 0) > last.get("ts", 0)):
+            s.add_row(f"{B2}Now", f"{B2}{prog.get('label')} {prog.get('done')}{C2}/{B2}{prog.get('total')}")
+        t_roll, t_train = roll, sum(e.get("train_s") or 0 for e in steps)
+        t_dev = sum(d.get("val_s") or 0 for d in devs)
+        tot = t_roll + t_train + t_dev
+        n = max(len(steps), 1)
+        p.add_row(*fmt_perf("Step", B1, tot, t_roll + t_train))
+        p.add_row(*fmt_perf("  Rollout", B2, tot, t_roll))
+        p.add_row(*fmt_perf("  Learn", B2, tot, t_train))
+        p.add_row(*fmt_perf("Dev eval", B1, tot, t_dev))
+        p.add_row(f"{B1}Per step", duration((t_roll + t_train) / n), "")
+        p.add_row(f"{B2}  Rollout", duration(t_roll / n), "")
+        p.add_row(f"{B2}  Learn", duration(t_train / n), "")
+        for key, name in (("loss/train", "policy_loss"), ("loss/entropy", "entropy"), ("loss/kl_div", "approx_kl"),
+                          ("loss/kl_policy_ref", "kl_ref"), ("loss/grad_norm", "grad_norm"),
+                          ("loss/importance_ratio_mean", "ratio_mean"), ("loss/importance_ratio_p95", "ratio_p95"),
+                          ("loss/clipped_token_fraction", "clipfrac"), ("loss/learning_rate", "learning_rate")):
+            if key in m:
+                lt.add_row(f"{B2}{name}", num(m[key], 3 if abs(m[key]) >= 1e-3 or m[key] == 0 else 6))
+        if not m:
+            lt.add_row(f"{C2}(after the first step)", "")
+    else:
+        from collections import Counter
+        totals = eval_totals(data["events"])
+        done, total = st["episodes"], sum(totals.values())
+        rate = done / up if up else None
+        s.add_row(f"{B2}Job", f"{B2}{title}")
+        s.add_row(f"{B2}Episodes", f"{abbreviate(done)}{C2}/{abbreviate(total)}")
+        s.add_row(f"{B2}Done", pct(100 * done / total if total else None))
+        s.add_row(f"{B2}Episodes/h", abbreviate(rate * 3600) if rate else f"{C2}—")
+        s.add_row(f"{B2}Uptime", duration(up))
+        s.add_row(f"{B2}Remaining", duration((total - done) / rate) if rate and total else f"{C2}—")
+        s.add_row(f"{B2}GPU cost", f"{C2}≈${B2}{(up or 0) / 3600 * RATE:.2f}")
+        tok = sum(c["tokens"] for c in st["units"].values())
+        p.add_row(f"{B1}Generation", "", "")
+        p.add_row(f"{B2}  Tokens", abbreviate(tok), "")
+        p.add_row(f"{B2}  Tok/s", abbreviate(tele.get("gen_tok_s")) if tele.get("gen_tok_s") else f"{C2}—", "")
+        p.add_row(f"{B2}  Running", abbreviate(v.get("running")), "")
+        p.add_row(f"{B2}  Waiting", abbreviate(v.get("waiting")), "")
+        p.add_row(f"{B2}  Preempted", abbreviate(v.get("preemptions")), "")
+        lim = Counter()
+        for c in st["units"].values():
+            lim.update(c)
+        n = max(done, 1)
+        lt.columns[0].header = f"{C1}Episode outcomes"
+        lt.add_row(f"{B2}errors", f"{B2}{lim['errors']}")
+        lt.add_row(f"{B2}forced answer", pct(100 * lim["forced"] / n))
+        lt.add_row(f"{B2}at a limit", pct(100 * lim["limited"] / n))
+        lt.add_row(f"{B2}truncated turns", pct(100 * lim["truncated"] / n))
+        lt.add_row(f"{B2}turns / episode", num(lim["turns"] / n, 1))
+        lt.add_row(f"{B2}tokens / episode", abbreviate(lim["tokens"] / n))
+    monitor = Table(box=None, expand=True, pad_edge=False, show_header=False)
+    monitor.add_column(ratio=4); monitor.add_column(ratio=3); monitor.add_column(ratio=3)
+    monitor.add_row(s, p, lt)
+    dashboard.add_row(monitor)
+
+    dashboard.add_row("")
+    # -- user stats (two columns, as PufferLib) --------------------------------------------------------------------
+    left, right = Table(box=None, expand=True), Table(box=None, expand=True)
+    for t in (left, right):
+        t.add_column(f"{C1}User Stats", justify="left", ratio=3)
+        t.add_column(f"{C1}Value", justify="right", ratio=2)
+    pairs: list[tuple[str, str]] = []
+    if kind == "train":
+        tr = last.get("train") or {}
+        pairs += [("train/reward", num(last.get("train_reward"))), ("train/reward_sd", num(tr.get("reward_sd")))]
+        pairs += [(f"train/{u}", num(r)) for u, r in (last.get("train_by_unit") or {}).items()]
+        pairs += [("train/no_signal_groups", f"{B2}{last.get('flat_groups', '—')}{C2}/{B2}{last.get('groups', '—')}"),
+                  ("train/exceptions", f"{B2}{last.get('exceptions', 0)}"),
+                  ("train/tokens_per_episode", abbreviate((last.get("output_tokens") or 0) / max(last.get("episodes") or 1, 1))),
+                  ("train/answer_entries", num(tr.get("entries"), 2)), ("train/probe_long_name", pct(100 * (tr.get("probe_long_name") or 0)))]
+        if devs:
+            d = devs[-1]
             dd = d.get("dev") or {}
+            pairs += [("dev/score", num(d.get("dev_score"))), ("dev/base_score", num(base_dev)),
+                      ("dev/best", f"{num((best or {}).get('dev_score'))}{C2} @ {B2}{(best or {}).get('step', '—')}")]
+            pairs += [(f"dev/{u}", num(r)) for u, r in (d.get("dev_by_unit") or {}).items()]
             probes = max((dd.get(k) or 0) for k in ("probe_many_entries", "probe_long_name", "probe_duplicates"))
-            dv.add_row(str(d["step"]) + (" ★" if best is d else ""), _f(d.get("dev_score")),
-                       " ".join(f"{UNIT_ABBR.get(u, u)}{v:.2f}" for u, v in (d.get("dev_by_unit") or {}).items()),
-                       _f(dd.get("diagnosis_named"), 2), f"{probes:.0%}", _f(dd.get("entries"), 1),
-                       Text("; ".join(d.get("alerts") or []) or "—", style="red" if d.get("alerts") else ""))
-        tot = sum((e.get("rollout_s") or 0) + (e.get("train_s") or 0) for e in steps) + sum(d.get("val_s") or 0 for d in st["devs"])
-        perf = Text("performance: ")
-        if tot:
-            for name, v in (("rollout", sum(e.get("rollout_s") or 0 for e in steps)), ("train", sum(e.get("train_s") or 0 for e in steps)),
-                            ("dev", sum(d.get("val_s") or 0 for d in st["devs"]))):
-                perf.append(f"{name} {_dur(v)} ({100 * v / tot:.0f}%)  ")
-        parts += [Panel(Group(trend, perf), title="trends", box=box.ROUNDED), dv]
+            pairs += [("dev/diagnosis_named", num(dd.get("diagnosis_named"))), ("dev/diagnosis_coded", num(dd.get("diagnosis_coded"))),
+                      ("dev/probe_rate", pct(100 * probes)), ("dev/answer_chars", abbreviate(dd.get("answer_chars")))]
     else:
-        ut = Table(title="evaluation by unit", box=box.SIMPLE_HEAD, expand=True)
-        for c in ("unit", "done", "of", "mean reward", "errors", "forced", "at limit", "truncated", "turns", "tok/ep"):
-            ut.add_column(c, justify="right")
         totals = eval_totals(data["events"])
         for u, c in sorted(st["units"].items()):
-            n = c["done"] or 1
-            ut.add_row(u, str(c["done"]), str(totals.get(u, "?")), _f(st["unit_reward"][u] / n),
-                       Text(str(c["errors"]), style="red" if c["errors"] else ""), str(c["forced"]), str(c["limited"]),
-                       str(c["truncated"]), f"{c['turns'] / n:.1f}", _k(c["tokens"] / n))
-        parts.append(ut)
+            nn = c["done"] or 1
+            pairs.append((f"{u}/reward", num(st["unit_reward"][u] / nn)))
+            pairs.append((f"{u}/done", f"{B2}{c['done']}{C2}/{B2}{totals.get(u, '?')}"))
+    if kind == "train":                    # an evaluation's per-unit stats are the unit table below
+        _stats_pairs([left, right], pairs[:rows["stats"]])
+        stats = Table(box=None, expand=True, pad_edge=False, show_header=False)
+        stats.add_column(ratio=1); stats.add_column(ratio=1)
+        stats.add_row(left, right)
+        dashboard.add_row(stats)
 
-    tele = data["telemetry"]
-    if tele:
-        from importlib import import_module
-        sys.path.insert(0, str(ROOT / "gpu"))
-        fmt = import_module("telemetry").fmt
-        gen = [s.get("gen_tok_s") for s in data["tele_hist"]]
-        util = [(s.get("gpus") or [{}])[0].get("gpu_util") for s in data["tele_hist"]]
-        parts.append(Panel(Text(fmt(tele).replace("[telemetry] ", "") + f"\ngpu util {spark(util)}   gen tok/s {spark(gen)}"),
-                           title=f"utilization ({_dur(now - tele['ts'])} ago)", box=box.ROUNDED))
-    issues = [f"{time.strftime('%H:%M:%S', time.localtime(e['ts']))} gt={e.get('gt_id')} {e.get('task')}: {str(e.get('error'))[:140]}"
-              for e in st["errors"][-5:]] + [f"ALERT step {a.get('step')}: {a.get('alert')}" for a in st["alerts"][-5:]]
+    dashboard.add_row("")
+    # -- history: recent steps and dev evaluations (same palette) --------------------------------------------------
+    if kind == "train" and steps:
+        h = Table(box=None, expand=True, title=None)
+        cols = [("Step", "right"), ("Reward", "right"), ("±sd", "right"), ("No-signal", "right"), ("Loss", "right"),
+                ("Entropy", "right"), ("KL", "right"), ("Grad norm", "right"), ("Ratio p95", "right"), ("Clip", "right"),
+                ("Tokens", "right"), ("Rollout", "right"), ("Learn", "right")]
+        for c, j in cols:
+            h.add_column(f"{C1}{c}", justify=j)
+        for e in steps[-rows["steps"]:]:
+            mm = e.get("train_metrics") or {}
+            h.add_row(f"{B2}{e['step']}", num(e.get("train_reward")), num((e.get("train") or {}).get("reward_sd"), 2),
+                      f"{B2}{e.get('flat_groups', '—')}{C2}/{B2}{e.get('groups', '—')}", num(mm.get("loss/train"), 4),
+                      num(mm.get("loss/entropy")), num(mm.get("loss/kl_div"), 4), num(mm.get("loss/grad_norm")),
+                      num(mm.get("loss/importance_ratio_p95")), pct(100 * mm["loss/clipped_token_fraction"], 2) if "loss/clipped_token_fraction" in mm else f"{C2}—",
+                      abbreviate(e.get("output_tokens")), duration(e.get("rollout_s")), duration(e.get("train_s")))
+        trend = Table(box=None, expand=True, show_header=False)
+        trend.add_column(ratio=1); trend.add_column(ratio=1)
+        sp = lambda key: spark([(e.get("train_metrics") or {}).get(key) for e in steps][-40:])
+        trend.add_row(f"{C1}Trend  reward  {B2}{spark([e.get('train_reward') for e in steps][-40:])}",
+                      f"{C1}entropy {B2}{sp('loss/entropy')}")
+        trend.add_row(f"{C1}       dev     {B2}{spark([d.get('dev_score') for d in devs])}", f"{C1}kl      {B2}{sp('loss/kl_div')}")
+        dashboard.add_row(h)
+        dashboard.add_row("")
+        dashboard.add_row(trend)
+    if kind == "train" and devs:
+        dv = Table(box=None, expand=True)
+        units = list((devs[-1].get("dev_by_unit") or {}).keys())
+        for c in ["Dev step", "Score", *[UNIT_LABEL.get(u, u) for u in units], "Named", "Probes", "Alerts"]:
+            dv.add_column(f"{C1}{c}", justify="left" if c == "Alerts" else "right")
+        for d in devs[-rows["devs"]:]:
+            dd = d.get("dev") or {}
+            probes = max((dd.get(k) or 0) for k in ("probe_many_entries", "probe_long_name", "probe_duplicates"))
+            star = f" {B1}★" if best is d else ""
+            dv.add_row(f"{B2}{d['step']}{star}", num(d.get("dev_score")), *[num((d.get("dev_by_unit") or {}).get(u)) for u in units],
+                       num(dd.get("diagnosis_named"), 2), pct(100 * probes),
+                       ("[red]" + "; ".join(d["alerts"])) if d.get("alerts") else f"{C2}none")
+        dashboard.add_row("")
+        dashboard.add_row(dv)
+    if kind != "train" and st["units"]:
+        ut = Table(box=None, expand=True)
+        for c in ("Unit", "Done", "Of", "Reward", "Errors", "Forced", "At limit", "Truncated", "Turns", "Tok/ep"):
+            ut.add_column(f"{C1}{c}", justify="left" if c == "Unit" else "right")
+        totals = eval_totals(data["events"])
+        for u, c in sorted(st["units"].items()):
+            nn = c["done"] or 1
+            ut.add_row(f"{B2}{u}", f"{B2}{c['done']}", f"{B2}{totals.get(u, '?')}", num(st["unit_reward"][u] / nn),
+                       (f"[red]{c['errors']}" if c["errors"] else f"{B2}0"), f"{B2}{c['forced']}", f"{B2}{c['limited']}",
+                       f"{B2}{c['truncated']}", num(c["turns"] / nn, 1), abbreviate(c["tokens"] / nn))
+        dashboard.add_row(ut)
+
+    dashboard.add_row("")
+    # -- problems, then the live log tail --------------------------------------------------------------------------
+    issues = [f"{time.strftime('%H:%M:%S', time.localtime(e['ts']))}  gt={e.get('gt_id')}  {e.get('task')}  {str(e.get('error'))[:140]}"
+              for e in st["errors"][-rows["issues"]:]] + [f"ALERT step {a.get('step')}: {a.get('alert')}" for a in st["alerts"][-2:]]
     if st["stop"]:
         issues.append(f"STOP: {st['stop'].get('reason')}")
     issues += [f"job rc {j.get('rc')}: {j.get('error')}" for j in data["jobs"] if j.get("error")]
     if issues:
-        parts.append(Panel(Text("\n".join(issues), style="red"), title=f"errors / alerts ({len(st['errors'])} errors)", box=box.ROUNDED))
-    if logs is not None:
-        body = Text("\n".join(logs.lines) or "(waiting for the log stream)")
-        parts.append(Panel(body, title=f"modal app logs {logs.app} — {logs.n_flagged} flagged lines", box=box.ROUNDED))
-    return Group(*parts)
+        it = Table(box=None, expand=True)
+        it.add_column(f"[red]Errors / alerts {C2}({B2}{len(st['errors'])}{C2} errors, {B2}{len(st['alerts'])}{C2} alerts)")
+        for line in issues:
+            it.add_row(f"[red]{line}")
+        dashboard.add_row(it)
+    if logs is not None and rows["logs"]:
+        lg = Table(box=None, expand=True)
+        lg.add_column(f"{C1}Log {C2}({logs.app}, {B2}{logs.n_flagged}{C2} flagged)", no_wrap=True, overflow="ellipsis")
+        for line in list(logs.lines)[-rows["logs"]:]:
+            lg.add_row(("[red]" if ERR_RE.search(line) else C2) + line.replace("[", "\\["))
+        dashboard.add_row(lg)
+    return Group(dashboard)
 
 
 class _DemoLogs:
@@ -286,10 +469,11 @@ def demo_run(out: Path, logs: _DemoLogs, max_steps: int = 60, step_s: float = 2.
     import random
     from eval.run_log import RunLog, flat_groups, fmt_dev, fmt_step, unit_means
     rng = random.Random(0)
+    clock = [time.time() - (max_steps * 420 if step_s == 0 else 0)]     # simulated: ~7 min per step
     units = ["patient_diagnosis", "differential_diagnosis", "evidence_retrieval", "test_selection"]
     base = {"patient_diagnosis": 0.33, "differential_diagnosis": 0.42, "evidence_retrieval": 0.56, "test_selection": 0.28,
             "atypical_diagnosis": 0.35}
-    rl = RunLog(out, "c5-main (DEMO)", stream=logs, progress_every=16, progress_s=1e9)
+    rl = RunLog(out, "c5-main (DEMO)", stream=logs, progress_every=16, progress_s=1e9, clock=lambda: clock[0])
     rl.emit("start", "start: 60 steps x 8 groups x 8 rollouts, lr 1e-05, loss cispo, kl 0.0, 512 prompts (keep), "
                      "dev 100 every 10 steps, reward reward-v3", max_steps=max_steps, kind_of_run="train")
     best = None
@@ -307,6 +491,7 @@ def demo_run(out: Path, logs: _DemoLogs, max_steps: int = 60, step_s: float = 2.
         d = {"step": step, "dev_score": score, "dev_by_unit": by, "alerts": alerts,
              "dev": {"reward_mean": score, "diagnosis_named": 0.38 + lift, "diagnosis_coded": 0.30 + lift / 2,
                      "probe_long_name": 0.06 if step == 40 else 0.01, "entries": 3.4 + step / 60, "answer_chars": 520 + 3 * step}}
+        clock[0] += 95.0
         rl.emit("dev", fmt_dev(d, best, base_score), **d, best_step=(best or {}).get("step"), val_s=95.0)
         for a in alerts:
             rl.emit("alert", f"ALERT at step {step}: {a}", step=step, alert=a)
@@ -325,6 +510,7 @@ def demo_run(out: Path, logs: _DemoLogs, max_steps: int = 60, step_s: float = 2.
                 rs = [0.0] * 8                                  # a prompt the policy cannot solve yet: no signal
             groups.append((u, rs))
             for r in rs:
+                clock[0] += 4.5
                 err = "ReadTimeout: policy server did not answer in 900s" if rng.random() < 0.004 else None
                 rl.episode(u, 90000 + rng.randrange(9999), {"reward": r, "turns": rng.randint(3, 12),
                                                              "output_tokens": rng.randint(2500, 9000)}, err)
@@ -332,8 +518,9 @@ def demo_run(out: Path, logs: _DemoLogs, max_steps: int = 60, step_s: float = 2.
         mean = sum(rew) / len(rew)
         sd = (sum((r - mean) ** 2 for r in rew) / len(rew)) ** 0.5
         roll, train = rng.uniform(280, 380), rng.uniform(80, 110)
+        clock[0] += roll - 64 * 4.5 + train
         durations.append(roll + train)
-        e = {"step": step, "train_reward": mean, "train": {"reward_sd": sd}, "episodes": 64, "exceptions": 0,
+        e = {"step": step, "train_reward": mean, "train": {"reward_sd": sd, "entries": 3.3 + step / 50, "probe_long_name": 0.01}, "episodes": 64, "exceptions": 0,
              "train_by_unit": unit_means([(u, r) for u, rs in groups for r in rs]), "groups": 8,
              "flat_groups": flat_groups([rs for _, rs in groups]), "output_tokens": rng.randint(300000, 420000),
              "rollout_s": roll, "train_s": train,
@@ -346,7 +533,7 @@ def demo_run(out: Path, logs: _DemoLogs, max_steps: int = 60, step_s: float = 2.
         if step % 10 == 0:
             dev(step)
         with (out / "telemetry.jsonl").open("a") as fh:
-            fh.write(json.dumps({"ts": time.time(), "gpus": [{"gpu_util": rng.uniform(88, 99), "vram_used_gb": rng.uniform(68, 74),
+            fh.write(json.dumps({"ts": clock[0], "gpus": [{"gpu_util": rng.uniform(88, 99), "vram_used_gb": rng.uniform(68, 74),
                                                             "vram_total_gb": 80, "power_w": rng.uniform(560, 680)}],
                                  "vllm": {"running": rng.randint(40, 64), "waiting": 0, "kv_cache": rng.uniform(0.4, 0.7),
                                           "preemptions": 0}, "gen_tok_s": rng.uniform(2400, 3600), "load": 3.1, "ram_pct": 38}) + "\n")
@@ -394,17 +581,22 @@ def main(argv=None) -> int:
         logs = LogTail(a.profile, a.logs)
         logs.start()
     data = load(src)
-    with Live(render(data, title, a.stale, logs), console=console, refresh_per_second=1, screen=False) as live:
-        last = time.time()
-        while True:
-            time.sleep(1)
-            if time.time() - last >= a.every:
-                try:
-                    data = load(src)
-                except Exception as exc:  # noqa: BLE001 — a failed fetch must not kill the dashboard
-                    data["state"]["errors"] = data["state"]["errors"] + [{"ts": time.time(), "error": f"fetch failed: {exc}"}]
-                last = time.time()
-            live.update(render(data, title, a.stale, logs))
+    view = lambda: render(data, title, a.stale, logs, console.size.height)
+    try:
+        with Live(view(), console=console, refresh_per_second=1, screen=True) as live:
+            last = time.time()
+            while True:
+                time.sleep(1)
+                if time.time() - last >= a.every:
+                    try:
+                        data = load(src)
+                    except Exception as exc:  # noqa: BLE001 — a failed fetch must not kill the dashboard
+                        data["state"]["errors"] = data["state"]["errors"] + [{"ts": time.time(), "error": f"fetch failed: {exc}"}]
+                    last = time.time()
+                live.update(view())
+    except KeyboardInterrupt:
+        pass
+    return 0
 
 
 if __name__ == "__main__":

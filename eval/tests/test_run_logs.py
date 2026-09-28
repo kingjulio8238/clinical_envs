@@ -79,4 +79,6 @@ def test_dry_run_training_is_fully_logged_and_the_dashboard_renders(tmp_path, mo
     con = Console(file=io.StringIO(), width=200)
     con.print(W.render(W.load(W.LocalSource(tmp_path)), "dry", 300))
     text = con.file.getvalue()
-    assert "training steps" in text and "dev evaluations" in text and "FINISHED" in text and "step 2/2" in text
+    for part in ("Clinical RL", "finished", "Summary", "Performance", "Losses", "policy_loss", "User Stats",
+                 "train/reward", "dev/score", "Dev step", "2/2"):
+        assert part in text, part

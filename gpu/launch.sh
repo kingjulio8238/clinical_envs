@@ -16,4 +16,4 @@ done
 cd "$(dirname "$0")/.."
 python3 gpu/budget.py check --profile "$P" --projected "$X" --minutes "$MIN" --gpu "$GPU"
 echo "profile: $(MODAL_PROFILE=$P modal profile current) | app: $APP | timeout: $MIN min | projected: \$$X"
-MODAL_PROFILE=$P modal run --detach "$@"
+SH_JOB_MINUTES=$MIN SH_JOB_GPU=$GPU MODAL_PROFILE=$P modal run --detach "$@"

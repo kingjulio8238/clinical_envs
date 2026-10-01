@@ -14,18 +14,19 @@ The function's timeout is `--minutes` (server-side: a lost laptop connection can
 """
 from __future__ import annotations
 
+import os
 import shlex
 from pathlib import Path
 
 import modal
 
-from common import (HF_CACHE, MODEL, RESULTS, adapter_effect, check_served, committer, load_adapter, repo_image,
-                    runtime_server_cmd, served_models, start_vllm, tee, with_art_runtime, Telemetry)
+from common import (JOB_CPU, HF_CACHE, MODEL, RESULTS, adapter_effect, check_served, committer, load_adapter, repo_image,
+                    runtime_server_cmd, served_models, start_vllm, tee, with_art_runtime, Telemetry, cuda_base)
 
 app = modal.App("clinical-envs-vllm-eval")
 # Engine: ART's managed vLLM runtime — the engine that samples the policy during ART training — for both the before
 # (base) and the after (base + LoRA) evaluation (P3; gpu/common.py launch_config).
-image = repo_image(with_art_runtime(modal.Image.debian_slim(python_version="3.12").apt_install("git")
+image = repo_image(with_art_runtime(cuda_base()
                                     .pip_install("openpipe-art==0.5.20", "uv", "hf_transfer")))
 
 
@@ -38,7 +39,14 @@ def download() -> str:
     return path
 
 
-@app.function(image=image, gpu="H100", volumes={"/hf": HF_CACHE, "/results": RESULTS}, timeout=60 * 60, max_containers=1)
+# The server-side timeout and GPU are fixed when the function is registered (Modal 1.x has no per-call override), so
+# they come from the environment of the `modal run` process: gpu/launch.sh exports them from --minutes / --gpu.
+JOB_MINUTES = int(os.environ.get("SH_JOB_MINUTES", "60"))
+JOB_GPU = os.environ.get("SH_JOB_GPU", "H100")
+
+
+@app.function(image=image, gpu=JOB_GPU, volumes={"/hf": HF_CACHE, "/results": RESULTS}, timeout=JOB_MINUTES * 60,
+              max_containers=1, cpu=JOB_CPU)
 def run(run_name: str, cmd: str, lora_path: str = "") -> dict:
     """`lora_path`: an ART checkpoint directory on the results volume
     (/results/rl/<run>/.art/clinical-envs/models/qwen35-9b-clinical/checkpoints/<step>) → the trained policy is served
@@ -104,4 +112,7 @@ def main(run_name: str = "", cmd: str = "", minutes: int = 40, gpu: str = "H100"
     if download_only:
         print(download.remote())
         return
-    print(run.with_options(timeout=minutes * 60, gpu=gpu).remote(run_name, cmd, lora_path))
+    if (minutes, gpu) != (JOB_MINUTES, JOB_GPU):
+        raise SystemExit(f"--minutes {minutes} / --gpu {gpu} differ from the registered timeout {JOB_MINUTES} min / "
+                         f"{JOB_GPU}: launch through gpu/launch.sh (it sets SH_JOB_MINUTES / SH_JOB_GPU)")
+    print(run.remote(run_name, cmd, lora_path))

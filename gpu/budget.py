@@ -24,8 +24,8 @@ import sys
 
 CREDIT = 30.0
 STOP_AT = 25.0
-GPU_RATE = {"H100": 4.10, "A100-80GB": 2.60, "L40S": 2.05}
-"""$/hour for one GPU container: Modal's GPU price (H100 $3.95, A100-80GB $2.50, L40S $1.95) plus its CPU and memory."""
+GPU_RATE = {"H100": 4.40, "A100-80GB": 2.90, "L40S": 2.35}
+"""$/hour for one GPU container: Modal's GPU price (H100 $3.95, A100-80GB $2.50, L40S $1.95) plus 8 CPU cores and memory."""
 
 
 class Unknown(Exception):

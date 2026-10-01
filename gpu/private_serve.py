@@ -25,7 +25,7 @@ import time
 
 import modal
 
-from common import HF_CACHE, RESULTS, Telemetry, load_adapter, repo_image, runtime_server_cmd, with_art_runtime
+from common import JOB_CPU, HF_CACHE, RESULTS, Telemetry, cuda_base, load_adapter, repo_image, runtime_server_cmd, with_art_runtime
 from pathlib import Path
 
 LORA_PATH = os.environ.get("SH_LORA_PATH", "")          # read when `modal serve` imports this file locally
@@ -34,13 +34,13 @@ SCALEDOWN_S = 10 * 60
 LIFETIME_S = 6 * 3600
 
 app = modal.App("clinical-envs-private-serve")
-image = repo_image(with_art_runtime(modal.Image.debian_slim(python_version="3.12").apt_install("git")
+image = repo_image(with_art_runtime(cuda_base()
                                     .pip_install("openpipe-art==0.5.20", "uv", "hf_transfer")
                                     .env({"SH_LORA_PATH": LORA_PATH})))
 
 
 @app.function(image=image, gpu="H100", volumes={"/hf": HF_CACHE, "/results": RESULTS}, timeout=LIFETIME_S,
-              scaledown_window=SCALEDOWN_S, max_containers=1,
+              scaledown_window=SCALEDOWN_S, max_containers=1, cpu=JOB_CPU,
               secrets=[modal.Secret.from_name("clinical-envs-vllm-key")])
 @modal.concurrent(max_inputs=256)
 @modal.web_server(port=PORT, startup_timeout=1500)

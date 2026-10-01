@@ -57,8 +57,18 @@ workspace headroom checked, and the full run launched only after the resources a
       workspaces with headroom left: founders-78536 ($2.62) and sales-32662 ($0.94) both refused the job with
       "Workspace ... has exceeded its spend limit" before anything started (no spend; kill sweep: 0 apps running).
       The smoke moves to Oct 1 with the rest of the GPU work.
-- [ ] G1 smoke: vLLM serves Qwen3.5-9B on Modal; 3 episodes per unit through the protocol runner (tool calls parse,
+- [x] G1 smoke: vLLM serves Qwen3.5-9B on Modal; 3 episodes per unit through the protocol runner (tool calls parse,
       rewards score, monitors fill); measure tokens/s and $/episode
+      → **GO** (2026-10-01, founders-78536, ~$2.6 incl. two failed starts). 102 episodes, 0 errors, tool calls parse on
+        every task, 1 forced answer, 3 truncated turns, 0 limit stops; on the same 73 instances the local means are
+        within 0.07 of hosted Qwen (pd 0.318 vs 0.349, dd 0.395 vs 0.447, er 0.537 vs 0.503, ts 0.243 vs 0.306, aty
+        0.278 vs 0.319). Fixed on the way: Modal 1.x has no `Function.with_options` (timeout/GPU now set at
+        registration from `SH_JOB_MINUTES`/`SH_JOB_GPU`, exported by `gpu/launch.sh`); FlashInfer JIT needs nvcc (CUDA
+        12.9 devel base image); JIT starved on Modal's default CPU (8 cores); compile caches moved to the weights volume.
+        **Measured throughput:** prefill-bound — 14–18k prompt tokens/s against 1.5–2.6k generated tokens/s at 30–72
+        concurrent episodes, GPU 95–100%, KV cache ≤ 26%, **prefix caching off** (vLLM's default for this hybrid
+        model). Server start 591 s cold (FlashInfer GDN-prefill JIT; cached for later starts). At the measured rate a
+        full evaluation (15,529 episodes) projects to ~16 GPU-hours / ~$70 — 2.5–5x the plan.
 - [ ] G2 projection for C2 (all public + heldout instances), C4 (k = 8 on train prompts) and C5; resource ask
 - [ ] G3 C2 local baseline ("before") — after approval
 - [ ] G4 C4 group variance + prompt filter — after approval

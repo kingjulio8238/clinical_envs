@@ -8,21 +8,27 @@ checkpoints) on the `clinical-envs-results` volume under rl/<run-name>/. Server-
 """
 from __future__ import annotations
 
+import os
 import shlex
 from pathlib import Path
 
 import modal
 
-from common import HF_CACHE, RESULTS, Telemetry, committer, repo_image, tee, with_art_runtime
+from common import JOB_CPU, HF_CACHE, RESULTS, Telemetry, committer, cuda_base, repo_image, tee, with_art_runtime
 
 app = modal.App("clinical-envs-train")
-image = repo_image(with_art_runtime(modal.Image.debian_slim(python_version="3.12").apt_install("git")
+image = repo_image(with_art_runtime(cuda_base()
                                     # ART's backend pins torch==2.11.0+cu128, which only PyTorch's index serves
                                     .pip_install("openpipe-art[backend]==0.5.20", "uv", "hf_transfer",
                                                  extra_index_url="https://download.pytorch.org/whl/cu128")))
 
 
-@app.function(image=image, gpu="H100", volumes={"/hf": HF_CACHE, "/results": RESULTS}, timeout=60 * 60, max_containers=1)
+# Timeout fixed at registration (Modal 1.x has no per-call override): gpu/launch.sh exports SH_JOB_MINUTES from --minutes.
+JOB_MINUTES = int(os.environ.get("SH_JOB_MINUTES", "60"))
+
+
+@app.function(image=image, gpu="H100", volumes={"/hf": HF_CACHE, "/results": RESULTS}, timeout=JOB_MINUTES * 60,
+              max_containers=1, cpu=JOB_CPU)
 def train(run_name: str, args: str) -> dict:
     import json
     import os
@@ -46,4 +52,7 @@ def train(run_name: str, args: str) -> dict:
 
 @app.local_entrypoint()
 def main(run_name: str, args: str = "", minutes: int = 60):
-    print(train.with_options(timeout=minutes * 60).remote(run_name, args))
+    if minutes != JOB_MINUTES:
+        raise SystemExit(f"--minutes {minutes} differs from the registered timeout {JOB_MINUTES} min: launch through "
+                         "gpu/launch.sh (it sets SH_JOB_MINUTES)")
+    print(train.remote(run_name, args))

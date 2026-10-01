@@ -25,7 +25,22 @@ IGNORE = [".venv", ".git", "results", "data", "private", "scratchpad", "**/__pyc
           "docker", "harbor", "node_modules", ".pytest_cache"]
 ART_RUNTIME_ENV = {"ART_VLLM_RUNTIME_CACHE_DIR": "/opt/art-vllm-runtime",
                    # pinned so the build-time install (no GPU) and the GPU container agree on the runtime's hash
-                   "ART_VLLM_RUNTIME_CUDA_PROFILE": "cuda12"}
+                   "ART_VLLM_RUNTIME_CUDA_PROFILE": "cuda12",
+                   # PyTorch's top-k/top-p sampler instead of FlashInfer's: FlashInfer JIT-compiles its sampler with
+                   # nvcc at first use (minutes per container; G1 2026-10-01 stalled there). Same for every job, so
+                   # the before, the training rollouts and the after all sample the same way.
+                   "VLLM_USE_FLASHINFER_SAMPLER": "0",
+                   # compile caches on the weights volume (committed after the server starts): torch.compile and
+                   # Triton run once per workspace instead of once per container
+                   "VLLM_CACHE_ROOT": "/hf/compile/vllm", "TORCHINDUCTOR_CACHE_DIR": "/hf/compile/inductor",
+                   "TRITON_CACHE_DIR": "/hf/compile/triton",
+                   "ART_VLLM_RUNTIME_FLASHINFER_WORKSPACE_BASE": "/hf/compile/flashinfer",
+                   # read by FlashInfer itself (the server is launched directly, not through ART's launcher):
+                   # its JIT kernels (minutes of nvcc on first start) are then compiled once per workspace
+                   "FLASHINFER_WORKSPACE_BASE": "/hf/compile/flashinfer"}
+JOB_CPU = 8.0
+"""CPU cores for the GPU containers: Modal's default reservation (a fraction of a core) starves compilation and the
+environment's scoring threads."""
 
 
 def repo_image(base: modal.Image) -> modal.Image:
@@ -33,6 +48,19 @@ def repo_image(base: modal.Image) -> modal.Image:
             .env({"HF_HOME": "/hf", "HF_HUB_ENABLE_HF_TRANSFER": "1", "PYTHONUNBUFFERED": "1"})
             .add_local_python_source("common", "serving", "telemetry")
             .add_local_dir(str(REPO), "/repo", ignore=IGNORE))
+
+
+CUDA_BASE = "nvidia/cuda:12.9.1-devel-ubuntu22.04"
+
+
+def cuda_base() -> modal.Image:
+    """A CUDA *devel* base (nvcc + headers): vLLM's FlashInfer sampler and other kernels are JIT-compiled at first use
+    and need the CUDA toolkit; a slim image fails at engine start ("Could not find nvcc", G1 2026-10-01). CUDA 12.9
+    matches ART's runtime (cuda12 profile, cu129 wheels). The build fails here, on CPU, if nvcc is missing."""
+    return (modal.Image.from_registry(CUDA_BASE, add_python="3.12")
+            .apt_install("git", "build-essential", "ninja-build")
+            .env({"CUDA_HOME": "/usr/local/cuda"})
+            .run_commands("nvcc --version"))
 
 
 def with_art_runtime(base: modal.Image) -> modal.Image:

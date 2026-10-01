@@ -81,9 +81,9 @@ def tee(cmd: list[str], log: Path, env: dict | None = None, cwd: str = "/repo") 
         return p.wait()
 
 
-def runtime_server_cmd(lora_rank: int = 16) -> list[str]:
+def runtime_server_cmd(lora_rank: int = 16, engine_extra: dict | None = None) -> list[str]:
     from art.vllm_runtime import VllmRuntimeLaunchConfig, build_vllm_runtime_server_cmd
-    return build_vllm_runtime_server_cmd(VllmRuntimeLaunchConfig(**launch_config(lora_rank)))
+    return build_vllm_runtime_server_cmd(VllmRuntimeLaunchConfig(**launch_config(lora_rank, engine_extra)))
 
 
 def _post(path: str, body: dict, timeout: int = 300, port: int = 8000) -> tuple[int, str]:

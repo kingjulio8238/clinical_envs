@@ -75,7 +75,8 @@ def art_configs(args) -> tuple[dict, dict]:
         "init_args": {"load_in_4bit": False, "load_in_16bit": True, "max_seq_length": args.max_seq_length,
                       "gpu_memory_utilization": args.gpu_memory_utilization},
         "engine_args": {"max_model_len": args.max_seq_length, "enable_sleep_mode": True,
-                        "limit_mm_per_prompt": {"image": 0, "video": 0}},
+                        "limit_mm_per_prompt": {"image": 0, "video": 0},
+                        "enable_prefix_caching": True},   # as the evaluation engine (gpu/serving.py ENGINE_ARGS)
     }
     server = {"server_args": {"enable_auto_tool_choice": True, "tool_call_parser": "qwen3_coder", "reasoning_parser": "qwen3"}}
     return internal, server

@@ -69,7 +69,14 @@ workspace headroom checked, and the full run launched only after the resources a
         concurrent episodes, GPU 95–100%, KV cache ≤ 26%, **prefix caching off** (vLLM's default for this hybrid
         model). Server start 591 s cold (FlashInfer GDN-prefill JIT; cached for later starts). At the measured rate a
         full evaluation (15,529 episodes) projects to ~16 GPU-hours / ~$70 — 2.5–5x the plan.
-- [ ] G2 projection for C2 (all public + heldout instances), C4 (k = 8 on train prompts) and C5; resource ask
+- [x] G2 projection for C2 (all public + heldout instances), C4 (k = 8 on train prompts) and C5; resource ask
+      → prefix-caching test (`g1-prefix`, same 73 cases, ~$1.4): 82% prefix-cache hits, prompt compute 15.6k → 4.8k
+        tokens/s, generation 1,967 → **2,797 tokens/s** during busy periods (+42%), GPU 71% at 60 concurrent (headroom
+        left), 0 errors; local tokens/episode within ±35% of hosted per task, ~1.0 overall. Prefix caching is now on
+        in the evaluation engine and the ART training engine alike. Cost model: tokens (exact, from the stored runs)
+        ÷ 2,800 tokens/s (measured; 4,000 if 128-way concurrency scales, unmeasured) × $4.40/h + 12 min cold start
+        per new workspace + 5 min tail: C2 $22–30, C4 $15–22, C5-smoke ~$4, C5-main $47–69 (step time unmeasured),
+        after-eval $22–30, private $11–15 → **≈ $125–175** with ~$4 spent so far.
 - [ ] G3 C2 local baseline ("before") — after approval
 - [ ] G4 C4 group variance + prompt filter — after approval
 - [ ] G5 C5 training smoke (a few GRPO steps: throughput, memory, cost) — after approval

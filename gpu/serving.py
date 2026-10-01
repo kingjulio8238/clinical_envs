@@ -12,14 +12,17 @@ RL_SERVED_NAME = "qwen3.5-9b-rl"
 """The trained policy's name on the server (base + LoRA); eval/config.py `qwen3.5-9b-rl` requests it."""
 ENGINE_ARGS = {"max_model_len": 65536, "gpu_memory_utilization": 0.90, "max_num_seqs": 128,
                "limit_mm_per_prompt": {"image": 0, "video": 0},
-               "generation_config": "vllm"}   # as ART's training server: unset sampling fields take vLLM's defaults
+               "generation_config": "vllm",   # as ART's training server: unset sampling fields take vLLM's defaults
+               # off by default for this hybrid model; on, every turn reuses the cached chart history instead of
+               # re-reading it (82% prefix-cache hits, prompt compute -69%, generation +42%: g1 vs g1-prefix, 2026-10-01)
+               "enable_prefix_caching": True}
 SERVER_ARGS = {"enable_auto_tool_choice": True, "tool_call_parser": "qwen3_coder", "reasoning_parser": "qwen3"}
 
 
-def launch_config(lora_rank: int = 16) -> dict:
+def launch_config(lora_rank: int = 16, engine_extra: dict | None = None) -> dict:
     """Arguments of ART's runtime server (`art.vllm_runtime.VllmRuntimeLaunchConfig`): the base, LoRA enabled (the
     runtime always enables it) with room for one adapter of `lora_rank`."""
-    engine = dict(ENGINE_ARGS, max_loras=1, max_lora_rank=max(16, int(lora_rank)))
+    engine = dict(ENGINE_ARGS, max_loras=1, max_lora_rank=max(16, int(lora_rank)), **(engine_extra or {}))
     return {"base_model": MODEL, "port": 8000, "host": "127.0.0.1", "cuda_visible_devices": "0", "lora_path": None,
             "served_model_name": MODEL, "engine_args": engine, "server_args": dict(SERVER_ARGS)}
 

@@ -47,7 +47,7 @@ JOB_GPU = os.environ.get("SH_JOB_GPU", "H100")
 
 @app.function(image=image, gpu=JOB_GPU, volumes={"/hf": HF_CACHE, "/results": RESULTS}, timeout=JOB_MINUTES * 60,
               max_containers=1, cpu=JOB_CPU)
-def run(run_name: str, cmd: str, lora_path: str = "") -> dict:
+def run(run_name: str, cmd: str, lora_path: str = "", engine_extra: str = "") -> dict:
     """`lora_path`: an ART checkpoint directory on the results volume
     (/results/rl/<run>/.art/clinical-envs/models/qwen35-9b-clinical/checkpoints/<step>) → the trained policy is served
     as base + LoRA and the client requests it as `qwen3.5-9b-rl`; empty → the base model as `qwen3.5-9b-local`."""
@@ -67,7 +67,8 @@ def run(run_name: str, cmd: str, lora_path: str = "") -> dict:
             if not cfg.exists():
                 raise FileNotFoundError(f"no LoRA adapter at {lora_path} (expected adapter_config.json)")
             rank = int(json.loads(cfg.read_text()).get("r", 16))
-        proc = start_vllm(out / "vllm.log", runtime_server_cmd(rank))
+        extra = json.loads(engine_extra) if engine_extra else None      # engine experiments (e.g. prefix caching)
+        proc = start_vllm(out / "vllm.log", runtime_server_cmd(rank, extra))
         ready = time.time() - t0
         HF_CACHE.commit()
         effect = None
@@ -108,11 +109,11 @@ def run(run_name: str, cmd: str, lora_path: str = "") -> dict:
 
 @app.local_entrypoint()
 def main(run_name: str = "", cmd: str = "", minutes: int = 40, gpu: str = "H100", download_only: bool = False,
-         lora_path: str = ""):
+         lora_path: str = "", engine_extra: str = ""):
     if download_only:
         print(download.remote())
         return
     if (minutes, gpu) != (JOB_MINUTES, JOB_GPU):
         raise SystemExit(f"--minutes {minutes} / --gpu {gpu} differ from the registered timeout {JOB_MINUTES} min / "
                          f"{JOB_GPU}: launch through gpu/launch.sh (it sets SH_JOB_MINUTES / SH_JOB_GPU)")
-    print(run.remote(run_name, cmd, lora_path))
+    print(run.remote(run_name, cmd, lora_path, engine_extra))

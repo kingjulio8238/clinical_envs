@@ -240,6 +240,8 @@ def test_trained_checkpoint_serving_configuration():
     assert cfg["served_model_name"] == S.MODEL and cfg["lora_path"] is None
     assert cfg["engine_args"]["max_lora_rank"] == 32 and S.launch_config()["engine_args"]["max_lora_rank"] == 16
     assert cfg["engine_args"]["max_model_len"] == 65536 and cfg["engine_args"]["generation_config"] == "vllm"
+    internal, _ = T.art_configs(argparse.Namespace(max_seq_length=65536, gpu_memory_utilization=0.8, lora_rank=16, lora_alpha=32))
+    assert cfg["engine_args"]["enable_prefix_caching"] is internal["engine_args"]["enable_prefix_caching"] is True
     _, server = T.art_configs(argparse.Namespace(max_seq_length=65536, gpu_memory_utilization=0.8, lora_rank=16, lora_alpha=32))
     assert all(cfg["server_args"][k] == v for k, v in server["server_args"].items())     # training parsers = eval parsers
     base = [{"id": S.MODEL, "root": S.MODEL}]
